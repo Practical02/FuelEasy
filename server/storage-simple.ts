@@ -71,6 +71,144 @@ export class MemStorage implements IStorage {
     this.sales = new Map();
     this.invoices = new Map();
     this.payments = new Map();
+    
+    // Initialize with test data
+    this.initializeTestData();
+  }
+
+  private initializeTestData() {
+    // Add test clients
+    const client1: Client = {
+      id: "client-1",
+      name: "Emirates Transport Co.",
+      contactPerson: "Ahmed Al-Rashid",
+      phoneNumber: "+971-50-123-4567",
+      email: "ahmed@emiratestransport.ae",
+      address: "Al Qusais Industrial Area, Dubai, UAE",
+      createdAt: new Date("2025-01-10T08:00:00Z")
+    };
+    
+    const client2: Client = {
+      id: "client-2", 
+      name: "Dubai Logistics LLC",
+      contactPerson: "Fatima Hassan",
+      phoneNumber: "+971-55-987-6543",
+      email: "fatima@dubailogistics.com",
+      address: "Jebel Ali Free Zone, Dubai, UAE",
+      createdAt: new Date("2025-01-12T09:30:00Z")
+    };
+    
+    const client3: Client = {
+      id: "client-3",
+      name: "Al Futtaim Motors",
+      contactPerson: "Mohammed bin Saeed", 
+      phoneNumber: "+971-52-111-2222",
+      email: "mohammed@alfuttaim.ae",
+      address: "Sheikh Zayed Road, Dubai, UAE",
+      createdAt: new Date("2025-01-14T10:15:00Z")
+    };
+    
+    this.clients.set(client1.id, client1);
+    this.clients.set(client2.id, client2);
+    this.clients.set(client3.id, client3);
+
+    // Add test stock
+    const stock1: Stock = {
+      id: "stock-1",
+      purchaseDate: new Date("2025-01-15T08:00:00Z"),
+      quantityGallons: "5000.00",
+      purchasePricePerGallon: "2.850",
+      createdAt: new Date("2025-01-15T08:30:00Z")
+    };
+    
+    const stock2: Stock = {
+      id: "stock-2",
+      purchaseDate: new Date("2025-01-20T09:30:00Z"),
+      quantityGallons: "3500.00",
+      purchasePricePerGallon: "2.820",
+      createdAt: new Date("2025-01-20T10:00:00Z")
+    };
+    
+    const stock3: Stock = {
+      id: "stock-3",
+      purchaseDate: new Date("2025-01-28T07:45:00Z"),
+      quantityGallons: "2000.00",
+      purchasePricePerGallon: "2.875",
+      createdAt: new Date("2025-01-28T08:15:00Z")
+    };
+    
+    this.stock.set(stock1.id, stock1);
+    this.stock.set(stock2.id, stock2);
+    this.stock.set(stock3.id, stock3);
+
+    // Add test sales
+    const sale1: Sale = {
+      id: "sale-1",
+      clientId: "client-1",
+      saleDate: new Date("2025-01-22T10:00:00Z"),
+      quantityGallons: "1500.00",
+      salePricePerGallon: "3.200",
+      lpoNumber: "LPO-EMT-2025-001",
+      lpoDueDate: new Date("2025-02-15T23:59:59Z"),
+      saleStatus: "LPO Received",
+      vatPercentage: "5.00",
+      subtotal: "4800.00",
+      vatAmount: "240.00", 
+      totalAmount: "5040.00",
+      createdAt: new Date("2025-01-22T10:30:00Z")
+    };
+    
+    const sale2: Sale = {
+      id: "sale-2",
+      clientId: "client-2",
+      saleDate: new Date("2025-01-25T14:30:00Z"),
+      quantityGallons: "2200.00",
+      salePricePerGallon: "3.150",
+      lpoNumber: "LPO-DUB-2025-012",
+      lpoDueDate: new Date("2025-02-20T23:59:59Z"),
+      saleStatus: "Invoiced",
+      vatPercentage: "5.00",
+      subtotal: "6930.00",
+      vatAmount: "346.50",
+      totalAmount: "7276.50",
+      createdAt: new Date("2025-01-25T15:00:00Z")
+    };
+    
+    const sale3: Sale = {
+      id: "sale-3",
+      clientId: "client-3",
+      saleDate: new Date("2025-01-30T11:15:00Z"),
+      quantityGallons: "800.00",
+      salePricePerGallon: "3.180",
+      lpoNumber: "LPO-ALF-2025-005",
+      lpoDueDate: new Date("2025-02-25T23:59:59Z"),
+      saleStatus: "Pending LPO",
+      vatPercentage: "5.00",
+      subtotal: "2544.00",
+      vatAmount: "127.20",
+      totalAmount: "2671.20",
+      createdAt: new Date("2025-01-30T11:45:00Z")
+    };
+    
+    this.sales.set(sale1.id, sale1);
+    this.sales.set(sale2.id, sale2);
+    this.sales.set(sale3.id, sale3);
+
+    // Add test payment
+    const payment1: Payment = {
+      id: "payment-1",
+      saleId: "sale-2",
+      paymentDate: new Date("2025-01-28T16:00:00Z"),
+      amountReceived: "7276.50",
+      paymentMethod: "Bank Transfer",
+      chequeNumber: null,
+      createdAt: new Date("2025-01-28T16:30:00Z")
+    };
+    
+    this.payments.set(payment1.id, payment1);
+    
+    // Update sale2 status to Paid since it has full payment
+    this.sales.get("sale-2")!.saleStatus = "Paid";
   }
 
   async getUser(id: string): Promise<User | undefined> {
