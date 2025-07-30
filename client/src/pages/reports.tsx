@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Calendar, Download, Filter, FileText } from "lucide-react";
+import { Calendar, Download, Filter, FileText, FileSpreadsheet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { CURRENCY, STATUS_COLORS } from "@/lib/constants";
 import type { Sale, Client } from "@shared/schema";
+import * as XLSX from 'xlsx';
 
 type SaleWithClient = Sale & { client: Client };
 
@@ -63,18 +64,115 @@ export default function Reports() {
     { subtotal: 0, vatAmount: 0, totalAmount: 0, quantity: 0 }
   );
 
+  const exportToExcel = () => {
+    // Create client details section for the selected client
+    const selectedClientData = selectedClient !== "all" 
+      ? clients.find(c => c.id === selectedClient)
+      : null;
+
+    // Create workbook
+    const wb = XLSX.utils.book_new();
+    
+    // Prepare data with client info at the start
+    const excelData = [];
+    
+    // Add client header if specific client selected
+    if (selectedClientData) {
+      excelData.push([`Client Details for: ${selectedClientData.name}`]);
+      excelData.push([`Contact Person: ${selectedClientData.contactPerson}`]);
+      excelData.push([`Phone: ${selectedClientData.phoneNumber}`]);
+      excelData.push([`Email: ${selectedClientData.email}`]);
+      excelData.push([`Address: ${selectedClientData.address}`]);
+      excelData.push([]); // Empty row
+    }
+
+    // Add report type and date range
+    excelData.push([`Report Type: ${reportType === 'pending' ? 'Pending Business Report' : 'VAT Report'}`]);
+    if (dateFrom || dateTo) {
+      excelData.push([`Date Range: ${dateFrom || 'Start'} to ${dateTo || 'End'}`]);
+    }
+    excelData.push([]); // Empty row
+
+    // Headers as requested: Date of purchase, date of invoice, invoice number, amount
+    const headers = [
+      "Date of Sale",
+      "Date of Invoice", 
+      "Invoice Number",
+      "Client Name",
+      "LPO Number",
+      "Quantity (Gallons)",
+      "Unit Price (AED)",
+      "Subtotal (AED)",
+      "VAT Amount (AED)",
+      "Total Amount (AED)",
+      "Status"
+    ];
+    
+    excelData.push(headers);
+
+    // Add sales data
+    filteredSales.forEach(sale => {
+      excelData.push([
+        new Date(sale.saleDate).toLocaleDateString(),
+        sale.saleStatus === "Invoiced" || sale.saleStatus === "Paid" ? new Date(sale.saleDate).toLocaleDateString() : "Not Invoiced",
+        sale.saleStatus === "Invoiced" || sale.saleStatus === "Paid" ? `INV-${sale.lpoNumber}` : "Not Generated",
+        sale.client.name,
+        sale.lpoNumber,
+        parseFloat(sale.quantityGallons),
+        parseFloat(sale.salePricePerGallon),
+        parseFloat(sale.subtotal),
+        parseFloat(sale.vatAmount),
+        parseFloat(sale.totalAmount),
+        sale.saleStatus
+      ]);
+    });
+
+    // Add totals
+    excelData.push([]); // Empty row
+    excelData.push(["", "", "", "", "", "TOTALS:", totals.quantity.toFixed(2), totals.subtotal.toFixed(2), totals.vatAmount.toFixed(2), totals.totalAmount.toFixed(2), ""]);
+
+    // Create worksheet
+    const ws = XLSX.utils.aoa_to_sheet(excelData);
+    
+    // Auto-size columns
+    const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+    const cols = [];
+    for (let C = range.s.c; C <= range.e.c; ++C) {
+      let max = 0;
+      for (let R = range.s.r; R <= range.e.r; ++R) {
+        const cell = ws[XLSX.utils.encode_cell({ r: R, c: C })];
+        if (cell && cell.v) {
+          max = Math.max(max, cell.v.toString().length);
+        }
+      }
+      cols[C] = { width: Math.min(Math.max(max + 2, 10), 50) };
+    }
+    ws['!cols'] = cols;
+
+    // Add worksheet to workbook
+    const sheetName = selectedClientData ? selectedClientData.name.substring(0, 30) : reportType === 'pending' ? 'Pending Business' : 'VAT Report';
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+
+    // Generate filename
+    const dateStr = new Date().toISOString().split('T')[0];
+    const clientStr = selectedClientData ? `_${selectedClientData.name.replace(/[^a-zA-Z0-9]/g, '_')}` : '';
+    const filename = `${reportType}_report${clientStr}_${dateStr}.xlsx`;
+
+    // Save file
+    XLSX.writeFile(wb, filename);
+  };
+
   const exportToCSV = () => {
     const headers = [
-      "Date",
-      "Client Name",
+      "Date of Sale",
+      "Client Name", 
       "LPO Number",
       "Quantity (Gallons)",
       "Unit Price",
       "Subtotal",
       "VAT Amount",
       "Total Amount",
-      "Status",
-      "Due Date"
+      "Status"
     ];
 
     const csvData = filteredSales.map(sale => [
@@ -86,8 +184,7 @@ export default function Reports() {
       sale.subtotal,
       sale.vatAmount,
       sale.totalAmount,
-      sale.saleStatus,
-      new Date(sale.lpoDueDate).toLocaleDateString()
+      sale.saleStatus
     ]);
 
     const csvContent = [headers, ...csvData]
@@ -172,7 +269,11 @@ export default function Reports() {
           </div>
 
           <div className="flex flex-col sm:flex-row gap-3 mt-4">
-            <Button onClick={exportToCSV} className="flex items-center gap-2">
+            <Button onClick={exportToExcel} className="flex items-center gap-2">
+              <FileSpreadsheet className="h-4 w-4" />
+              Export to Excel
+            </Button>
+            <Button onClick={exportToCSV} variant="outline" className="flex items-center gap-2">
               <Download className="h-4 w-4" />
               Export to CSV
             </Button>

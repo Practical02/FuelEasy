@@ -15,6 +15,7 @@ import { z } from "zod";
 const stockFormSchema = insertStockSchema.extend({
   quantityGallons: z.string().min(1, "Quantity is required"),
   purchasePricePerGallon: z.string().min(1, "Purchase price is required"),
+  vatPercentage: z.string().default("5.00"),
 });
 
 interface NewStockModalProps {
@@ -23,6 +24,8 @@ interface NewStockModalProps {
 }
 
 export default function NewStockModal({ open, onOpenChange }: NewStockModalProps) {
+  const [subtotal, setSubtotal] = useState(0);
+  const [vatAmount, setVatAmount] = useState(0);
   const [totalCost, setTotalCost] = useState(0);
   const { toast } = useToast();
 
@@ -32,6 +35,7 @@ export default function NewStockModal({ open, onOpenChange }: NewStockModalProps
       purchaseDate: new Date(),
       quantityGallons: "",
       purchasePricePerGallon: "",
+      vatPercentage: "5.00",
     },
   });
 
@@ -63,19 +67,28 @@ export default function NewStockModal({ open, onOpenChange }: NewStockModalProps
     },
   });
 
-  const calculateTotal = () => {
+  const calculateTotals = () => {
     const quantity = parseFloat(form.watch("quantityGallons") || "0");
     const pricePerGallon = parseFloat(form.watch("purchasePricePerGallon") || "0");
-    setTotalCost(quantity * pricePerGallon);
+    const vatPercentage = parseFloat(form.watch("vatPercentage") || "0");
+
+    const sub = quantity * pricePerGallon;
+    const vat = sub * (vatPercentage / 100);
+    const total = sub + vat;
+
+    setSubtotal(sub);
+    setVatAmount(vat);
+    setTotalCost(total);
   };
 
-  // Watch for changes in quantity or price to recalculate
+  // Watch for changes in quantity, price, or VAT to recalculate
   const quantity = form.watch("quantityGallons");
   const price = form.watch("purchasePricePerGallon");
+  const vatPercentage = form.watch("vatPercentage");
 
   useEffect(() => {
-    calculateTotal();
-  }, [quantity, price]);
+    calculateTotals();
+  }, [quantity, price, vatPercentage]);
 
   const onSubmit = (data: z.infer<typeof stockFormSchema>) => {
     createStockMutation.mutate(data);
@@ -136,12 +149,40 @@ export default function NewStockModal({ open, onOpenChange }: NewStockModalProps
               )}
             />
 
+            <FormField
+              control={form.control}
+              name="vatPercentage"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>VAT Percentage (%)</FormLabel>
+                  <FormControl>
+                    <Input type="number" step="0.01" placeholder="5.00" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
             <div className="bg-gray-50 rounded-lg p-4">
-              <div className="flex justify-between items-center">
-                <span className="text-gray-600">Total Cost:</span>
-                <span className="font-bold text-lg text-gray-900">
-                  {CURRENCY} {totalCost.toFixed(2)}
-                </span>
+              <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-600">Subtotal:</span>
+                  <span className="font-medium">
+                    {CURRENCY} {subtotal.toFixed(2)}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-600">VAT ({vatPercentage}%):</span>
+                  <span className="font-medium">
+                    {CURRENCY} {vatAmount.toFixed(2)}
+                  </span>
+                </div>
+                <div className="border-t pt-2 flex justify-between items-center">
+                  <span className="text-gray-600">Total Cost:</span>
+                  <span className="font-bold text-lg text-gray-900">
+                    {CURRENCY} {totalCost.toFixed(2)}
+                  </span>
+                </div>
               </div>
             </div>
 

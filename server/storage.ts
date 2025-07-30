@@ -43,6 +43,7 @@ export interface IStorage {
   getSalesByStatus(status: string): Promise<SaleWithClient[]>;
   getSale(id: string): Promise<SaleWithClient | undefined>;
   createSale(sale: InsertSale): Promise<Sale>;
+  updateSale(id: string, sale: InsertSale): Promise<Sale | undefined>;
   updateSaleStatus(id: string, status: string): Promise<Sale | undefined>;
   
   // Invoice methods

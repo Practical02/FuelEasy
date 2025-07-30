@@ -14,6 +14,9 @@ export const stock = pgTable("stock", {
   purchaseDate: timestamp("purchase_date").notNull(),
   quantityGallons: decimal("quantity_gallons", { precision: 10, scale: 2 }).notNull(),
   purchasePricePerGallon: decimal("purchase_price_per_gallon", { precision: 8, scale: 3 }).notNull(),
+  vatPercentage: decimal("vat_percentage", { precision: 5, scale: 2 }).notNull().default("5.00"),
+  vatAmount: decimal("vat_amount", { precision: 12, scale: 2 }).notNull(),
+  totalCost: decimal("total_cost", { precision: 12, scale: 2 }).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -35,6 +38,7 @@ export const sales = pgTable("sales", {
   salePricePerGallon: decimal("sale_price_per_gallon", { precision: 8, scale: 3 }).notNull(),
   lpoNumber: text("lpo_number").notNull(),
   lpoDueDate: timestamp("lpo_due_date").notNull(),
+  invoiceDate: timestamp("invoice_date"),
   saleStatus: text("sale_status").notNull().default("Pending LPO"), // "Pending LPO", "LPO Received", "Invoiced", "Paid"
   vatPercentage: decimal("vat_percentage", { precision: 5, scale: 2 }).notNull().default("5.00"),
   subtotal: decimal("subtotal", { precision: 12, scale: 2 }).notNull(),

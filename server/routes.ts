@@ -120,6 +120,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.patch("/api/sales/:id", async (req, res) => {
+    try {
+      const saleData = insertSaleSchema.parse(req.body);
+      const sale = await storage.updateSale(req.params.id, saleData);
+      if (!sale) {
+        return res.status(404).json({ message: "Sale not found" });
+      }
+      res.json(sale);
+    } catch (error) {
+      res.status(400).json({ message: "Invalid sale data" });
+    }
+  });
+
   // Payment routes
   app.get("/api/payments", async (req, res) => {
     try {

@@ -112,12 +112,15 @@ export class MemStorage implements IStorage {
     this.clients.set(client2.id, client2);
     this.clients.set(client3.id, client3);
 
-    // Add test stock
+    // Add test stock with VAT
     const stock1: Stock = {
       id: "stock-1",
       purchaseDate: new Date("2025-01-15T08:00:00Z"),
       quantityGallons: "5000.00",
       purchasePricePerGallon: "2.850",
+      vatPercentage: "5.00",
+      vatAmount: "712.50",
+      totalCost: "14962.50",
       createdAt: new Date("2025-01-15T08:30:00Z")
     };
     
@@ -126,6 +129,9 @@ export class MemStorage implements IStorage {
       purchaseDate: new Date("2025-01-20T09:30:00Z"),
       quantityGallons: "3500.00",
       purchasePricePerGallon: "2.820",
+      vatPercentage: "5.00",
+      vatAmount: "493.50",
+      totalCost: "10363.50",
       createdAt: new Date("2025-01-20T10:00:00Z")
     };
     
@@ -134,6 +140,9 @@ export class MemStorage implements IStorage {
       purchaseDate: new Date("2025-01-28T07:45:00Z"),
       quantityGallons: "2000.00",
       purchasePricePerGallon: "2.875",
+      vatPercentage: "5.00",
+      vatAmount: "287.50",
+      totalCost: "6037.50",
       createdAt: new Date("2025-01-28T08:15:00Z")
     };
     
@@ -236,9 +245,22 @@ export class MemStorage implements IStorage {
 
   async createStock(insertStock: InsertStock): Promise<Stock> {
     const id = randomUUID();
+    
+    // Calculate VAT and total cost automatically
+    const quantity = parseFloat(insertStock.quantityGallons);
+    const pricePerGallon = parseFloat(insertStock.purchasePricePerGallon);
+    const vatPercentage = parseFloat(insertStock.vatPercentage || "5.00");
+    
+    const subtotal = quantity * pricePerGallon;
+    const vatAmount = subtotal * (vatPercentage / 100);
+    const totalCost = subtotal + vatAmount;
+    
     const stock: Stock = { 
       ...insertStock, 
       id, 
+      vatPercentage: vatPercentage.toString(),
+      vatAmount: vatAmount.toString(),
+      totalCost: totalCost.toString(),
       createdAt: new Date() 
     };
     this.stock.set(id, stock);
@@ -337,11 +359,43 @@ export class MemStorage implements IStorage {
     return sale;
   }
 
+  async updateSale(id: string, saleData: InsertSale): Promise<Sale | undefined> {
+    const existingSale = this.sales.get(id);
+    if (!existingSale) return undefined;
+    
+    // Calculate totals
+    const quantity = parseFloat(saleData.quantityGallons);
+    const pricePerGallon = parseFloat(saleData.salePricePerGallon);
+    const vatPercentage = parseFloat(saleData.vatPercentage || "5.00");
+    
+    const subtotal = quantity * pricePerGallon;
+    const vatAmount = subtotal * (vatPercentage / 100);
+    const totalAmount = subtotal + vatAmount;
+    
+    const updatedSale: Sale = {
+      ...existingSale,
+      ...saleData,
+      subtotal: subtotal.toFixed(2),
+      vatAmount: vatAmount.toFixed(2),
+      totalAmount: totalAmount.toFixed(2),
+      invoiceDate: saleData.saleStatus === "Invoiced" || saleData.saleStatus === "Paid" 
+        ? (existingSale.invoiceDate || new Date()) 
+        : existingSale.invoiceDate,
+    };
+    
+    this.sales.set(id, updatedSale);
+    return updatedSale;
+  }
+
   async updateSaleStatus(id: string, status: string): Promise<Sale | undefined> {
     const sale = this.sales.get(id);
     if (!sale) return undefined;
     
-    const updatedSale = { ...sale, saleStatus: status };
+    const updatedSale = { 
+      ...sale, 
+      saleStatus: status,
+      invoiceDate: status === "Invoiced" && !sale.invoiceDate ? new Date() : sale.invoiceDate
+    };
     this.sales.set(id, updatedSale);
     return updatedSale;
   }
