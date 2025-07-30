@@ -20,9 +20,7 @@ import {
   invoices,
   payments
 } from "@shared/schema";
-import { drizzle } from "drizzle-orm/neon-http";
-import { neon } from "@neondatabase/serverless";
-import { eq, sql, desc } from "drizzle-orm";
+import { randomUUID } from "crypto";
 
 export interface IStorage {
   // User methods
@@ -64,71 +62,89 @@ export interface IStorage {
   getPendingLPOValue(): Promise<number>;
 }
 
-// Database setup
-const connectionString = process.env.DATABASE_URL;
-if (!connectionString) {
-  throw new Error("DATABASE_URL environment variable is required");
-}
+export class MemStorage implements IStorage {
+  private users: Map<string, User>;
+  private stock: Map<string, Stock>;
+  private clients: Map<string, Client>;
+  private sales: Map<string, Sale>;
+  private invoices: Map<string, Invoice>;
+  private payments: Map<string, Payment>;
 
-const sql = neon(connectionString);
-const db = drizzle(sql);
-
-export class DbStorage implements IStorage {
-  constructor() {}
-  
-  async init() {
-    // Database tables are automatically created by Drizzle migrations
-    console.log("Database storage initialized");
+  constructor() {
+    this.users = new Map();
+    this.stock = new Map();
+    this.clients = new Map();
+    this.sales = new Map();
+    this.invoices = new Map();
+    this.payments = new Map();
   }
 
   async getUser(id: string): Promise<User | undefined> {
-    const result = await db.select().from(users).where(eq(users.id, id)).limit(1);
-    return result[0];
+    return this.users.get(id);
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    const result = await db.select().from(users).where(eq(users.username, username)).limit(1);
-    return result[0];
+    return Array.from(this.users.values()).find(
+      (user) => user.username === username,
+    );
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const result = await db.insert(users).values(insertUser).returning();
-    return result[0];
+    const id = randomUUID();
+    const user: User = { ...insertUser, id };
+    this.users.set(id, user);
+    return user;
   }
 
   async getStock(): Promise<Stock[]> {
-    return await db.select().from(stock).orderBy(desc(stock.createdAt));
+    return Array.from(this.stock.values()).sort((a, b) => 
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
   }
 
   async createStock(insertStock: InsertStock): Promise<Stock> {
-    const result = await db.insert(stock).values(insertStock).returning();
-    return result[0];
+    const id = randomUUID();
+    const stock: Stock = { 
+      ...insertStock, 
+      id, 
+      createdAt: new Date() 
+    };
+    this.stock.set(id, stock);
+    return stock;
   }
 
   async getCurrentStockLevel(): Promise<number> {
-    const [stockResult, salesResult] = await Promise.all([
-      db.select({ total: sql<number>`COALESCE(SUM(${stock.quantityGallons}::numeric), 0)` }).from(stock),
-      db.select({ total: sql<number>`COALESCE(SUM(${sales.quantityGallons}::numeric), 0)` }).from(sales)
-    ]);
+    const stockEntries = Array.from(this.stock.values());
+    const salesEntries = Array.from(this.sales.values());
     
-    const totalPurchased = stockResult[0]?.total || 0;
-    const totalSold = salesResult[0]?.total || 0;
+    const totalPurchased = stockEntries.reduce((sum, entry) => 
+      sum + parseFloat(entry.quantityGallons), 0);
+    
+    const totalSold = salesEntries.reduce((sum, sale) => 
+      sum + parseFloat(sale.quantityGallons), 0);
     
     return totalPurchased - totalSold;
   }
 
   async getClients(): Promise<Client[]> {
-    return await db.select().from(clients).orderBy(clients.name);
+    return Array.from(this.clients.values()).sort((a, b) => 
+      a.name.localeCompare(b.name)
+    );
   }
 
   async getClient(id: string): Promise<Client | undefined> {
-    const result = await db.select().from(clients).where(eq(clients.id, id)).limit(1);
-    return result[0];
+    return this.clients.get(id);
   }
 
   async createClient(insertClient: InsertClient): Promise<Client> {
-    const result = await db.insert(clients).values(insertClient).returning();
-    return result[0];
+    const id = randomUUID();
+    const client: Client = { 
+      ...insertClient, 
+      id, 
+      createdAt: new Date() 
+    };
+    this.clients.set(id, client);
+    return client;
   }
 
   async getSales(): Promise<SaleWithClient[]> {
@@ -263,44 +279,26 @@ export class DbStorage implements IStorage {
   }
 
   async getPayments(): Promise<PaymentWithSaleAndClient[]> {
-    const result = await db
-      .select({
-        id: payments.id,
-        saleId: payments.saleId,
-        amount: payments.amountReceived,
-        paymentMethod: payments.paymentMethod,
-        chequeNumber: payments.chequeNumber,
-        paymentDate: payments.paymentDate,
-        createdAt: payments.createdAt,
-        sale: {
-          id: sales.id,
-          clientId: sales.clientId,
-          saleDate: sales.saleDate,
-          quantityGallons: sales.quantityGallons,
-          salePricePerGallon: sales.salePricePerGallon,
-          lpoNumber: sales.lpoNumber,
-          lpoDueDate: sales.lpoDueDate,
-          saleStatus: sales.saleStatus,
-          vatPercentage: sales.vatPercentage,
-          subtotal: sales.subtotal,
-          vatAmount: sales.vatAmount,
-          totalAmount: sales.totalAmount,
-          createdAt: sales.createdAt,
-          client: clients
-        }
-      })
-      .from(payments)
-      .leftJoin(sales, eq(payments.saleId, sales.id))
-      .leftJoin(clients, eq(sales.clientId, clients.id))
-      .orderBy(desc(payments.createdAt));
+    const paymentsData = await db.select().from(payments).orderBy(desc(payments.createdAt));
+    const result: PaymentWithSaleAndClient[] = [];
     
-    return result.filter(r => r.sale && r.sale.client).map(r => ({
-      ...r,
-      sale: {
-        ...r.sale!,
-        client: r.sale!.client!
+    for (const payment of paymentsData) {
+      const saleData = await db.select().from(sales).where(eq(sales.id, payment.saleId)).limit(1);
+      if (saleData[0]) {
+        const clientData = await db.select().from(clients).where(eq(clients.id, saleData[0].clientId)).limit(1);
+        if (clientData[0]) {
+          result.push({
+            ...payment,
+            sale: {
+              ...saleData[0],
+              client: clientData[0]
+            }
+          });
+        }
       }
-    }));
+    }
+    
+    return result;
   }
 
   async getPaymentsBySale(saleId: string): Promise<Payment[]> {
@@ -384,4 +382,4 @@ export class DbStorage implements IStorage {
   }
 }
 
-export const storage = new DbStorage();
+export const storage = new MemStorage();
