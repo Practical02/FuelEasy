@@ -70,14 +70,14 @@ export default function Sales() {
         }}
       />
 
-      <div className="p-6">
+      <div className="p-4 lg:p-6">
         <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center space-x-4">
+          <CardContent className="p-4 lg:p-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
                 <h3 className="text-lg font-semibold text-gray-900">All Sales</h3>
                 <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger className="w-48">
+                  <SelectTrigger className="w-full sm:w-48">
                     <SelectValue placeholder="Filter by status" />
                   </SelectTrigger>
                   <SelectContent>
@@ -90,12 +90,16 @@ export default function Sales() {
                   </SelectContent>
                 </Select>
               </div>
-              <Button onClick={() => setShowNewSaleModal(true)} className="primary-500 text-white hover:primary-600">
+              <Button 
+                onClick={() => setShowNewSaleModal(true)} 
+                className="bg-blue-600 text-white hover:bg-blue-700 w-full sm:w-auto"
+              >
                 New Sale
               </Button>
             </div>
 
-            <div className="overflow-x-auto">
+            {/* Desktop Table - Hidden on Mobile */}
+            <div className="hidden lg:block overflow-x-auto">
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-gray-200">
@@ -197,6 +201,100 @@ export default function Sales() {
                   )}
                 </tbody>
               </table>
+            </div>
+
+            {/* Mobile Card Layout - Visible on Mobile */}
+            <div className="lg:hidden space-y-4">
+              {isLoading ? (
+                <div className="py-8 text-center text-gray-500">
+                  Loading sales...
+                </div>
+              ) : filteredSales.length > 0 ? (
+                filteredSales.map((sale) => (
+                  <Card key={sale.id} className="border border-gray-200">
+                    <CardContent className="p-4">
+                      <div className="flex justify-between items-start mb-3">
+                        <div className="flex-1 min-w-0">
+                          <h4 className="font-semibold text-gray-900 truncate">{sale.client.name}</h4>
+                          <p className="text-sm text-gray-500">
+                            {new Date(sale.saleDate).toLocaleDateString()}
+                          </p>
+                        </div>
+                        <div className="ml-4">
+                          <StatusBadge status={sale.saleStatus as any} />
+                        </div>
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-3 text-sm mb-4">
+                        <div>
+                          <span className="text-gray-500">Quantity:</span>
+                          <span className="ml-1 font-medium">{parseFloat(sale.quantityGallons).toLocaleString()} gal</span>
+                        </div>
+                        <div>
+                          <span className="text-gray-500">Unit Price:</span>
+                          <span className="ml-1 font-medium">{CURRENCY} {parseFloat(sale.salePricePerGallon).toFixed(3)}</span>
+                        </div>
+                        <div>
+                          <span className="text-gray-500">Total:</span>
+                          <span className="ml-1 font-medium text-lg">{CURRENCY} {parseFloat(sale.totalAmount).toLocaleString()}</span>
+                        </div>
+                        <div>
+                          <span className="text-gray-500">LPO:</span>
+                          <span className="ml-1 font-medium">{sale.lpoNumber}</span>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col sm:flex-row gap-3">
+                        <Select
+                          value={sale.saleStatus}
+                          onValueChange={(value) => handleStatusChange(sale.id, value)}
+                          disabled={updateStatusMutation.isPending}
+                        >
+                          <SelectTrigger className="flex-1">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {SALE_STATUSES.map((status) => (
+                              <SelectItem key={status} value={status}>
+                                {status}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        
+                        <div className="flex gap-2">
+                          <Button variant="outline" size="sm" className="flex-1 sm:flex-none">
+                            <Edit className="w-4 h-4 mr-1" />
+                            Edit
+                          </Button>
+                          <Button variant="outline" size="sm" className="flex-1 sm:flex-none">
+                            <Eye className="w-4 h-4 mr-1" />
+                            View
+                          </Button>
+                          {sale.saleStatus !== "Paid" && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handlePaymentClick(sale.id)}
+                              className="flex-1 sm:flex-none bg-green-50 border-green-200 text-green-700 hover:bg-green-100"
+                            >
+                              <CreditCard className="w-4 h-4 mr-1" />
+                              Pay
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))
+              ) : (
+                <div className="py-8 text-center text-gray-500">
+                  {statusFilter === "all" 
+                    ? "No sales recorded yet. Click 'New Sale' to get started."
+                    : `No sales found with status "${statusFilter}".`
+                  }
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>

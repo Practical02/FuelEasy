@@ -40,16 +40,16 @@ export default function Clients() {
         }}
       />
 
-      <div className="p-6">
+      <div className="p-4 lg:p-6">
         {clientsLoading ? (
           <div className="flex items-center justify-center py-12">
             <div className="text-lg">Loading clients...</div>
           </div>
         ) : clients && clients.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-6">
             {clients.map((client) => (
               <Card key={client.id} className="hover:shadow-md transition-shadow">
-                <CardContent className="p-6">
+                <CardContent className="p-4 lg:p-6">
                   <div className="flex items-start justify-between mb-4">
                     <div className="flex-1">
                       <h4 className="font-semibold text-gray-900 text-lg">{client.name}</h4>

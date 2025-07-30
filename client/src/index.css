@@ -78,6 +78,32 @@
     @apply font-sans antialiased bg-background text-foreground;
     font-family: 'Inter', sans-serif;
   }
+
+  /* Mobile optimizations */
+  input, select, textarea, button {
+    @apply text-base; /* Prevents zoom on iOS */
+  }
+
+  /* Touch-friendly sizing */
+  @media (max-width: 768px) {
+    .btn-mobile {
+      @apply min-h-[44px] px-4 py-3;
+    }
+    
+    .input-mobile {
+      @apply min-h-[44px] px-3 py-2;
+    }
+  }
+
+  /* Improved scroll behavior */
+  html {
+    scroll-behavior: smooth;
+  }
+
+  /* Better touch targets */
+  .touch-target {
+    @apply min-h-[44px] min-w-[44px] flex items-center justify-center;
+  }
 }
 
 @layer utilities {
