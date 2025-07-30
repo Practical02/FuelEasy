@@ -182,6 +182,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/reports/pending-business", async (req, res) => {
+    try {
+      const { clientId, dateFrom, dateTo } = req.query;
+      const pendingBusiness = await storage.getPendingBusinessReport(
+        clientId as string,
+        dateFrom as string,
+        dateTo as string
+      );
+      res.json(pendingBusiness);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch pending business report" });
+    }
+  });
+
+  app.get("/api/reports/vat", async (req, res) => {
+    try {
+      const { clientId, dateFrom, dateTo } = req.query;
+      const vatReport = await storage.getVATReport(
+        clientId as string,
+        dateFrom as string,
+        dateTo as string
+      );
+      res.json(vatReport);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch VAT report" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

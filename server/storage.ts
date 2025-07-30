@@ -60,6 +60,8 @@ export interface IStorage {
   getGrossProfit(): Promise<number>;
   getPendingLPOCount(): Promise<number>;
   getPendingLPOValue(): Promise<number>;
+  getPendingBusinessReport(clientId?: string, dateFrom?: string, dateTo?: string): Promise<SaleWithClient[]>;
+  getVATReport(clientId?: string, dateFrom?: string, dateTo?: string): Promise<SaleWithClient[]>;
 }
 
 export class MemStorage implements IStorage {

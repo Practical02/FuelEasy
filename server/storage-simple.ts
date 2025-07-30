@@ -464,6 +464,54 @@ export class MemStorage implements IStorage {
       .filter(sale => sale.saleStatus === "Pending LPO" || sale.saleStatus === "LPO Received")
       .reduce((sum, sale) => sum + parseFloat(sale.totalAmount), 0);
   }
+
+  async getPendingBusinessReport(clientId?: string, dateFrom?: string, dateTo?: string): Promise<SaleWithClient[]> {
+    const allSales = await this.getSales();
+    
+    return allSales.filter(sale => {
+      // Filter by pending status only
+      const isPending = sale.saleStatus === "Pending LPO" || sale.saleStatus === "LPO Received" || sale.saleStatus === "Invoiced";
+      if (!isPending) return false;
+
+      // Filter by client if specified
+      if (clientId && clientId !== "all" && sale.clientId !== clientId) {
+        return false;
+      }
+
+      // Filter by date range if specified
+      const saleDate = new Date(sale.saleDate);
+      if (dateFrom && saleDate < new Date(dateFrom)) {
+        return false;
+      }
+      if (dateTo && saleDate > new Date(dateTo)) {
+        return false;
+      }
+
+      return true;
+    });
+  }
+
+  async getVATReport(clientId?: string, dateFrom?: string, dateTo?: string): Promise<SaleWithClient[]> {
+    const allSales = await this.getSales();
+    
+    return allSales.filter(sale => {
+      // Filter by client if specified
+      if (clientId && clientId !== "all" && sale.clientId !== clientId) {
+        return false;
+      }
+
+      // Filter by date range if specified
+      const saleDate = new Date(sale.saleDate);
+      if (dateFrom && saleDate < new Date(dateFrom)) {
+        return false;
+      }
+      if (dateTo && saleDate > new Date(dateTo)) {
+        return false;
+      }
+
+      return true;
+    });
+  }
 }
 
 export const storage = new MemStorage();
