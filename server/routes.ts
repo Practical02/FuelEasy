@@ -6,7 +6,9 @@ import {
   insertClientSchema, 
   insertSaleSchema, 
   insertPaymentSchema,
-  insertInvoiceSchema
+  insertInvoiceSchema,
+  insertProjectSchema,
+  insertCashbookSchema
 } from "@shared/schema";
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -353,6 +355,115 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(vatReport);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch VAT report" });
+    }
+  });
+
+  // Project routes
+  app.get("/api/projects", async (req, res) => {
+    try {
+      const projects = await storage.getProjects();
+      res.json(projects);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch projects" });
+    }
+  });
+
+  app.get("/api/projects/by-client/:clientId", async (req, res) => {
+    try {
+      const projects = await storage.getProjectsByClient(req.params.clientId);
+      res.json(projects);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch projects by client" });
+    }
+  });
+
+  app.post("/api/projects", async (req, res) => {
+    try {
+      const projectData = insertProjectSchema.parse(req.body);
+      const project = await storage.createProject(projectData);
+      res.json(project);
+    } catch (error) {
+      res.status(400).json({ message: "Invalid project data" });
+    }
+  });
+
+  app.put("/api/projects/:id", async (req, res) => {
+    try {
+      const projectData = insertProjectSchema.parse(req.body);
+      const project = await storage.updateProject(req.params.id, projectData);
+      if (!project) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+      res.json(project);
+    } catch (error) {
+      res.status(400).json({ message: "Invalid project data" });
+    }
+  });
+
+  app.delete("/api/projects/:id", async (req, res) => {
+    try {
+      const success = await storage.deleteProject(req.params.id);
+      if (!success) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+      res.json({ message: "Project deleted successfully" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete project" });
+    }
+  });
+
+  // Cashbook routes
+  app.get("/api/cashbook", async (req, res) => {
+    try {
+      const entries = await storage.getCashbookEntries();
+      res.json(entries);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch cashbook entries" });
+    }
+  });
+
+  app.get("/api/cashbook/balance", async (req, res) => {
+    try {
+      const balance = await storage.getCashBalance();
+      res.json({ balance });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch cash balance" });
+    }
+  });
+
+  app.post("/api/cashbook", async (req, res) => {
+    try {
+      const requestData = {
+        ...req.body,
+        transactionDate: new Date(req.body.transactionDate)
+      };
+      const cashbookData = insertCashbookSchema.parse(requestData);
+      const entry = await storage.createCashbookEntry(cashbookData);
+      res.json(entry);
+    } catch (error) {
+      res.status(400).json({ message: "Invalid cashbook data" });
+    }
+  });
+
+  app.delete("/api/cashbook/:id", async (req, res) => {
+    try {
+      const success = await storage.deleteCashbookEntry(req.params.id);
+      if (!success) {
+        return res.status(404).json({ message: "Cashbook entry not found" });
+      }
+      res.json({ message: "Cashbook entry deleted successfully" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete cashbook entry" });
+    }
+  });
+
+  // Enhanced sales routes for delay tracking
+  app.get("/api/sales/with-delays", async (req, res) => {
+    try {
+      const salesWithDelays = await storage.getSalesWithDelays();
+      res.json(salesWithDelays);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch sales with delays" });
     }
   });
 
