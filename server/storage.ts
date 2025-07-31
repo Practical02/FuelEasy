@@ -160,6 +160,22 @@ export class MemStorage implements IStorage {
     };
     
     const result = await db.insert(stock).values(stockData).returning();
+    
+    // Create cashbook entry for stock purchase (as debt)
+    await db.insert(cashbook).values({
+      transactionDate: insertStock.purchaseDate,
+      transactionType: "Stock Purchase",
+      amount: totalCost.toFixed(2),
+      isInflow: 0, // Outflow since we're purchasing
+      description: `Stock purchase: ${quantity} gallons at ${pricePerGallon} AED/gallon`,
+      counterparty: "Supplier",
+      paymentMethod: "Credit", // Default to credit (debt)
+      referenceType: "stock",
+      referenceId: result[0].id,
+      isPending: 1, // Mark as pending debt by default
+      notes: `VAT: ${vatAmount} AED (${vatPercentage}%)`
+    });
+    
     return result[0];
   }
 
@@ -421,17 +437,22 @@ export class MemStorage implements IStorage {
     
     const result = await db.insert(sales).values(saleData).returning();
     
-    // Create cashbook entry for sale revenue
-    await this.createCashbookEntry({
-      transactionDate: insertSale.saleDate,
-      transactionType: "Sale Revenue",
-      amount: totalAmount.toFixed(2),
-      isInflow: 1,
-      description: `Sale to ${insertSale.clientId} - ${quantity} gallons`,
-      referenceType: "sale",
-      referenceId: result[0].id,
-      notes: `Sale at ${salePrice}/gallon, Purchase at ${purchasePrice}/gallon`
-    });
+    // Create cashbook entry for sale revenue when sale is completed/paid
+    if (saleData.saleStatus === "Paid") {
+      await this.createCashbookEntry({
+        transactionDate: insertSale.saleDate,
+        transactionType: "Sale Revenue",
+        amount: totalAmount.toFixed(2),
+        isInflow: 1,
+        description: `Sale revenue - ${quantity} gallons`,
+        counterparty: "Client",
+        paymentMethod: "Cash",
+        referenceType: "sale",
+        referenceId: result[0].id,
+        isPending: 0,
+        notes: `Sale at ${salePrice}/gallon, Purchase at ${purchasePrice}/gallon`
+      });
+    }
     
     return result[0];
   }
@@ -528,14 +549,72 @@ export class MemStorage implements IStorage {
 
   async getCashBalance(): Promise<number> {
     const result = await db.select({
-      totalInflow: sql<number>`COALESCE(SUM(CASE WHEN ${cashbook.isInflow} = 1 THEN ${cashbook.amount}::numeric ELSE 0 END), 0)`,
-      totalOutflow: sql<number>`COALESCE(SUM(CASE WHEN ${cashbook.isInflow} = 0 THEN ${cashbook.amount}::numeric ELSE 0 END), 0)`
+      totalInflow: sql<number>`COALESCE(SUM(CASE WHEN ${cashbook.isInflow} = 1 AND ${cashbook.isPending} = 0 THEN ${cashbook.amount}::numeric ELSE 0 END), 0)`,
+      totalOutflow: sql<number>`COALESCE(SUM(CASE WHEN ${cashbook.isInflow} = 0 AND ${cashbook.isPending} = 0 THEN ${cashbook.amount}::numeric ELSE 0 END), 0)`
     }).from(cashbook);
     
     const totalInflow = result[0]?.totalInflow || 0;
     const totalOutflow = result[0]?.totalOutflow || 0;
     
     return totalInflow - totalOutflow;
+  }
+
+  async getPendingDebts(): Promise<CashbookEntry[]> {
+    return await db.select().from(cashbook)
+      .where(eq(cashbook.isPending, 1))
+      .orderBy(desc(cashbook.transactionDate));
+  }
+
+  async getTransactionSummary(): Promise<{
+    totalInflow: number;
+    totalOutflow: number;
+    pendingDebts: number;
+    availableBalance: number;
+  }> {
+    const [summaryResult, pendingResult] = await Promise.all([
+      db.select({
+        totalInflow: sql<number>`COALESCE(SUM(CASE WHEN ${cashbook.isInflow} = 1 AND ${cashbook.isPending} = 0 THEN ${cashbook.amount}::numeric ELSE 0 END), 0)`,
+        totalOutflow: sql<number>`COALESCE(SUM(CASE WHEN ${cashbook.isInflow} = 0 AND ${cashbook.isPending} = 0 THEN ${cashbook.amount}::numeric ELSE 0 END), 0)`
+      }).from(cashbook),
+      db.select({
+        pendingDebts: sql<number>`COALESCE(SUM(CASE WHEN ${cashbook.isPending} = 1 THEN ${cashbook.amount}::numeric ELSE 0 END), 0)`
+      }).from(cashbook)
+    ]);
+    
+    const totalInflow = summaryResult[0]?.totalInflow || 0;
+    const totalOutflow = summaryResult[0]?.totalOutflow || 0;
+    const pendingDebts = pendingResult[0]?.pendingDebts || 0;
+    const availableBalance = totalInflow - totalOutflow;
+    
+    return {
+      totalInflow,
+      totalOutflow,
+      pendingDebts,
+      availableBalance
+    };
+  }
+
+  async markDebtAsPaid(cashbookId: string, paidAmount: number, paymentMethod: string, paymentDate: Date): Promise<CashbookEntry> {
+    // Update the original debt entry
+    await db.update(cashbook)
+      .set({ isPending: 0 })
+      .where(eq(cashbook.id, cashbookId));
+
+    // Create a new payment entry
+    const paymentEntry = await db.insert(cashbook).values({
+      transactionDate: paymentDate,
+      transactionType: "Stock Payment",
+      amount: paidAmount.toFixed(2),
+      isInflow: 0, // Outflow since we're paying
+      description: "Debt payment for stock purchase",
+      paymentMethod,
+      referenceType: "debt_payment",
+      referenceId: cashbookId,
+      isPending: 0,
+      counterparty: "Supplier"
+    }).returning();
+
+    return paymentEntry[0];
   }
 
   async getSalesWithDelays(): Promise<any[]> {

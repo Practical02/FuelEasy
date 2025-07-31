@@ -10,6 +10,7 @@ import {
   FileText, 
   ChartBar, 
   Fuel,
+  DollarSign,
   LogOut,
   Menu,
   X
@@ -22,6 +23,7 @@ const navigation = [
   { name: "Sales", href: "/sales", icon: Receipt },
   { name: "Payments", href: "/payments", icon: CreditCard },
   { name: "Invoices", href: "/invoices", icon: FileText },
+  { name: "Cashbook", href: "/cashbook", icon: DollarSign },
   { name: "Reports", href: "/reports", icon: ChartBar },
 ];
 

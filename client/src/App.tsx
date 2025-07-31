@@ -11,6 +11,7 @@ import Sales from "@/pages/sales";
 import Payments from "@/pages/payments";
 import Invoices from "@/pages/invoices";
 import Reports from "@/pages/reports";
+import Cashbook from "@/pages/cashbook";
 import Sidebar from "@/components/layout/sidebar";
 
 function Router() {
@@ -27,6 +28,7 @@ function Router() {
           <Route path="/payments" component={Payments} />
           <Route path="/invoices" component={Invoices} />
           <Route path="/reports" component={Reports} />
+          <Route path="/cashbook" component={Cashbook} />
           <Route component={NotFound} />
         </Switch>
       </main>

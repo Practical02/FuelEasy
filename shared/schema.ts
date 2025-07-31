@@ -86,12 +86,15 @@ export const payments = pgTable("payments", {
 export const cashbook = pgTable("cashbook", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   transactionDate: timestamp("transaction_date").notNull(),
-  transactionType: text("transaction_type").notNull(), // "Investment", "Profit Withdrawal", "Stock Purchase", "Sale Revenue", "Expense", "Other"
+  transactionType: text("transaction_type").notNull(), // "Investment", "Profit Withdrawal", "Stock Purchase", "Stock Payment", "Sale Revenue", "Expense", "Other"
   amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
   isInflow: integer("is_inflow").notNull(), // 1 for inflow, 0 for outflow
   description: text("description").notNull(),
+  counterparty: text("counterparty"), // Supplier, Client name, or "Self" for internal
+  paymentMethod: text("payment_method"), // "Cash", "Bank Transfer", "Cheque", "Credit", etc.
   referenceType: text("reference_type"), // "sale", "stock", "manual"
   referenceId: uuid("reference_id"), // ID of related sale/stock if applicable
+  isPending: integer("is_pending").default(0).notNull(), // 1 for pending debt payments, 0 for completed
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

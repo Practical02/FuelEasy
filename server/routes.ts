@@ -431,6 +431,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/cashbook/summary", async (req, res) => {
+    try {
+      const summary = await storage.getTransactionSummary();
+      res.json(summary);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch transaction summary" });
+    }
+  });
+
+  app.get("/api/cashbook/pending-debts", async (req, res) => {
+    try {
+      const debts = await storage.getPendingDebts();
+      res.json(debts);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch pending debts" });
+    }
+  });
+
+  app.post("/api/cashbook/pay-debt/:id", async (req, res) => {
+    try {
+      const { paidAmount, paymentMethod } = req.body;
+      const paymentDate = new Date(req.body.paymentDate || new Date());
+      const paymentEntry = await storage.markDebtAsPaid(
+        req.params.id, 
+        parseFloat(paidAmount), 
+        paymentMethod, 
+        paymentDate
+      );
+      res.json(paymentEntry);
+    } catch (error) {
+      res.status(400).json({ message: "Failed to process debt payment" });
+    }
+  });
+
   app.post("/api/cashbook", async (req, res) => {
     try {
       const requestData = {
