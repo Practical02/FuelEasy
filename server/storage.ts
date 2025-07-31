@@ -21,6 +21,14 @@ import {
   payments
 } from "@shared/schema";
 import { randomUUID } from "crypto";
+import { drizzle } from "drizzle-orm/neon-http";
+import { neon } from "@neondatabase/serverless";
+import { eq, desc, sql } from "drizzle-orm";
+
+// Initialize database connection
+const connectionString = process.env.DATABASE_URL || "";
+const sql_conn = neon(connectionString);
+const db = drizzle(sql_conn, { schema: { users, stock, clients, sales, invoices, payments } });
 
 export interface IStorage {
   // User methods
@@ -31,12 +39,16 @@ export interface IStorage {
   // Stock methods
   getStock(): Promise<Stock[]>;
   createStock(stock: InsertStock): Promise<Stock>;
+  updateStock(id: string, stock: InsertStock): Promise<Stock | undefined>;
+  deleteStock(id: string): Promise<boolean>;
   getCurrentStockLevel(): Promise<number>;
   
   // Client methods
   getClients(): Promise<Client[]>;
   getClient(id: string): Promise<Client | undefined>;
   createClient(client: InsertClient): Promise<Client>;
+  updateClient(id: string, client: InsertClient): Promise<Client | undefined>;
+  deleteClient(id: string): Promise<boolean>;
   
   // Sale methods
   getSales(): Promise<SaleWithClient[]>;
@@ -45,15 +57,19 @@ export interface IStorage {
   createSale(sale: InsertSale): Promise<Sale>;
   updateSale(id: string, sale: InsertSale): Promise<Sale | undefined>;
   updateSaleStatus(id: string, status: string): Promise<Sale | undefined>;
+  deleteSale(id: string): Promise<boolean>;
   
   // Invoice methods
   getInvoices(): Promise<Invoice[]>;
+  getInvoice(id: string): Promise<Invoice | undefined>;
   createInvoice(invoice: InsertInvoice): Promise<Invoice>;
+  deleteInvoice(id: string): Promise<boolean>;
   
   // Payment methods
   getPayments(): Promise<PaymentWithSaleAndClient[]>;
   getPaymentsBySale(saleId: string): Promise<Payment[]>;
   createPayment(payment: InsertPayment): Promise<Payment>;
+  deletePayment(id: string): Promise<boolean>;
   
   // Reporting methods
   getTotalRevenue(): Promise<number>;
@@ -100,54 +116,58 @@ export class MemStorage implements IStorage {
   }
 
   async getStock(): Promise<Stock[]> {
-    return Array.from(this.stock.values()).sort((a, b) => 
-      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    );
+    return await db.select().from(stock).orderBy(desc(stock.createdAt));
   }
 
   async createStock(insertStock: InsertStock): Promise<Stock> {
-    const id = randomUUID();
-    const stock: Stock = { 
-      ...insertStock, 
-      id, 
-      createdAt: new Date() 
+    // Calculate VAT and total cost
+    const quantity = parseFloat(insertStock.quantityGallons);
+    const pricePerGallon = parseFloat(insertStock.purchasePricePerGallon);
+    const vatPercentage = parseFloat(insertStock.vatPercentage || "5.00");
+    
+    const subtotal = quantity * pricePerGallon;
+    const vatAmount = subtotal * (vatPercentage / 100);
+    const totalCost = subtotal + vatAmount;
+    
+    const stockData = { 
+      ...insertStock,
+      vatPercentage: vatPercentage.toFixed(2),
+      vatAmount: vatAmount.toFixed(2),
+      totalCost: totalCost.toFixed(2)
     };
-    this.stock.set(id, stock);
-    return stock;
+    
+    const result = await db.insert(stock).values(stockData).returning();
+    return result[0];
   }
 
   async getCurrentStockLevel(): Promise<number> {
-    const stockEntries = Array.from(this.stock.values());
-    const salesEntries = Array.from(this.sales.values());
+    const [stockResult, salesResult] = await Promise.all([
+      db.select({
+        totalPurchased: sql<number>`COALESCE(SUM(${stock.quantityGallons}::numeric), 0)`,
+      }).from(stock),
+      db.select({
+        totalSold: sql<number>`COALESCE(SUM(${sales.quantityGallons}::numeric), 0)`
+      }).from(sales)
+    ]);
     
-    const totalPurchased = stockEntries.reduce((sum, entry) => 
-      sum + parseFloat(entry.quantityGallons), 0);
-    
-    const totalSold = salesEntries.reduce((sum, sale) => 
-      sum + parseFloat(sale.quantityGallons), 0);
+    const totalPurchased = stockResult[0]?.totalPurchased || 0;
+    const totalSold = salesResult[0]?.totalSold || 0;
     
     return totalPurchased - totalSold;
   }
 
   async getClients(): Promise<Client[]> {
-    return Array.from(this.clients.values()).sort((a, b) => 
-      a.name.localeCompare(b.name)
-    );
+    return await db.select().from(clients).orderBy(clients.name);
   }
 
   async getClient(id: string): Promise<Client | undefined> {
-    return this.clients.get(id);
+    const result = await db.select().from(clients).where(eq(clients.id, id)).limit(1);
+    return result[0];
   }
 
   async createClient(insertClient: InsertClient): Promise<Client> {
-    const id = randomUUID();
-    const client: Client = { 
-      ...insertClient, 
-      id, 
-      createdAt: new Date() 
-    };
-    this.clients.set(id, client);
-    return client;
+    const result = await db.insert(clients).values(insertClient).returning();
+    return result[0];
   }
 
   async getSales(): Promise<SaleWithClient[]> {
@@ -160,6 +180,7 @@ export class MemStorage implements IStorage {
         salePricePerGallon: sales.salePricePerGallon,
         lpoNumber: sales.lpoNumber,
         lpoDueDate: sales.lpoDueDate,
+        invoiceDate: sales.invoiceDate,
         saleStatus: sales.saleStatus,
         vatPercentage: sales.vatPercentage,
         subtotal: sales.subtotal,
@@ -188,6 +209,7 @@ export class MemStorage implements IStorage {
         salePricePerGallon: sales.salePricePerGallon,
         lpoNumber: sales.lpoNumber,
         lpoDueDate: sales.lpoDueDate,
+        invoiceDate: sales.invoiceDate,
         saleStatus: sales.saleStatus,
         vatPercentage: sales.vatPercentage,
         subtotal: sales.subtotal,
@@ -217,6 +239,7 @@ export class MemStorage implements IStorage {
         salePricePerGallon: sales.salePricePerGallon,
         lpoNumber: sales.lpoNumber,
         lpoDueDate: sales.lpoDueDate,
+        invoiceDate: sales.invoiceDate,
         saleStatus: sales.saleStatus,
         vatPercentage: sales.vatPercentage,
         subtotal: sales.subtotal,
@@ -382,6 +405,220 @@ export class MemStorage implements IStorage {
       sql`${sales.saleStatus} IN ('Pending LPO', 'LPO Received')`
     );
     return result[0]?.total || 0;
+  }
+
+  async updateSale(id: string, saleData: InsertSale): Promise<Sale | undefined> {
+    // Calculate VAT and totals
+    const quantity = parseFloat(saleData.quantityGallons);
+    const pricePerGallon = parseFloat(saleData.salePricePerGallon);
+    const vatPercentage = parseFloat(saleData.vatPercentage || "5.00");
+    
+    const subtotal = quantity * pricePerGallon;
+    const vatAmount = subtotal * (vatPercentage / 100);
+    const totalAmount = subtotal + vatAmount;
+
+    // Auto-set invoice date when status changes to "Invoiced"
+    let invoiceDate = null;
+    if (saleData.saleStatus === "Invoiced" || saleData.saleStatus === "Paid") {
+      invoiceDate = new Date();
+    }
+
+    const updatedSaleData = {
+      ...saleData,
+      invoiceDate,
+      vatPercentage: vatPercentage.toFixed(2),
+      subtotal: subtotal.toFixed(2),
+      vatAmount: vatAmount.toFixed(2),
+      totalAmount: totalAmount.toFixed(2),
+    };
+
+    const result = await db
+      .update(sales)
+      .set(updatedSaleData)
+      .where(eq(sales.id, id))
+      .returning();
+
+    return result[0];
+  }
+
+  async getPendingBusinessReport(clientId?: string, dateFrom?: string, dateTo?: string): Promise<SaleWithClient[]> {
+    let conditions = [sql`${sales.saleStatus} IN ('Pending LPO', 'LPO Received')`];
+    
+    if (clientId) {
+      conditions.push(eq(sales.clientId, clientId));
+    }
+    
+    if (dateFrom) {
+      conditions.push(sql`${sales.saleDate} >= ${dateFrom}`);
+    }
+    
+    if (dateTo) {
+      conditions.push(sql`${sales.saleDate} <= ${dateTo}`);
+    }
+
+    const result = await db
+      .select({
+        id: sales.id,
+        clientId: sales.clientId,
+        saleDate: sales.saleDate,
+        quantityGallons: sales.quantityGallons,
+        salePricePerGallon: sales.salePricePerGallon,
+        lpoNumber: sales.lpoNumber,
+        lpoDueDate: sales.lpoDueDate,
+        invoiceDate: sales.invoiceDate,
+        saleStatus: sales.saleStatus,
+        vatPercentage: sales.vatPercentage,
+        subtotal: sales.subtotal,
+        vatAmount: sales.vatAmount,
+        totalAmount: sales.totalAmount,
+        createdAt: sales.createdAt,
+        client: clients
+      })
+      .from(sales)
+      .leftJoin(clients, eq(sales.clientId, clients.id))
+      .where(sql.join(conditions, sql` AND `))
+      .orderBy(desc(sales.createdAt));
+    
+    return result.filter(r => r.client).map(r => ({
+      ...r,
+      client: r.client!
+    }));
+  }
+
+  async getVATReport(clientId?: string, dateFrom?: string, dateTo?: string): Promise<SaleWithClient[]> {
+    let conditions = [sql`${sales.saleStatus} IN ('Invoiced', 'Paid')`];
+    
+    if (clientId) {
+      conditions.push(eq(sales.clientId, clientId));
+    }
+    
+    if (dateFrom) {
+      conditions.push(sql`${sales.saleDate} >= ${dateFrom}`);
+    }
+    
+    if (dateTo) {
+      conditions.push(sql`${sales.saleDate} <= ${dateTo}`);
+    }
+
+    const result = await db
+      .select({
+        id: sales.id,
+        clientId: sales.clientId,
+        saleDate: sales.saleDate,
+        quantityGallons: sales.quantityGallons,
+        salePricePerGallon: sales.salePricePerGallon,
+        lpoNumber: sales.lpoNumber,
+        lpoDueDate: sales.lpoDueDate,
+        invoiceDate: sales.invoiceDate,
+        saleStatus: sales.saleStatus,
+        vatPercentage: sales.vatPercentage,
+        subtotal: sales.subtotal,
+        vatAmount: sales.vatAmount,
+        totalAmount: sales.totalAmount,
+        createdAt: sales.createdAt,
+        client: clients
+      })
+      .from(sales)
+      .leftJoin(clients, eq(sales.clientId, clients.id))
+      .where(sql.join(conditions, sql` AND `))
+      .orderBy(desc(sales.createdAt));
+    
+    return result.filter(r => r.client).map(r => ({
+      ...r,
+      client: r.client!
+    }));
+  }
+
+  // Additional methods for update and delete operations
+  async updateClient(id: string, clientData: InsertClient): Promise<Client | undefined> {
+    const result = await db
+      .update(clients)
+      .set(clientData)
+      .where(eq(clients.id, id))
+      .returning();
+    
+    return result[0];
+  }
+
+  async deleteClient(id: string): Promise<boolean> {
+    const result = await db
+      .delete(clients)
+      .where(eq(clients.id, id))
+      .returning();
+    
+    return result.length > 0;
+  }
+
+  async updateStock(id: string, stockData: InsertStock): Promise<Stock | undefined> {
+    // Calculate VAT and total cost
+    const quantity = parseFloat(stockData.quantityGallons);
+    const pricePerGallon = parseFloat(stockData.purchasePricePerGallon);
+    const vatPercentage = parseFloat(stockData.vatPercentage || "5.00");
+    
+    const subtotal = quantity * pricePerGallon;
+    const vatAmount = subtotal * (vatPercentage / 100);
+    const totalCost = subtotal + vatAmount;
+    
+    const updatedStockData = {
+      ...stockData,
+      vatPercentage: vatPercentage.toFixed(2),
+      vatAmount: vatAmount.toFixed(2),
+      totalCost: totalCost.toFixed(2)
+    };
+
+    const result = await db
+      .update(stock)
+      .set(updatedStockData)
+      .where(eq(stock.id, id))
+      .returning();
+    
+    return result[0];
+  }
+
+  async deleteStock(id: string): Promise<boolean> {
+    const result = await db
+      .delete(stock)
+      .where(eq(stock.id, id))
+      .returning();
+    
+    return result.length > 0;
+  }
+
+  async deleteSale(id: string): Promise<boolean> {
+    const result = await db
+      .delete(sales)
+      .where(eq(sales.id, id))
+      .returning();
+    
+    return result.length > 0;
+  }
+
+  async getInvoice(id: string): Promise<Invoice | undefined> {
+    const result = await db
+      .select()
+      .from(invoices)
+      .where(eq(invoices.id, id))
+      .limit(1);
+    
+    return result[0];
+  }
+
+  async deleteInvoice(id: string): Promise<boolean> {
+    const result = await db
+      .delete(invoices)
+      .where(eq(invoices.id, id))
+      .returning();
+    
+    return result.length > 0;
+  }
+
+  async deletePayment(id: string): Promise<boolean> {
+    const result = await db
+      .delete(payments)
+      .where(eq(payments.id, id))
+      .returning();
+    
+    return result.length > 0;
   }
 }
 

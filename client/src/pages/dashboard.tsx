@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import Header from "@/components/layout/header";
 import { Card, CardContent } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -7,6 +8,7 @@ import NewSaleModal from "@/components/modals/new-sale-modal";
 import NewStockModal from "@/components/modals/new-stock-modal";
 import NewClientModal from "@/components/modals/new-client-modal";
 import PaymentModal from "@/components/modals/payment-modal";
+import ViewSaleModal from "@/components/modals/view-sale-modal";
 import { Button } from "@/components/ui/button";
 import { 
   Fuel, 
@@ -29,9 +31,19 @@ export default function Dashboard() {
   const [showNewStockModal, setShowNewStockModal] = useState(false);
   const [showNewClientModal, setShowNewClientModal] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [showViewSaleModal, setShowViewSaleModal] = useState(false);
   const [selectedSaleId, setSelectedSaleId] = useState<string>("");
+  const [, setLocation] = useLocation();
 
-  const { data: overview, isLoading: overviewLoading } = useQuery({
+  const { data: overview, isLoading: overviewLoading } = useQuery<{
+    totalRevenue: number;
+    totalCOGS: number;
+    grossProfit: number;
+    currentStock: number;
+    pendingLPOCount: number;
+    pendingLPOValue: number;
+    grossMargin: number;
+  }>({
     queryKey: ["/api/reports/overview"],
   });
 
@@ -73,6 +85,15 @@ export default function Dashboard() {
   const handlePaymentClick = (saleId: string) => {
     setSelectedSaleId(saleId);
     setShowPaymentModal(true);
+  };
+
+  const handleViewClick = (saleId: string) => {
+    setSelectedSaleId(saleId);
+    setShowViewSaleModal(true);
+  };
+
+  const handleNavigateToSales = () => {
+    setLocation("/sales");
   };
 
   if (overviewLoading) {
@@ -202,9 +223,12 @@ export default function Dashboard() {
             <CardContent className="p-4 lg:p-6">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold text-gray-900">Recent Sales</h3>
-                <a href="/sales" className="text-blue-500 text-sm font-medium hover:text-blue-600">
+                <button 
+                  onClick={handleNavigateToSales}
+                  className="text-blue-500 text-sm font-medium hover:text-blue-600"
+                >
                   View all
-                </a>
+                </button>
               </div>
               <div className="space-y-3 lg:space-y-4">
                 {salesLoading ? (
@@ -261,7 +285,7 @@ export default function Dashboard() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-lg font-semibold text-gray-900">Latest Sales</h3>
-              <Button onClick={() => setShowNewSaleModal(true)} className="primary-500 text-white hover:primary-600">
+              <Button onClick={() => setShowNewSaleModal(true)} className="bg-blue-600 text-white hover:bg-blue-700">
                 <Plus className="w-4 h-4 mr-2" />
                 New Sale
               </Button>
@@ -305,14 +329,16 @@ export default function Dashboard() {
                             <Button 
                               variant="ghost" 
                               size="sm"
-                              className="text-primary-600 hover:text-primary-800"
+                              onClick={handleNavigateToSales}
+                              className="text-blue-600 hover:text-blue-800 hover:bg-blue-50"
                             >
                               <Edit className="w-4 h-4" />
                             </Button>
                             <Button 
                               variant="ghost" 
                               size="sm"
-                              className="text-gray-600 hover:text-gray-800"
+                              onClick={() => handleViewClick(sale.id)}
+                              className="text-gray-600 hover:text-gray-800 hover:bg-gray-50"
                             >
                               <Eye className="w-4 h-4" />
                             </Button>
@@ -361,6 +387,13 @@ export default function Dashboard() {
         onOpenChange={setShowPaymentModal}
         saleId={selectedSaleId}
       />
+      {selectedSaleId && (
+        <ViewSaleModal 
+          open={showViewSaleModal} 
+          onOpenChange={setShowViewSaleModal}
+          sale={recentSales?.find(s => s.id === selectedSaleId) || null}
+        />
+      )}
     </>
   );
 }

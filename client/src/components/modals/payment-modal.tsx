@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -8,12 +8,11 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { insertPaymentSchema } from "@shared/schema";
+import { insertPaymentSchema, type Payment, type SaleWithClient } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { CURRENCY, PAYMENT_METHODS } from "@/lib/constants";
 import { z } from "zod";
-import type { SaleWithClient } from "@shared/schema";
 
 const paymentFormSchema = insertPaymentSchema.extend({
   amountReceived: z.string().min(1, "Amount is required"),
@@ -38,7 +37,7 @@ export default function PaymentModal({ open, onOpenChange, saleId }: PaymentModa
     enabled: !!saleId,
   });
 
-  const { data: existingPayments } = useQuery({
+  const { data: existingPayments } = useQuery<Payment[]>({
     queryKey: ["/api/payments/sale", saleId],
     enabled: !!saleId,
   });
@@ -113,6 +112,9 @@ export default function PaymentModal({ open, onOpenChange, saleId }: PaymentModa
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>Record Payment</DialogTitle>
+          <DialogDescription>
+            Record a payment received from a client for their purchase.
+          </DialogDescription>
         </DialogHeader>
 
         <Form {...form}>
@@ -257,7 +259,7 @@ export default function PaymentModal({ open, onOpenChange, saleId }: PaymentModa
                   <FormItem>
                     <FormLabel>Cheque Number</FormLabel>
                     <FormControl>
-                      <Input placeholder="Enter cheque number" {...field} />
+                      <Input placeholder="Enter cheque number" {...field} value={field.value || ""} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

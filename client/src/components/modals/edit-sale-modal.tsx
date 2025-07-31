@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useForm } from "react-hook-form";
@@ -131,6 +131,9 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
       <DialogContent className="max-w-2xl max-h-screen overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Edit Sale - {sale.lpoNumber}</DialogTitle>
+          <DialogDescription>
+            Edit the details of this fuel sale transaction.
+          </DialogDescription>
         </DialogHeader>
 
         <Form {...form}>

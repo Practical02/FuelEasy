@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { insertStockSchema } from "@shared/schema";
+import { insertStockSchema, type Stock } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { CURRENCY } from "@/lib/constants";
@@ -21,12 +21,13 @@ const stockFormSchema = insertStockSchema.omit({
   vatPercentage: z.string().default("5.00"),
 });
 
-interface NewStockModalProps {
+interface EditStockModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  stock: Stock | null;
 }
 
-export default function NewStockModal({ open, onOpenChange }: NewStockModalProps) {
+export default function EditStockModal({ open, onOpenChange, stock }: EditStockModalProps) {
   const [subtotal, setSubtotal] = useState(0);
   const [vatAmount, setVatAmount] = useState(0);
   const [totalCost, setTotalCost] = useState(0);
@@ -42,8 +43,22 @@ export default function NewStockModal({ open, onOpenChange }: NewStockModalProps
     },
   });
 
-  const createStockMutation = useMutation({
+  // Set form values when stock changes
+  useEffect(() => {
+    if (stock) {
+      form.reset({
+        purchaseDate: new Date(stock.purchaseDate),
+        quantityGallons: stock.quantityGallons,
+        purchasePricePerGallon: stock.purchasePricePerGallon,
+        vatPercentage: stock.vatPercentage,
+      });
+    }
+  }, [stock, form]);
+
+  const updateStockMutation = useMutation({
     mutationFn: async (data: z.infer<typeof stockFormSchema>) => {
+      if (!stock) throw new Error("No stock to update");
+      
       // Calculate VAT and total cost
       const quantity = parseFloat(data.quantityGallons);
       const pricePerGallon = parseFloat(data.purchasePricePerGallon);
@@ -53,7 +68,7 @@ export default function NewStockModal({ open, onOpenChange }: NewStockModalProps
       const vatAmount = subtotal * (vatPercentage / 100);
       const totalCost = subtotal + vatAmount;
 
-      const response = await apiRequest("POST", "/api/stock", {
+      const response = await apiRequest("PUT", `/api/stock/${stock.id}`, {
         ...data,
         purchaseDate: new Date(data.purchaseDate).toISOString(),
         vatAmount: vatAmount.toFixed(2),
@@ -66,16 +81,15 @@ export default function NewStockModal({ open, onOpenChange }: NewStockModalProps
       queryClient.invalidateQueries({ queryKey: ["/api/stock/current-level"] });
       queryClient.invalidateQueries({ queryKey: ["/api/reports/overview"] });
       toast({
-        title: "Stock Added",
-        description: "New stock entry has been added successfully.",
+        title: "Stock Updated",
+        description: "Stock entry has been updated successfully.",
       });
-      form.reset();
       onOpenChange(false);
     },
     onError: () => {
       toast({
         title: "Error",
-        description: "Failed to add stock. Please try again.",
+        description: "Failed to update stock. Please try again.",
         variant: "destructive",
       });
     },
@@ -105,16 +119,18 @@ export default function NewStockModal({ open, onOpenChange }: NewStockModalProps
   }, [quantity, price, vatPercentage]);
 
   const onSubmit = (data: z.infer<typeof stockFormSchema>) => {
-    createStockMutation.mutate(data);
+    updateStockMutation.mutate(data);
   };
+
+  if (!stock) return null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Add New Stock</DialogTitle>
+          <DialogTitle>Edit Stock Entry</DialogTitle>
           <DialogDescription>
-            Add a new diesel fuel stock purchase to your inventory.
+            Update the details of this diesel fuel stock purchase.
           </DialogDescription>
         </DialogHeader>
 
@@ -213,10 +229,10 @@ export default function NewStockModal({ open, onOpenChange }: NewStockModalProps
               </Button>
               <Button 
                 type="submit" 
-                disabled={createStockMutation.isPending}
+                disabled={updateStockMutation.isPending}
                 className="bg-blue-600 text-white hover:bg-blue-700"
               >
-                {createStockMutation.isPending ? "Adding..." : "Add Stock"}
+                {updateStockMutation.isPending ? "Updating..." : "Update Stock"}
               </Button>
             </div>
           </form>

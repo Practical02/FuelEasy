@@ -1,4 +1,5 @@
-import { useMutation } from "@tanstack/react-query";
+import { useEffect } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,17 +7,18 @@ import { Textarea } from "@/components/ui/textarea";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { insertClientSchema } from "@shared/schema";
+import { insertClientSchema, type Client } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { z } from "zod";
 
-interface NewClientModalProps {
+interface EditClientModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  client: Client | null;
 }
 
-export default function NewClientModal({ open, onOpenChange }: NewClientModalProps) {
+export default function EditClientModal({ open, onOpenChange, client }: EditClientModalProps) {
   const { toast } = useToast();
 
   const form = useForm<z.infer<typeof insertClientSchema>>({
@@ -30,40 +32,55 @@ export default function NewClientModal({ open, onOpenChange }: NewClientModalPro
     },
   });
 
-  const createClientMutation = useMutation({
+  // Set form values when client changes
+  useEffect(() => {
+    if (client) {
+      form.reset({
+        name: client.name,
+        contactPerson: client.contactPerson,
+        phoneNumber: client.phoneNumber,
+        email: client.email,
+        address: client.address,
+      });
+    }
+  }, [client, form]);
+
+  const updateClientMutation = useMutation({
     mutationFn: async (data: z.infer<typeof insertClientSchema>) => {
-      const response = await apiRequest("POST", "/api/clients", data);
+      if (!client) throw new Error("No client to update");
+      const response = await apiRequest("PUT", `/api/clients/${client.id}`, data);
       return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/clients"] });
       toast({
-        title: "Client Added",
-        description: "New client has been added successfully.",
+        title: "Client Updated",
+        description: "Client information has been updated successfully.",
       });
-      form.reset();
       onOpenChange(false);
     },
     onError: () => {
       toast({
         title: "Error",
-        description: "Failed to add client. Please try again.",
+        description: "Failed to update client. Please try again.",
         variant: "destructive",
       });
     },
   });
 
   const onSubmit = (data: z.infer<typeof insertClientSchema>) => {
-    createClientMutation.mutate(data);
+    updateClientMutation.mutate(data);
   };
+
+  if (!client) return null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Add New Client</DialogTitle>
+          <DialogTitle>Edit Client - {client.name}</DialogTitle>
           <DialogDescription>
-            Add a new client to manage their purchases and payments.
+            Update the client information and contact details.
           </DialogDescription>
         </DialogHeader>
 
@@ -156,10 +173,10 @@ export default function NewClientModal({ open, onOpenChange }: NewClientModalPro
               </Button>
               <Button 
                 type="submit" 
-                disabled={createClientMutation.isPending}
+                disabled={updateClientMutation.isPending}
                 className="bg-blue-600 text-white hover:bg-blue-700"
               >
-                {createClientMutation.isPending ? "Adding..." : "Add Client"}
+                {updateClientMutation.isPending ? "Updating..." : "Update Client"}
               </Button>
             </div>
           </form>

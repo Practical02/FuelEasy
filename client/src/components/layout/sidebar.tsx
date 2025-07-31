@@ -6,7 +6,8 @@ import {
   Boxes, 
   Users, 
   Receipt, 
-  CreditCard, 
+  CreditCard,
+  FileText, 
   ChartBar, 
   Fuel,
   LogOut,
@@ -20,6 +21,7 @@ const navigation = [
   { name: "Clients", href: "/clients", icon: Users },
   { name: "Sales", href: "/sales", icon: Receipt },
   { name: "Payments", href: "/payments", icon: CreditCard },
+  { name: "Invoices", href: "/invoices", icon: FileText },
   { name: "Reports", href: "/reports", icon: ChartBar },
 ];
 
@@ -79,16 +81,17 @@ export default function Sidebar() {
               
               return (
                 <li key={item.name}>
-                  <Link href={item.href}>
-                    <a className={cn(
+                  <Link 
+                    href={item.href}
+                    className={cn(
                       "flex items-center space-x-3 px-3 py-3 rounded-lg font-medium transition-colors",
                       isActive 
                         ? "bg-blue-50 text-blue-600" 
                         : "text-gray-700 hover:bg-gray-100"
-                    )}>
-                      <Icon className="w-5 h-5" />
-                      <span>{item.name}</span>
-                    </a>
+                    )}
+                  >
+                    <Icon className="w-5 h-5" />
+                    <span>{item.name}</span>
                   </Link>
                 </li>
               );
@@ -126,19 +129,18 @@ export default function Sidebar() {
                 
                 return (
                   <li key={item.name}>
-                    <Link href={item.href}>
-                      <a 
-                        onClick={closeMobileMenu}
-                        className={cn(
-                          "flex items-center space-x-4 px-4 py-4 rounded-xl font-medium transition-colors text-base",
-                          isActive 
-                            ? "bg-blue-50 text-blue-600" 
-                            : "text-gray-700 hover:bg-gray-100"
-                        )}
-                      >
-                        <Icon className="w-6 h-6" />
-                        <span>{item.name}</span>
-                      </a>
+                    <Link 
+                      href={item.href}
+                      onClick={closeMobileMenu}
+                      className={cn(
+                        "flex items-center space-x-4 px-4 py-4 rounded-xl font-medium transition-colors text-base",
+                        isActive 
+                          ? "bg-blue-50 text-blue-600" 
+                          : "text-gray-700 hover:bg-gray-100"
+                      )}
+                    >
+                      <Icon className="w-6 h-6" />
+                      <span>{item.name}</span>
                     </Link>
                   </li>
                 );

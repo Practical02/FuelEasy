@@ -1,11 +1,12 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
-import { storage } from "./storage-simple";
+import { storage } from "./storage";
 import { 
   insertStockSchema, 
   insertClientSchema, 
   insertSaleSchema, 
-  insertPaymentSchema 
+  insertPaymentSchema,
+  insertInvoiceSchema
 } from "@shared/schema";
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -22,11 +23,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/stock", async (req, res) => {
     try {
-      const stockData = insertStockSchema.parse(req.body);
+      console.log("Received stock data:", JSON.stringify(req.body, null, 2));
+      
+      // Convert purchaseDate string to Date object
+      const requestData = {
+        ...req.body,
+        purchaseDate: new Date(req.body.purchaseDate)
+      };
+      
+      const stockData = insertStockSchema.parse(requestData);
+      console.log("Parsed stock data:", JSON.stringify(stockData, null, 2));
       const stock = await storage.createStock(stockData);
       res.json(stock);
     } catch (error) {
-      res.status(400).json({ message: "Invalid stock data" });
+      console.error("Stock validation error:", error);
+      res.status(400).json({ message: "Invalid stock data", error: error instanceof Error ? error.message : String(error) });
     }
   });
 
@@ -36,6 +47,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ currentLevel: level });
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch current stock level" });
+    }
+  });
+
+  app.put("/api/stock/:id", async (req, res) => {
+    try {
+      const requestData = {
+        ...req.body,
+        purchaseDate: new Date(req.body.purchaseDate)
+      };
+      const stockData = insertStockSchema.parse(requestData);
+      const stock = await storage.updateStock(req.params.id, stockData);
+      if (!stock) {
+        return res.status(404).json({ message: "Stock entry not found" });
+      }
+      res.json(stock);
+    } catch (error) {
+      res.status(400).json({ message: "Invalid stock data" });
+    }
+  });
+
+  app.delete("/api/stock/:id", async (req, res) => {
+    try {
+      const success = await storage.deleteStock(req.params.id);
+      if (!success) {
+        return res.status(404).json({ message: "Stock entry not found" });
+      }
+      res.json({ message: "Stock entry deleted successfully" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete stock entry" });
     }
   });
 
@@ -69,6 +109,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(client);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch client" });
+    }
+  });
+
+  app.put("/api/clients/:id", async (req, res) => {
+    try {
+      const clientData = insertClientSchema.parse(req.body);
+      const client = await storage.updateClient(req.params.id, clientData);
+      if (!client) {
+        return res.status(404).json({ message: "Client not found" });
+      }
+      res.json(client);
+    } catch (error) {
+      res.status(400).json({ message: "Invalid client data" });
+    }
+  });
+
+  app.delete("/api/clients/:id", async (req, res) => {
+    try {
+      const success = await storage.deleteClient(req.params.id);
+      if (!success) {
+        return res.status(404).json({ message: "Client not found" });
+      }
+      res.json({ message: "Client deleted successfully" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete client" });
     }
   });
 
@@ -133,6 +198,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.delete("/api/sales/:id", async (req, res) => {
+    try {
+      const success = await storage.deleteSale(req.params.id);
+      if (!success) {
+        return res.status(404).json({ message: "Sale not found" });
+      }
+      res.json({ message: "Sale deleted successfully" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete sale" });
+    }
+  });
+
   // Payment routes
   app.get("/api/payments", async (req, res) => {
     try {
@@ -159,6 +236,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(payments);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch payments for sale" });
+    }
+  });
+
+  app.delete("/api/payments/:id", async (req, res) => {
+    try {
+      const success = await storage.deletePayment(req.params.id);
+      if (!success) {
+        return res.status(404).json({ message: "Payment not found" });
+      }
+      res.json({ message: "Payment deleted successfully" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete payment" });
+    }
+  });
+
+  // Invoice routes
+  app.get("/api/invoices", async (req, res) => {
+    try {
+      const invoices = await storage.getInvoices();
+      res.json(invoices);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch invoices" });
+    }
+  });
+
+  app.post("/api/invoices", async (req, res) => {
+    try {
+      const invoiceData = insertInvoiceSchema.parse(req.body);
+      const invoice = await storage.createInvoice(invoiceData);
+      res.json(invoice);
+    } catch (error) {
+      res.status(400).json({ message: "Invalid invoice data" });
+    }
+  });
+
+  app.get("/api/invoices/:id", async (req, res) => {
+    try {
+      const invoice = await storage.getInvoice(req.params.id);
+      if (!invoice) {
+        return res.status(404).json({ message: "Invoice not found" });
+      }
+      res.json(invoice);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch invoice" });
+    }
+  });
+
+  app.delete("/api/invoices/:id", async (req, res) => {
+    try {
+      const success = await storage.deleteInvoice(req.params.id);
+      if (!success) {
+        return res.status(404).json({ message: "Invoice not found" });
+      }
+      res.json({ message: "Invoice deleted successfully" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete invoice" });
     }
   });
 

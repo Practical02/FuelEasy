@@ -38,6 +38,7 @@ CREATE TABLE "sales" (
 	"sale_price_per_gallon" numeric(8, 3) NOT NULL,
 	"lpo_number" text NOT NULL,
 	"lpo_due_date" timestamp NOT NULL,
+	"invoice_date" timestamp,
 	"sale_status" text DEFAULT 'Pending LPO' NOT NULL,
 	"vat_percentage" numeric(5, 2) DEFAULT '5.00' NOT NULL,
 	"subtotal" numeric(12, 2) NOT NULL,
@@ -51,6 +52,9 @@ CREATE TABLE "stock" (
 	"purchase_date" timestamp NOT NULL,
 	"quantity_gallons" numeric(10, 2) NOT NULL,
 	"purchase_price_per_gallon" numeric(8, 3) NOT NULL,
+	"vat_percentage" numeric(5, 2) DEFAULT '5.00' NOT NULL,
+	"vat_amount" numeric(12, 2) NOT NULL,
+	"total_cost" numeric(12, 2) NOT NULL,
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint

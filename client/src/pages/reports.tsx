@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { CURRENCY, STATUS_COLORS } from "@/lib/constants";
 import type { Sale, Client } from "@shared/schema";
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 
 type SaleWithClient = Sale & { client: Client };
 
@@ -64,36 +64,47 @@ export default function Reports() {
     { subtotal: 0, vatAmount: 0, totalAmount: 0, quantity: 0 }
   );
 
-  const exportToExcel = () => {
+  const exportToExcel = async () => {
     // Create client details section for the selected client
     const selectedClientData = selectedClient !== "all" 
       ? clients.find(c => c.id === selectedClient)
       : null;
 
-    // Create workbook
-    const wb = XLSX.utils.book_new();
-    
-    // Prepare data with client info at the start
-    const excelData = [];
-    
+    // Create workbook and worksheet
+    const workbook = new ExcelJS.Workbook();
+    const sheetName = selectedClientData ? selectedClientData.name.substring(0, 30) : reportType === 'pending' ? 'Pending Business' : 'VAT Report';
+    const worksheet = workbook.addWorksheet(sheetName);
+
+    let currentRow = 1;
+
     // Add client header if specific client selected
     if (selectedClientData) {
-      excelData.push([`Client Details for: ${selectedClientData.name}`]);
-      excelData.push([`Contact Person: ${selectedClientData.contactPerson}`]);
-      excelData.push([`Phone: ${selectedClientData.phoneNumber}`]);
-      excelData.push([`Email: ${selectedClientData.email}`]);
-      excelData.push([`Address: ${selectedClientData.address}`]);
-      excelData.push([]); // Empty row
+      worksheet.getCell(`A${currentRow}`).value = `Client Details for: ${selectedClientData.name}`;
+      worksheet.getCell(`A${currentRow}`).font = { bold: true, size: 14 };
+      currentRow++;
+      
+      worksheet.getCell(`A${currentRow}`).value = `Contact Person: ${selectedClientData.contactPerson}`;
+      currentRow++;
+      worksheet.getCell(`A${currentRow}`).value = `Phone: ${selectedClientData.phoneNumber}`;
+      currentRow++;
+      worksheet.getCell(`A${currentRow}`).value = `Email: ${selectedClientData.email}`;
+      currentRow++;
+      worksheet.getCell(`A${currentRow}`).value = `Address: ${selectedClientData.address}`;
+      currentRow += 2; // Empty row
     }
 
     // Add report type and date range
-    excelData.push([`Report Type: ${reportType === 'pending' ? 'Pending Business Report' : 'VAT Report'}`]);
+    worksheet.getCell(`A${currentRow}`).value = `Report Type: ${reportType === 'pending' ? 'Pending Business Report' : 'VAT Report'}`;
+    worksheet.getCell(`A${currentRow}`).font = { bold: true };
+    currentRow++;
+    
     if (dateFrom || dateTo) {
-      excelData.push([`Date Range: ${dateFrom || 'Start'} to ${dateTo || 'End'}`]);
+      worksheet.getCell(`A${currentRow}`).value = `Date Range: ${dateFrom || 'Start'} to ${dateTo || 'End'}`;
+      currentRow++;
     }
-    excelData.push([]); // Empty row
+    currentRow++; // Empty row
 
-    // Headers as requested: Date of purchase, date of invoice, invoice number, amount
+    // Headers
     const headers = [
       "Date of Sale",
       "Date of Invoice", 
@@ -108,11 +119,22 @@ export default function Reports() {
       "Status"
     ];
     
-    excelData.push(headers);
+    // Add headers
+    headers.forEach((header, index) => {
+      const cell = worksheet.getCell(currentRow, index + 1);
+      cell.value = header;
+      cell.font = { bold: true };
+      cell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFE0E0E0' }
+      };
+    });
+    currentRow++;
 
     // Add sales data
     filteredSales.forEach(sale => {
-      excelData.push([
+      const rowData = [
         new Date(sale.saleDate).toLocaleDateString(),
         sale.saleStatus === "Invoiced" || sale.saleStatus === "Paid" ? new Date(sale.saleDate).toLocaleDateString() : "Not Invoiced",
         sale.saleStatus === "Invoiced" || sale.saleStatus === "Paid" ? `INV-${sale.lpoNumber}` : "Not Generated",
@@ -124,42 +146,49 @@ export default function Reports() {
         parseFloat(sale.vatAmount),
         parseFloat(sale.totalAmount),
         sale.saleStatus
-      ]);
+      ];
+
+      rowData.forEach((value, index) => {
+        worksheet.getCell(currentRow, index + 1).value = value;
+      });
+      currentRow++;
     });
 
     // Add totals
-    excelData.push([]); // Empty row
-    excelData.push(["", "", "", "", "", "TOTALS:", totals.quantity.toFixed(2), totals.subtotal.toFixed(2), totals.vatAmount.toFixed(2), totals.totalAmount.toFixed(2), ""]);
+    currentRow++; // Empty row
+    worksheet.getCell(currentRow, 6).value = "TOTALS:";
+    worksheet.getCell(currentRow, 6).font = { bold: true };
+    worksheet.getCell(currentRow, 7).value = totals.quantity;
+    worksheet.getCell(currentRow, 8).value = totals.subtotal;
+    worksheet.getCell(currentRow, 9).value = totals.vatAmount;
+    worksheet.getCell(currentRow, 10).value = totals.totalAmount;
 
-    // Create worksheet
-    const ws = XLSX.utils.aoa_to_sheet(excelData);
-    
     // Auto-size columns
-    const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
-    const cols = [];
-    for (let C = range.s.c; C <= range.e.c; ++C) {
-      let max = 0;
-      for (let R = range.s.r; R <= range.e.r; ++R) {
-        const cell = ws[XLSX.utils.encode_cell({ r: R, c: C })];
-        if (cell && cell.v) {
-          max = Math.max(max, cell.v.toString().length);
+    worksheet.columns.forEach(column => {
+      let maxLength = 0;
+      column.eachCell?.({ includeEmpty: false }, (cell) => {
+        const cellLength = cell.value ? cell.value.toString().length : 0;
+        if (cellLength > maxLength) {
+          maxLength = cellLength;
         }
-      }
-      cols[C] = { width: Math.min(Math.max(max + 2, 10), 50) };
-    }
-    ws['!cols'] = cols;
+      });
+      column.width = Math.min(Math.max(maxLength + 2, 10), 50);
+    });
 
-    // Add worksheet to workbook
-    const sheetName = selectedClientData ? selectedClientData.name.substring(0, 30) : reportType === 'pending' ? 'Pending Business' : 'VAT Report';
-    XLSX.utils.book_append_sheet(wb, ws, sheetName);
-
-    // Generate filename
+    // Generate filename and save
     const dateStr = new Date().toISOString().split('T')[0];
     const clientStr = selectedClientData ? `_${selectedClientData.name.replace(/[^a-zA-Z0-9]/g, '_')}` : '';
     const filename = `${reportType}_report${clientStr}_${dateStr}.xlsx`;
 
     // Save file
-    XLSX.writeFile(wb, filename);
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    window.URL.revokeObjectURL(url);
   };
 
   const exportToCSV = () => {

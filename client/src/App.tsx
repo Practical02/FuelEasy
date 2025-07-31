@@ -9,6 +9,7 @@ import Stock from "@/pages/stock";
 import Clients from "@/pages/clients";
 import Sales from "@/pages/sales";
 import Payments from "@/pages/payments";
+import Invoices from "@/pages/invoices";
 import Reports from "@/pages/reports";
 import Sidebar from "@/components/layout/sidebar";
 
@@ -24,6 +25,7 @@ function Router() {
           <Route path="/clients" component={Clients} />
           <Route path="/sales" component={Sales} />
           <Route path="/payments" component={Payments} />
+          <Route path="/invoices" component={Invoices} />
           <Route path="/reports" component={Reports} />
           <Route component={NotFound} />
         </Switch>

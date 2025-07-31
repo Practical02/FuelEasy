@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -110,6 +110,9 @@ export default function NewSaleModal({ open, onOpenChange }: NewSaleModalProps) 
       <DialogContent className="max-w-2xl max-h-screen overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Record New Sale</DialogTitle>
+          <DialogDescription>
+            Record a new fuel sale transaction with a client.
+          </DialogDescription>
         </DialogHeader>
 
         <Form {...form}>
@@ -253,7 +256,7 @@ export default function NewSaleModal({ open, onOpenChange }: NewSaleModalProps) 
               <Button 
                 type="submit" 
                 disabled={createSaleMutation.isPending}
-                className="primary-500 text-white hover:primary-600"
+                className="bg-blue-600 text-white hover:bg-blue-700"
               >
                 {createSaleMutation.isPending ? "Recording..." : "Record Sale"}
               </Button>
