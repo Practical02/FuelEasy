@@ -1,7 +1,5 @@
-import dotenv from "dotenv";
-
-// Load environment variables from .env file
-dotenv.config();
+// Environment variables are provided by Replit platform
+// No need to load from .env file
 
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
