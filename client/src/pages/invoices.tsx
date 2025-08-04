@@ -5,7 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
-import { FileText, Download, Trash2, Eye, PlusCircle, Pencil, RefreshCw } from "lucide-react";
+import { FileText, Download, Trash2, Eye, PlusCircle, Pencil } from "lucide-react";
 import { CURRENCY } from "@/lib/constants";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -27,9 +27,12 @@ export default function Invoices() {
   const [isViewInvoiceModalOpen, setIsViewInvoiceModalOpen] = useState(false);
   const { toast } = useToast();
 
-  const { data: invoices, isLoading } = useQuery<InvoiceWithSale[]>({
+  const { data: allInvoices, isLoading } = useQuery<InvoiceWithSale[]>({
     queryKey: ["/api/invoices"],
   });
+
+  // Use all invoices since we're not using soft delete anymore
+  const invoices = allInvoices || [];
 
   const { data: sales } = useQuery<SaleWithClient[]>({
     queryKey: ["/api/sales"],
@@ -42,54 +45,32 @@ export default function Invoices() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sales"] });
       toast({
         title: "Invoice Deleted",
-        description: "Invoice has been deleted successfully.",
+        description: "Invoice has been deleted and sale status reverted to 'LPO Received'.",
       });
       setShowDeleteDialog(false);
       setSelectedInvoice(null);
     },
-    onError: () => {
+    onError: (error: any) => {
+      const errorMessage = error?.message || "Failed to delete invoice. Please try again.";
       toast({
         title: "Error",
-        description: "Failed to delete invoice. Please try again.",
+        description: errorMessage,
         variant: "destructive",
       });
     },
   });
 
-  const regenerateInvoiceMutation = useMutation({
-    mutationFn: async (invoiceId: string) => {
-      const response = await apiRequest(
-        "POST",
-        `/api/invoices/${invoiceId}/regenerate`
-      );
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
-      toast({
-        title: "Invoice Regenerated",
-        description: "A new invoice has been created.",
-      });
-    },
-    onError: () => {
-      toast({
-        title: "Error",
-        description: "Failed to regenerate invoice. Please try again.",
-        variant: "destructive",
-      });
-    },
-  });
+
 
   const handleDeleteClick = (invoice: InvoiceWithSale) => {
     setSelectedInvoice(invoice);
     setShowDeleteDialog(true);
   };
 
-  const handleRegenerateClick = (invoice: InvoiceWithSale) => {
-    regenerateInvoiceMutation.mutate(invoice.id);
-  };
+
 
   const handleEditClick = (invoice: InvoiceWithSale) => {
     setSelectedInvoice(invoice);
@@ -106,6 +87,8 @@ export default function Invoices() {
       deleteInvoiceMutation.mutate(selectedInvoice.id);
     }
   };
+
+
 
   const totalInvoiceAmount = invoices?.reduce((sum, invoice) => 
     sum + parseFloat(invoice.totalAmount), 0
@@ -178,10 +161,10 @@ export default function Invoices() {
           </Card>
         </div>
 
-        {/* Invoice List */}
+        {/* Active Invoices List */}
         <Card>
           <CardContent className="p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-6">All Invoices</h3>
+            <h3 className="text-lg font-semibold text-gray-900 mb-6">Active Invoices</h3>
             
             <div className="overflow-x-auto">
               <table className="w-full">
@@ -230,7 +213,6 @@ export default function Invoices() {
                             className={
                               invoice.status === "Paid" ? "bg-green-100 text-green-600" :
                               invoice.status === "Sent" ? "bg-blue-100 text-blue-600" :
-                              invoice.status === "Deleted" ? "bg-red-100 text-red-600" :
                               "bg-gray-100 text-gray-600"
                             }
                           >
@@ -255,35 +237,22 @@ export default function Invoices() {
                             >
                               <Download className="w-4 h-4" />
                             </Button>
-                            {invoice.status !== "Deleted" && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleEditClick(invoice)}
-                                className="text-yellow-600 hover:text-yellow-800 hover:bg-yellow-50"
-                              >
-                                <Pencil className="w-4 h-4" />
-                              </Button>
-                            )}
-                            {invoice.status === "Deleted" ? (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleRegenerateClick(invoice)}
-                                className="text-green-600 hover:text-green-800 hover:bg-green-50"
-                              >
-                                <RefreshCw className="w-4 h-4" />
-                              </Button>
-                            ) : (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleDeleteClick(invoice)}
-                                className="text-red-600 hover:text-red-800 hover:bg-red-50"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
-                            )}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleEditClick(invoice)}
+                              className="text-yellow-600 hover:text-yellow-800 hover:bg-yellow-50"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDeleteClick(invoice)}
+                              className="text-red-600 hover:text-red-800 hover:bg-red-50"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
                           </div>
                         </td>
                       </tr>
@@ -291,7 +260,7 @@ export default function Invoices() {
                   ) : (
                     <tr>
                       <td colSpan={8} className="py-8 text-center text-gray-500">
-                        No invoices created yet.
+                        No active invoices found.
                       </td>
                     </tr>
                   )}
@@ -300,6 +269,8 @@ export default function Invoices() {
             </div>
           </CardContent>
         </Card>
+
+
       </div>
 
       <NewInvoiceModal
@@ -325,7 +296,7 @@ export default function Invoices() {
         title="Delete Invoice"
         description={
           selectedInvoice
-            ? `Are you sure you want to delete invoice "${selectedInvoice.invoiceNumber}"? This action cannot be undone.`
+            ? `Are you sure you want to delete invoice "${selectedInvoice.invoiceNumber}"? This will delete the invoice and revert the sale status to "LPO Received" so you can generate a new invoice.`
             : "Are you sure you want to delete this invoice?"
         }
         confirmText="Delete Invoice"
@@ -333,6 +304,8 @@ export default function Invoices() {
         isLoading={deleteInvoiceMutation.isPending}
         variant="destructive"
       />
+
+
     </>
   );
 }

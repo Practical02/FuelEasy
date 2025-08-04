@@ -378,13 +378,13 @@ export class MemStorage implements IStorage {
 
   async getSale(id: string): Promise<SaleWithClient | undefined> {
     const sale = this.sales.get(id);
-    if (!sale) return undefined;
+    if (!sale) { return undefined; }
     
     const client = this.clients.get(sale.clientId);
     const project = sale.projectId ? this.projects.get(sale.projectId) : null;
-    if (!client) return undefined;
+    if (!client) { return undefined; }
     
-    return { ...sale, client, project };
+    return sale && client ? { ...sale, client, project: project ?? null } : undefined;
   }
 
   async createSale(insertSale: InsertSale): Promise<Sale> {
@@ -402,6 +402,9 @@ export class MemStorage implements IStorage {
     const sale: Sale = { 
       ...insertSale, 
       id,
+      lpoNumber: insertSale.lpoNumber ?? null,
+      lpoReceivedDate: insertSale.lpoReceivedDate ?? null,
+      lpoDueDate: insertSale.lpoDueDate ?? null,
       invoiceDate: insertSale.invoiceDate || null,
       saleStatus: insertSale.saleStatus || "Pending LPO",
       vatPercentage: vatPercentage.toFixed(2),
@@ -419,7 +422,7 @@ export class MemStorage implements IStorage {
 
   async updateSale(id: string, saleData: InsertSale): Promise<Sale | undefined> {
     const existingSale = this.sales.get(id);
-    if (!existingSale) return undefined;
+    if (!existingSale) { return undefined; }
     
     // Calculate totals
     const quantity = parseFloat(saleData.quantityGallons);
@@ -447,7 +450,7 @@ export class MemStorage implements IStorage {
 
   async updateSaleStatus(id: string, status: string): Promise<Sale | undefined> {
     const sale = this.sales.get(id);
-    if (!sale) return undefined;
+    if (!sale) { return undefined; }
     
     const updatedSale = { 
       ...sale, 
@@ -540,7 +543,7 @@ export class MemStorage implements IStorage {
     const salesArray = Array.from(this.sales.values());
     const stockArray = Array.from(this.stock.values());
     
-    if (stockArray.length === 0) return 0;
+    if (stockArray.length === 0) { return 0; }
     
     // Calculate weighted average cost per gallon
     const totalCost = stockArray.reduce((sum, stock) => 
@@ -583,7 +586,7 @@ export class MemStorage implements IStorage {
     return allSales.filter(sale => {
       // Filter by pending status only
       const isPending = sale.saleStatus === "Pending LPO" || sale.saleStatus === "LPO Received" || sale.saleStatus === "Invoiced";
-      if (!isPending) return false;
+      if (!isPending) { return false; }
 
       // Filter by client if specified
       if (clientId && clientId !== "all" && sale.clientId !== clientId) {

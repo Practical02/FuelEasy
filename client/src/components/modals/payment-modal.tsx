@@ -1,24 +1,27 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { StatusBadge } from "@/components/ui/status-badge";
-import { insertPaymentSchema, type Payment, type SaleWithClient } from "@shared/schema";
+import { Textarea } from "@/components/ui/textarea";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { CURRENCY, PAYMENT_METHODS } from "@/lib/constants";
+import { CURRENCY } from "@/lib/constants";
 import { z } from "zod";
 
-const paymentFormSchema = insertPaymentSchema.extend({
-  amountReceived: z.number().min(0.01, "Amount must be greater than 0."),
+// Simplified schema for simple payment
+const paymentFormSchema = z.object({
+  clientId: z.string().min(1, "Please select a client"),
+  saleId: z.string().min(1, "Please select a sale"),
   paymentDate: z.coerce.date(),
-  paymentMethod: z.string().min(1, "Payment method is required."),
+  paymentMethod: z.string().min(1, "Payment method is required"),
+  amountReceived: z.number().min(0.01, "Amount must be greater than 0"),
+  chequeNumber: z.string().optional(),
+  notes: z.string().optional(),
 });
 
 interface PaymentModalProps {
@@ -29,44 +32,46 @@ interface PaymentModalProps {
 
 export default function PaymentModal({ open, onOpenChange, saleId }: PaymentModalProps) {
   const { toast } = useToast();
+  const [selectedClientId, setSelectedClientId] = useState<string>("");
 
-  const { data: sales } = useQuery<SaleWithClient[]>({
+  // Fetch data
+  const { data: sales } = useQuery<any[]>({
     queryKey: ["/api/sales"],
-    enabled: !saleId, // Only fetch if no specific sale is provided
+    enabled: open,
   });
 
-  const { data: specificSale } = useQuery<SaleWithClient>({
-    queryKey: ["/api/sales", saleId],
-    enabled: !!saleId,
+  const { data: clients } = useQuery<any[]>({
+    queryKey: ["/api/clients"],
+    enabled: open,
   });
+
+  // Get unpaid sales for selected client
+  const clientUnpaidSales = sales?.filter(sale => 
+    sale.clientId === selectedClientId && 
+    sale.saleStatus !== "Paid"
+  ) || [];
 
   const form = useForm<z.infer<typeof paymentFormSchema>>({
     resolver: zodResolver(paymentFormSchema),
     defaultValues: {
-      saleId: saleId || "",
+      clientId: "",
+      saleId: "",
       paymentDate: new Date(),
-      amountReceived: undefined,
       paymentMethod: "",
+      amountReceived: 0,
       chequeNumber: "",
+      notes: "",
     },
-  });
-
-  const selectedSaleId = form.watch("saleId") || saleId;
-
-  const { data: existingPayments } = useQuery<Payment[]>({
-    queryKey: ["/api/payments/sale", selectedSaleId],
-    enabled: !!selectedSaleId,
   });
 
   const createPaymentMutation = useMutation({
     mutationFn: async (data: z.infer<typeof paymentFormSchema>) => {
-      // Ensure all required fields are present and types are correct
-      const paymentDate = (data.paymentDate instanceof Date ? data.paymentDate : new Date(data.paymentDate));
       const payload = {
-        ...data,
-        paymentDate: paymentDate.toISOString().split('T')[0], // Send as YYYY-MM-DD
-        amountReceived: Number(data.amountReceived),
-        chequeNumber: data.paymentMethod === "Cheque" ? (data.chequeNumber || null) : null,
+        saleId: data.saleId,
+        paymentDate: data.paymentDate.toISOString().split('T')[0],
+        paymentMethod: data.paymentMethod,
+        amountReceived: data.amountReceived,
+        chequeNumber: data.paymentMethod === "Cheque" ? data.chequeNumber : null,
       };
       const response = await apiRequest("POST", "/api/payments", payload);
       return response.json();
@@ -74,21 +79,19 @@ export default function PaymentModal({ open, onOpenChange, saleId }: PaymentModa
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/sales"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/reports/overview"] });
-      if (selectedSaleId) {
-        queryClient.invalidateQueries({ queryKey: ["/api/payments/sale", selectedSaleId] });
-      }
+      queryClient.invalidateQueries({ queryKey: ["/api/cashbook"] });
       toast({
-        title: "Payment Recorded",
-        description: "Payment has been recorded successfully.",
+        title: "Payment Recorded Successfully",
+        description: "The payment has been recorded, allocated to the invoice, and the sale has been updated.",
       });
       form.reset();
+      setSelectedClientId("");
       onOpenChange(false);
     },
-    onError: (error: Error) => {
+    onError: (error: any) => {
       toast({
-        title: "Error",
-        description: error.message || "Failed to record payment. Please try again.",
+        title: "Payment Failed",
+        description: error?.message || "Failed to record payment. Please try again.",
         variant: "destructive",
       });
     },
@@ -98,59 +101,85 @@ export default function PaymentModal({ open, onOpenChange, saleId }: PaymentModa
     createPaymentMutation.mutate(data);
   };
 
-  // Get available sales for payment (unpaid only)
-  const availableSales = sales?.filter(sale => sale.saleStatus !== "Paid") || [];
-  
-  // Calculate remaining amount for selected sale
-  const selectedSale = selectedSaleId 
-    ? (specificSale || availableSales.find(s => s.id === selectedSaleId))
-    : null;
-  
-  const totalPaid = existingPayments?.reduce((sum: number, payment: any) => 
-    sum + parseFloat(payment.amountReceived), 0) || 0;
-  
-  const remainingAmount = selectedSale 
-    ? parseFloat(selectedSale.totalAmount) - totalPaid 
-    : 0;
+  const handleClientChange = (clientId: string) => {
+    setSelectedClientId(clientId);
+    form.setValue("clientId", clientId);
+    form.setValue("saleId", "");
+    form.setValue("amountReceived", 0);
+  };
+
+  const handleSaleChange = (saleId: string) => {
+    const sale = clientUnpaidSales.find(s => s.id === saleId);
+    if (sale) {
+      form.setValue("saleId", saleId);
+      form.setValue("amountReceived", parseFloat(sale.totalAmount));
+    }
+  };
 
   const showChequeField = form.watch("paymentMethod") === "Cheque";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl w-full">
+      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Record Payment</DialogTitle>
           <DialogDescription>
-            Record a payment received from a client for their purchase.
+            Record a payment received from a client for a specific sale.
           </DialogDescription>
         </DialogHeader>
-        <ScrollArea className="h-[70vh] p-4">
+
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-            {!saleId && (
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            <FormField
+              control={form.control}
+              name="clientId"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Client</FormLabel>
+                  <Select onValueChange={handleClientChange} value={field.value}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Choose a client..." />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {clients?.map((client) => (
+                        <SelectItem key={client.id} value={client.id}>
+                          {client.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            {selectedClientId && (
               <FormField
                 control={form.control}
                 name="saleId"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Select Sale</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <FormLabel>Sale</FormLabel>
+                    <Select onValueChange={handleSaleChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder="Choose a sale to record payment for..." />
+                          <SelectValue placeholder="Choose a sale..." />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {availableSales.map((sale) => (
-                          <SelectItem key={sale.id} value={sale.id}>
-                            <div className="flex items-center justify-between w-full">
-                              <span>{sale.client.name} - {sale.lpoNumber}</span>
-                              <span className="ml-2 text-sm text-gray-500">
-                                {CURRENCY} {parseFloat(sale.totalAmount).toLocaleString()}
-                              </span>
-                            </div>
+                        {clientUnpaidSales.length === 0 ? (
+                          <SelectItem value="" disabled>
+                            No unpaid sales found
                           </SelectItem>
-                        ))}
+                        ) : (
+                          clientUnpaidSales.map((sale) => (
+                            <SelectItem key={sale.id} value={sale.id}>
+                              LPO: {sale.lpoNumber || "N/A"} - {CURRENCY} {parseFloat(sale.totalAmount).toLocaleString()}
+                            </SelectItem>
+                          ))
+                        )}
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -159,61 +188,50 @@ export default function PaymentModal({ open, onOpenChange, saleId }: PaymentModa
               />
             )}
 
-            {selectedSale && (
-              <div className="bg-gray-50 rounded-lg p-4 space-y-2">
-                <h4 className="font-medium text-gray-900">Sale Details</h4>
-                <div className="text-sm space-y-1">
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Client:</span>
-                    <span className="font-medium">{selectedSale.client.name}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">LPO Number:</span>
-                    <span className="font-medium">{selectedSale.lpoNumber}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Total Amount:</span>
-                    <span className="font-medium">
-                      {CURRENCY} {parseFloat(selectedSale.totalAmount).toLocaleString()}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Already Paid:</span>
-                    <span className="font-medium">
-                      {CURRENCY} {totalPaid.toLocaleString()}
-                    </span>
-                  </div>
-                  <div className="flex justify-between pt-2 border-t border-gray-200">
-                    <span className="text-gray-600">Remaining:</span>
-                    <span className="font-bold text-lg text-primary-600">
-                      {CURRENCY} {remainingAmount.toLocaleString()}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Status:</span>
-                    <StatusBadge status={selectedSale.saleStatus as any} />
-                  </div>
-                </div>
-              </div>
-            )}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <FormField
+                control={form.control}
+                name="paymentDate"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Payment Date</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="date"
+                        value={field.value instanceof Date ? field.value.toISOString().split('T')[0] : new Date(field.value).toISOString().split('T')[0]}
+                        onChange={(e) => field.onChange(new Date(e.target.value))}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-            <FormField
-              control={form.control}
-              name="paymentDate"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Payment Date</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="date"
-                      value={field.value instanceof Date ? field.value.toISOString().split('T')[0] : new Date(field.value).toISOString().split('T')[0]}
-                      onChange={(e) => field.onChange(new Date(e.target.value))}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+              <FormField
+                control={form.control}
+                name="paymentMethod"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Payment Method</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select payment method..." />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="Cash">Cash</SelectItem>
+                        <SelectItem value="Cheque">Cheque</SelectItem>
+                        <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
+                        <SelectItem value="Credit Card">Credit Card</SelectItem>
+                        <SelectItem value="Debit Card">Debit Card</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
 
             <FormField
               control={form.control}
@@ -222,39 +240,14 @@ export default function PaymentModal({ open, onOpenChange, saleId }: PaymentModa
                 <FormItem>
                   <FormLabel>Amount Received ({CURRENCY})</FormLabel>
                   <FormControl>
-                    <Input 
-                      type="number" 
-                      step="0.01" 
-                      placeholder="0.00" 
+                    <Input
+                      type="number"
+                      step="0.01"
+                      placeholder="0.00"
                       {...field}
-                      onChange={(e) => field.onChange(parseFloat(e.target.value))}
+                      onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
                     />
                   </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="paymentMethod"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Payment Method</FormLabel>
-                  <Select onValueChange={field.onChange} defaultValue={field.value}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select payment method..." />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {PAYMENT_METHODS.map((method) => (
-                        <SelectItem key={method} value={method}>
-                          {method}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
                   <FormMessage />
                 </FormItem>
               )}
@@ -276,25 +269,47 @@ export default function PaymentModal({ open, onOpenChange, saleId }: PaymentModa
               />
             )}
 
-            <div className="flex items-center justify-end space-x-3 pt-6 border-t border-gray-200">
+            <FormField
+              control={form.control}
+              name="notes"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Notes (Optional)</FormLabel>
+                  <FormControl>
+                    <Textarea 
+                      placeholder="Add any additional notes about this payment..." 
+                      {...field} 
+                      value={field.value || ""}
+                      rows={3}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <div className="flex items-center justify-end space-x-3 pt-6 border-t">
               <Button 
                 type="button" 
                 variant="outline" 
-                onClick={() => onOpenChange(false)}
+                onClick={() => {
+                  form.reset();
+                  setSelectedClientId("");
+                  onOpenChange(false);
+                }}
               >
                 Cancel
               </Button>
               <Button 
                 type="submit" 
-                disabled={createPaymentMutation.isPending || !selectedSale}
-                className="primary-500 text-white hover:primary-600"
+                disabled={createPaymentMutation.isPending || !form.formState.isValid}
+                className="w-full md:w-auto"
               >
                 {createPaymentMutation.isPending ? "Recording..." : "Record Payment"}
               </Button>
             </div>
           </form>
         </Form>
-        </ScrollArea>
       </DialogContent>
     </Dialog>
   );

@@ -46,6 +46,7 @@ const mockPayments = [
   },
 ];
 
+type ApiRequestMock = import('vitest').MockInstance<any>;
 describe('PaymentModal', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -54,7 +55,8 @@ describe('PaymentModal', () => {
 
   it('renders correctly and shows sale details when saleId is provided', async () => {
     // Mock API responses
-    (apiRequest as vi.Mock).mockImplementation((method, url) => {
+    (apiRequest as unknown as ApiRequestMock).mockImplementation((...args) => {
+      const [method, url] = args;
       if (url === '/api/sales/sale-123') {
         return Promise.resolve({ json: () => Promise.resolve(mockSale) });
       }
@@ -70,7 +72,7 @@ describe('PaymentModal', () => {
       </QueryClientProvider>
     );
 
-        expect(screen.getByRole('heading', { name: /Record Payment/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Record Payment/i })).toBeInTheDocument();
     await screen.findByText('Sale Details');
     expect(screen.getByText('Client:')).toBeInTheDocument();
     expect(screen.getByText('Test Client')).toBeInTheDocument();
@@ -89,7 +91,8 @@ describe('PaymentModal', () => {
     const onOpenChangeMock = vi.fn();
 
     // Mock API responses
-    (apiRequest as vi.Mock).mockImplementation((method, url, data) => {
+    (apiRequest as unknown as ApiRequestMock).mockImplementation((...args) => {
+      const [method, url, data] = args;
       if (url === '/api/sales/sale-123') {
         return Promise.resolve({ json: () => Promise.resolve(mockSale) });
       }
@@ -97,7 +100,7 @@ describe('PaymentModal', () => {
         return Promise.resolve({ json: () => Promise.resolve(mockPayments) });
       }
       if (url === '/api/payments' && method === 'POST') {
-        return Promise.resolve({ json: () => Promise.resolve({ id: 'new-payment-id', ...data }) });
+        return Promise.resolve({ json: () => Promise.resolve({ id: 'new-payment-id', ...(typeof data === 'object' && data !== null ? data : {}) }) });
       }
       return Promise.reject(new Error('Unknown API route'));
     });
@@ -137,7 +140,8 @@ describe('PaymentModal', () => {
     const onOpenChangeMock = vi.fn();
 
     // Mock API responses
-    (apiRequest as vi.Mock).mockImplementation((method, url) => {
+    (apiRequest as unknown as ApiRequestMock).mockImplementation((...args) => {
+      const [method, url] = args;
       if (url === '/api/sales/sale-123') {
         return Promise.resolve({ json: () => Promise.resolve(mockSale) });
       }

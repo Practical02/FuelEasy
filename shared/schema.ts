@@ -1,3 +1,18 @@
+export const paymentProjects = pgTable("payment_projects", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  paymentId: uuid("payment_id").references(() => payments.id).notNull(),
+  projectId: uuid("project_id").references(() => projects.id).notNull(),
+  amountAllocated: decimal("amount_allocated", { precision: 12, scale: 2 }).notNull(),
+});
+
+// New table for cashbook payment allocations (to invoices)
+export const cashbookPaymentAllocations = pgTable("cashbook_payment_allocations", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  cashbookEntryId: uuid("cashbook_entry_id").references(() => cashbook.id).notNull(),
+  invoiceId: uuid("invoice_id").references(() => invoices.id).notNull(),
+  amountAllocated: decimal("amount_allocated", { precision: 12, scale: 2 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
 import { sql } from "drizzle-orm";
 import { pgTable, text, varchar, integer, decimal, timestamp, uuid } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
@@ -93,7 +108,8 @@ export const accountHeads = pgTable("account_heads", {
 export const cashbook = pgTable("cashbook", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   transactionDate: timestamp("transaction_date").notNull(),
-  transactionType: text("transaction_type").notNull(), // "Investment", "Profit Withdrawal", "Stock Purchase", "Stock Payment", "Sale Revenue", "Expense", "Other"
+  transactionType: text("transaction_type").notNull(), // "Invoice", "Investment", "Supplier Payment", "Expense", "Withdrawal", "Other"
+  category: text("category"), // Optional category for better organization
   accountHeadId: uuid("account_head_id").references(() => accountHeads.id).notNull(),
   amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
   isInflow: integer("is_inflow").notNull(), // 1 for inflow, 0 for outflow
@@ -157,6 +173,12 @@ export const insertPaymentSchema = createInsertSchema(payments).omit({
   createdAt: true,
 });
 
+// Add schema for cashbook payment allocations
+export const insertCashbookPaymentAllocationSchema = createInsertSchema(cashbookPaymentAllocations).omit({
+  id: true,
+  createdAt: true,
+});
+
 // Types
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
@@ -185,6 +207,9 @@ export type Payment = typeof payments.$inferSelect;
 export type InsertAccountHead = z.infer<typeof insertAccountHeadSchema>;
 export type AccountHead = typeof accountHeads.$inferSelect;
 
+export type InsertCashbookPaymentAllocation = z.infer<typeof insertCashbookPaymentAllocationSchema>;
+export type CashbookPaymentAllocation = typeof cashbookPaymentAllocations.$inferSelect;
+
 // Additional types for joined data
 export type SaleWithClient = Sale & {
   client: Client;
@@ -204,4 +229,13 @@ export type PaymentWithSaleAndClient = Payment & {
 
 export type CashbookEntryWithAccountHead = CashbookEntry & {
   accountHead: AccountHead;
+  paymentAllocations?: CashbookPaymentAllocationWithInvoice[];
+  allocationStatus?: string;
+  allocatedAmount?: number;
+};
+
+export type CashbookPaymentAllocationWithInvoice = CashbookPaymentAllocation & {
+  invoice: Invoice & {
+    sale: SaleWithClient;
+  };
 };

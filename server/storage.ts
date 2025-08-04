@@ -21,6 +21,9 @@ import {
   type AccountHead,
   type InsertAccountHead,
   type CashbookEntryWithAccountHead,
+  type CashbookPaymentAllocation,
+  type InsertCashbookPaymentAllocation,
+  type CashbookPaymentAllocationWithInvoice,
   users,
   stock,
   clients,
@@ -29,17 +32,18 @@ import {
   invoices,
   payments,
   cashbook,
-  accountHeads
+  accountHeads,
+  cashbookPaymentAllocations
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
-import { eq, desc, sql } from "drizzle-orm";
+import { eq, desc, sql, and } from "drizzle-orm";
 
 // Initialize database connection
 const connectionString = process.env.DATABASE_URL || "";
 const sql_conn = neon(connectionString);
-const db = drizzle(sql_conn, { schema: { users, stock, clients, projects, sales, invoices, payments, cashbook, accountHeads } });
+const db = drizzle(sql_conn, { schema: { users, stock, clients, projects, sales, invoices, payments, cashbook, accountHeads, cashbookPaymentAllocations } });
 
 export interface IStorage {
   // User methods
@@ -95,13 +99,41 @@ export interface IStorage {
   getPaymentsBySale(saleId: string): Promise<Payment[]>;
   createPayment(payment: InsertPayment): Promise<Payment>;
   deletePayment(id: string): Promise<boolean>;
+  migratePaymentsToCashbook(): Promise<number>;
   
   // Cashbook methods
-  getCashbookEntries(): Promise<CashbookEntry[]>;
+  getCashbookEntries(): Promise<CashbookEntryWithAccountHead[]>;
   getCashbookEntry(id: string): Promise<CashbookEntry | undefined>;
   createCashbookEntry(entry: InsertCashbook): Promise<CashbookEntry>;
+  updateCashbookEntry(id: string, entry: InsertCashbook): Promise<CashbookEntry | undefined>;
   deleteCashbookEntry(id: string): Promise<boolean>;
   getCashBalance(): Promise<number>;
+  getPendingDebts(): Promise<CashbookEntry[]>;
+  getTransactionSummary(): Promise<{
+    totalInflow: number;
+    totalOutflow: number;
+    pendingDebts: number;
+    availableBalance: number;
+  }>;
+  markDebtAsPaid(cashbookId: string, paidAmount: number, paymentMethod: string, paymentDate: Date): Promise<CashbookEntry>;
+  
+  // Cashbook Payment Allocation methods
+  getCashbookPaymentAllocations(): Promise<CashbookPaymentAllocationWithInvoice[]>;
+  createCashbookPaymentAllocation(allocation: InsertCashbookPaymentAllocation): Promise<CashbookPaymentAllocation>;
+  getCashbookPaymentAllocationsByEntry(cashbookEntryId: string): Promise<CashbookPaymentAllocationWithInvoice[]>;
+  getPendingInvoicesForAllocation(accountHeadId?: string): Promise<any[]>;
+  getInvoiceAllocatedAmount(invoiceId: string): Promise<number>;
+  updateInvoiceStatusIfPaid(invoiceId: string): Promise<void>;
+  
+  // Supplier Debt Tracking methods
+  getSupplierDebts(): Promise<CashbookEntryWithAccountHead[]>;
+  getSupplierOutstandingBalance(supplierId: string): Promise<number>;
+  getSupplierPaymentHistory(supplierId: string): Promise<CashbookEntry[]>;
+  
+  // Client Payment Tracking methods
+  getClientPayments(): Promise<CashbookEntryWithAccountHead[]>;
+  getClientOutstandingBalance(clientId: string): Promise<number>;
+  getClientPaymentHistory(clientId: string): Promise<CashbookEntry[]>;
   
   // Reporting methods
   getTotalRevenue(): Promise<number>;
@@ -114,38 +146,24 @@ export interface IStorage {
   getVATReport(clientId?: string, dateFrom?: string, dateTo?: string): Promise<SaleWithClient[]>;
 }
 
-export class MemStorage implements IStorage {
-  private users: Map<string, User>;
-  private stock: Map<string, Stock>;
-  private clients: Map<string, Client>;
-  private sales: Map<string, Sale>;
-  private invoices: Map<string, Invoice>;
-  private payments: Map<string, Payment>;
-
+export class DatabaseStorage implements IStorage {
   constructor() {
-    this.users = new Map();
-    this.stock = new Map();
-    this.clients = new Map();
-    this.sales = new Map();
-    this.invoices = new Map();
-    this.payments = new Map();
+    // Database storage - no in-memory maps needed
   }
 
   async getUser(id: string): Promise<User | undefined> {
-    return this.users.get(id);
+    const result = await db.select().from(users).where(eq(users.id, id)).limit(1);
+    return result[0];
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(
-      (user) => user.username === username,
-    );
+    const result = await db.select().from(users).where(eq(users.username, username)).limit(1);
+    return result[0];
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const id = randomUUID();
-    const user: User = { ...insertUser, id };
-    this.users.set(id, user);
-    return user;
+    const result = await db.insert(users).values(insertUser).returning();
+    return result[0];
   }
 
   async getStock(): Promise<Stock[]> {
@@ -170,31 +188,6 @@ export class MemStorage implements IStorage {
     };
     
     const result = await db.insert(stock).values(stockData).returning();
-    
-    // Find or create "Supplier" account head
-    let supplierAccountHead = await db.select().from(accountHeads).where(eq(accountHeads.name, "Sigma Diesel Trading Pvt Ltd")).limit(1);
-    if (!supplierAccountHead[0]) {
-      supplierAccountHead = [await this.createAccountHead({
-        name: "Sigma Diesel Trading Pvt Ltd",
-        type: "Supplier",
-      })];
-    }
-
-    // Create cashbook entry for stock purchase (as debt)
-    await db.insert(cashbook).values({
-      transactionDate: insertStock.purchaseDate,
-      transactionType: "Stock Purchase",
-      accountHeadId: supplierAccountHead[0].id,
-      amount: totalCost.toFixed(2),
-      isInflow: 0, // Outflow since we're purchasing
-      description: `Stock purchase: ${quantity} gallons at ${pricePerGallon} AED/gallon`,
-      counterparty: "Sigma Diesel Trading Pvt Ltd",
-      paymentMethod: "Credit", // Default to credit (debt)
-      referenceType: "stock",
-      referenceId: result[0].id,
-      isPending: 1, // Mark as pending debt by default
-      notes: `VAT: ${vatAmount} AED (${vatPercentage}%)`
-    });
     
     return result[0];
   }
@@ -247,8 +240,91 @@ export class MemStorage implements IStorage {
   }
 
   async deleteClient(id: string): Promise<boolean> {
-    const result = await db.delete(clients).where(eq(clients.id, id)).returning();
-    return result.length > 0;
+    try {
+      // Get the client first to understand what we're deleting
+      const client = await db
+        .select()
+        .from(clients)
+        .where(eq(clients.id, id))
+        .limit(1);
+
+      if (client.length === 0) {
+        return false;
+      }
+
+      // Delete operations without transaction (for Neon HTTP driver compatibility)
+      // 1. Get all sales for this client
+      const clientSales = await db
+        .select()
+        .from(sales)
+        .where(eq(sales.clientId, id));
+
+      // 2. For each sale, delete related data
+      for (const sale of clientSales) {
+        // Delete cashbook payment allocations for invoices of this sale
+        const saleInvoices = await db
+          .select()
+          .from(invoices)
+          .where(eq(invoices.saleId, sale.id));
+
+        for (const invoice of saleInvoices) {
+          await db
+            .delete(cashbookPaymentAllocations)
+            .where(eq(cashbookPaymentAllocations.invoiceId, invoice.id));
+        }
+
+        // Delete cashbook entries related to payments for this sale
+        const salePayments = await db
+          .select()
+          .from(payments)
+          .where(eq(payments.saleId, sale.id));
+
+        for (const payment of salePayments) {
+          await db
+            .delete(cashbook)
+            .where(and(
+              eq(cashbook.referenceType, "payment"),
+              eq(cashbook.referenceId, payment.id)
+            ));
+        }
+
+        // Delete payments for this sale
+        await db
+          .delete(payments)
+          .where(eq(payments.saleId, sale.id));
+
+        // Delete invoices for this sale
+        await db
+          .delete(invoices)
+          .where(eq(invoices.saleId, sale.id));
+      }
+
+      // 3. Delete all sales for this client
+      await db
+        .delete(sales)
+        .where(eq(sales.clientId, id));
+
+      // 4. Delete all projects for this client
+      await db
+        .delete(projects)
+        .where(eq(projects.clientId, id));
+
+      // 5. Delete the account head for this client (if it exists)
+      await db
+        .delete(accountHeads)
+        .where(eq(accountHeads.name, client[0].name));
+
+      // 6. Delete the client itself
+      const result = await db
+        .delete(clients)
+        .where(eq(clients.id, id))
+        .returning();
+
+      return result.length > 0;
+    } catch (error) {
+      console.error("Error deleting client:", error);
+      throw error;
+    }
   }
 
   async getAccountHeads(): Promise<AccountHead[]> {
@@ -536,6 +612,7 @@ export class MemStorage implements IStorage {
       await this.createCashbookEntry({
         transactionDate: insertSale.saleDate,
         transactionType: "Sale Revenue",
+        accountHeadId: insertSale.clientId,
         amount: totalAmount.toFixed(2),
         isInflow: 1,
         description: `Sale revenue - ${quantity} gallons`,
@@ -656,18 +733,26 @@ export class MemStorage implements IStorage {
       throw new Error("Client not found for this sale");
     }
 
-    let clientAccountHead = await db.select().from(accountHeads).where(eq(accountHeads.name, client.name)).limit(1);
-    if (!clientAccountHead[0]) {
-      clientAccountHead = [await this.createAccountHead({
+    // Find or create account head for the client using database
+    let clientAccountHead = await db
+      .select()
+      .from(accountHeads)
+      .where(eq(accountHeads.name, client.name))
+      .limit(1);
+
+    if (clientAccountHead.length === 0) {
+      const newAccountHead = await db.insert(accountHeads).values({
         name: client.name,
         type: "Client",
-      })];
+      }).returning();
+      clientAccountHead = newAccountHead;
     }
 
     // Create cashbook entry for payment received
-    await this.createCashbookEntry({
+    const cashbookEntry = await this.createCashbookEntry({
       transactionDate: insertPayment.paymentDate,
-      transactionType: "Sale Revenue",
+      transactionType: "Invoice",
+      category: "Payment Received",
       accountHeadId: clientAccountHead[0].id,
       amount: parseFloat(insertPayment.amountReceived).toFixed(2),
       isInflow: 1,
@@ -679,6 +764,22 @@ export class MemStorage implements IStorage {
       isPending: 0,
       notes: `Amount: ${insertPayment.amountReceived}`
     });
+
+    // Find the invoice for this sale and automatically allocate the payment
+    const invoice = await db
+      .select()
+      .from(invoices)
+      .where(eq(invoices.saleId, insertPayment.saleId))
+      .limit(1);
+
+    if (invoice[0]) {
+      // Automatically allocate the full payment amount to the invoice
+      await this.createCashbookPaymentAllocation({
+        cashbookEntryId: cashbookEntry.id,
+        invoiceId: invoice[0].id,
+        amountAllocated: insertPayment.amountReceived,
+      });
+    }
 
     const totalPaid = (await this.getPaymentsBySale(insertPayment.saleId))
       .reduce((sum, p) => sum + parseFloat(p.amountReceived), 0);
@@ -706,6 +807,7 @@ export class MemStorage implements IStorage {
         id: cashbook.id,
         transactionDate: cashbook.transactionDate,
         transactionType: cashbook.transactionType,
+        category: cashbook.category,
         accountHeadId: cashbook.accountHeadId,
         amount: cashbook.amount,
         isInflow: cashbook.isInflow,
@@ -721,43 +823,222 @@ export class MemStorage implements IStorage {
       })
       .from(cashbook)
       .leftJoin(accountHeads, eq(cashbook.accountHeadId, accountHeads.id))
-      .orderBy(desc(cashbook.createdAt));
+      .orderBy(desc(cashbook.transactionDate));
 
-    return result.map(r => ({
-      ...r,
-      accountHead: r.accountHead!,
-    }));
+    // Calculate allocation status for client payments
+    const entriesWithStatus = await Promise.all(
+      result.map(async (r) => {
+        const entryWithAccountHead = {
+          ...r,
+          accountHead: r.accountHead!,
+        };
+
+        // Only calculate status for client payments (inflow transactions)
+        if (r.isInflow === 1 && r.accountHead && r.accountHead.type === "Client") {
+          const totalAllocated = await this.getCashbookEntryAllocatedAmount(r.id);
+          const totalAmount = parseFloat(r.amount);
+          
+          let allocationStatus = "Not Allocated";
+          if (totalAllocated > 0) {
+            if (Math.abs(totalAllocated - totalAmount) < 0.01) {
+              allocationStatus = "Fully Allocated";
+            } else if (totalAllocated < totalAmount) {
+              allocationStatus = "Partially Allocated";
+            } else {
+              allocationStatus = "Over-allocated";
+            }
+          }
+          
+          return {
+            ...entryWithAccountHead,
+            allocationStatus,
+            allocatedAmount: totalAllocated,
+          };
+        }
+
+        return entryWithAccountHead;
+      })
+    );
+
+    return entriesWithStatus;
   }
 
   async getCashbookEntry(id: string): Promise<CashbookEntry | undefined> {
-    const result = await db.select().from(cashbook).where(eq(cashbook.id, id)).limit(1);
+    const result = await db.select().from(cashbook).where(eq(cashbook.id, id));
     return result[0];
   }
 
   async createCashbookEntry(insertCashbook: InsertCashbook): Promise<CashbookEntry> {
-    const result = await db.insert(cashbook).values(insertCashbook).returning();
-    return result[0];
+    try {
+      // Validate required fields
+      if (!insertCashbook.transactionDate || !insertCashbook.transactionType || !insertCashbook.amount || !insertCashbook.accountHeadId) {
+        throw new Error("Missing required fields: transactionDate, transactionType, amount, accountHeadId");
+      }
+
+      // Validate amount is positive
+      const amount = parseFloat(insertCashbook.amount);
+      if (isNaN(amount) || amount <= 0) {
+        throw new Error("Amount must be a positive number");
+      }
+
+      // Validate account head exists
+      const accountHead = await db.select().from(accountHeads).where(eq(accountHeads.id, insertCashbook.accountHeadId)).limit(1);
+      if (accountHead.length === 0) {
+        throw new Error("Account head not found");
+      }
+
+      const result = await db.insert(cashbook).values(insertCashbook).returning();
+      return result[0];
+    } catch (error) {
+      console.error("Error creating cashbook entry:", error);
+      throw error;
+    }
+  }
+
+  async updateCashbookEntry(id: string, updateCashbook: InsertCashbook): Promise<CashbookEntry | undefined> {
+    try {
+      // Validate required fields
+      if (!updateCashbook.transactionDate || !updateCashbook.transactionType || !updateCashbook.amount || !updateCashbook.accountHeadId) {
+        throw new Error("Missing required fields: transactionDate, transactionType, amount, accountHeadId");
+      }
+
+      // Validate amount is positive
+      const amount = parseFloat(updateCashbook.amount);
+      if (isNaN(amount) || amount <= 0) {
+        throw new Error("Amount must be a positive number");
+      }
+
+      // Validate account head exists
+      const accountHead = await db.select().from(accountHeads).where(eq(accountHeads.id, updateCashbook.accountHeadId)).limit(1);
+      if (accountHead.length === 0) {
+        throw new Error("Account head not found");
+      }
+
+      // Check if entry exists
+      const existingEntry = await db.select().from(cashbook).where(eq(cashbook.id, id)).limit(1);
+      if (existingEntry.length === 0) {
+        return undefined;
+      }
+
+      const result = await db.update(cashbook).set(updateCashbook).where(eq(cashbook.id, id)).returning();
+      return result[0];
+    } catch (error) {
+      console.error("Error updating cashbook entry:", error);
+      throw error;
+    }
   }
 
   async deleteCashbookEntry(id: string): Promise<boolean> {
-    const result = await db.delete(cashbook).where(eq(cashbook.id, id)).returning();
-    return result.length > 0;
+    try {
+      // Get the cashbook entry first to understand what we're deleting
+      const entry = await db
+        .select()
+        .from(cashbook)
+        .where(eq(cashbook.id, id))
+        .limit(1);
+
+      if (entry.length === 0) {
+        return false;
+      }
+
+      // Delete operations without transaction (for Neon HTTP driver compatibility)
+      // 1. Delete all cashbook payment allocations for this entry
+      await db
+        .delete(cashbookPaymentAllocations)
+        .where(eq(cashbookPaymentAllocations.cashbookEntryId, id));
+
+      // 2. If this is a payment-related cashbook entry, also delete the payment
+      if (entry[0].referenceType === "payment" && entry[0].referenceId) {
+        // Get the payment details before deleting
+        const payment = await db
+          .select()
+          .from(payments)
+          .where(eq(payments.id, entry[0].referenceId))
+          .limit(1);
+
+        if (payment.length > 0) {
+          const sale = await db
+            .select()
+            .from(sales)
+            .where(eq(sales.id, payment[0].saleId))
+            .limit(1);
+
+          // Delete the associated payment
+          await db
+            .delete(payments)
+            .where(eq(payments.id, entry[0].referenceId));
+
+          if (sale.length > 0) {
+            // Check if there are any remaining payments for this sale
+            const remainingPayments = await db
+              .select()
+              .from(payments)
+              .where(eq(payments.saleId, payment[0].saleId));
+
+            if (remainingPayments.length === 0) {
+              // No payments left, revert sale status to "Invoiced" if it was "Paid"
+              if (sale[0].saleStatus === "Paid") {
+                await db
+                  .update(sales)
+                  .set({ saleStatus: "Invoiced" })
+                  .where(eq(sales.id, payment[0].saleId));
+              }
+            } else {
+              // Recalculate total paid and update status
+              const totalPaid = remainingPayments.reduce((sum, p) => sum + parseFloat(p.amountReceived), 0);
+              const saleTotal = parseFloat(sale[0].totalAmount);
+              
+              let newStatus = sale[0].saleStatus;
+              if (totalPaid >= saleTotal) {
+                newStatus = "Paid";
+              } else if (sale[0].saleStatus === "Paid") {
+                newStatus = "Invoiced";
+              }
+
+              if (newStatus !== sale[0].saleStatus) {
+                await db
+                  .update(sales)
+                  .set({ saleStatus: newStatus })
+                  .where(eq(sales.id, payment[0].saleId));
+              }
+            }
+          }
+        }
+      }
+
+      // 3. Delete the cashbook entry itself
+      const result = await db
+        .delete(cashbook)
+        .where(eq(cashbook.id, id))
+        .returning();
+
+      return result.length > 0;
+    } catch (error) {
+      console.error("Error deleting cashbook entry:", error);
+      throw error;
+    }
   }
 
   async getCashBalance(): Promise<number> {
-    const result = await db.select({
-      totalInflow: sql<number>`COALESCE(SUM(CASE WHEN ${cashbook.isInflow} = 1 AND ${cashbook.isPending} = 0 THEN ${cashbook.amount}::numeric ELSE 0 END), 0)`,
-      totalOutflow: sql<number>`COALESCE(SUM(CASE WHEN ${cashbook.isInflow} = 0 AND ${cashbook.isPending} = 0 THEN ${cashbook.amount}::numeric ELSE 0 END), 0)`
-    }).from(cashbook);
+    const [inflowResult, outflowResult] = await Promise.all([
+      db.select({
+        totalInflow: sql<number>`COALESCE(SUM(${cashbook.amount}::numeric), 0)`
+      }).from(cashbook).where(and(eq(cashbook.isInflow, 1), eq(cashbook.isPending, 0))),
+      db.select({
+        totalOutflow: sql<number>`COALESCE(SUM(${cashbook.amount}::numeric), 0)`
+      }).from(cashbook).where(and(eq(cashbook.isInflow, 0), eq(cashbook.isPending, 0)))
+    ]);
     
-    const totalInflow = result[0]?.totalInflow || 0;
-    const totalOutflow = result[0]?.totalOutflow || 0;
+    const totalInflow = inflowResult[0]?.totalInflow || 0;
+    const totalOutflow = outflowResult[0]?.totalOutflow || 0;
     
     return totalInflow - totalOutflow;
   }
 
   async getPendingDebts(): Promise<CashbookEntry[]> {
-    return await db.select().from(cashbook)
+    return await db
+      .select()
+      .from(cashbook)
       .where(eq(cashbook.isPending, 1))
       .orderBy(desc(cashbook.transactionDate));
   }
@@ -768,18 +1049,20 @@ export class MemStorage implements IStorage {
     pendingDebts: number;
     availableBalance: number;
   }> {
-    const [summaryResult, pendingResult] = await Promise.all([
+    const [inflowResult, outflowResult, pendingResult] = await Promise.all([
       db.select({
-        totalInflow: sql<number>`COALESCE(SUM(CASE WHEN ${cashbook.isInflow} = 1 AND ${cashbook.isPending} = 0 THEN ${cashbook.amount}::numeric ELSE 0 END), 0)`,
-        totalOutflow: sql<number>`COALESCE(SUM(CASE WHEN ${cashbook.isInflow} = 0 AND ${cashbook.isPending} = 0 THEN ${cashbook.amount}::numeric ELSE 0 END), 0)`
-      }).from(cashbook),
+        totalInflow: sql<number>`COALESCE(SUM(${cashbook.amount}::numeric), 0)`
+      }).from(cashbook).where(and(eq(cashbook.isInflow, 1), eq(cashbook.isPending, 0))),
       db.select({
-        pendingDebts: sql<number>`COALESCE(SUM(CASE WHEN ${cashbook.isPending} = 1 THEN ${cashbook.amount}::numeric ELSE 0 END), 0)`
-      }).from(cashbook)
+        totalOutflow: sql<number>`COALESCE(SUM(${cashbook.amount}::numeric), 0)`
+      }).from(cashbook).where(and(eq(cashbook.isInflow, 0), eq(cashbook.isPending, 0))),
+      db.select({
+        pendingDebts: sql<number>`COALESCE(SUM(${cashbook.amount}::numeric), 0)`
+      }).from(cashbook).where(eq(cashbook.isPending, 1))
     ]);
     
-    const totalInflow = summaryResult[0]?.totalInflow || 0;
-    const totalOutflow = summaryResult[0]?.totalOutflow || 0;
+    const totalInflow = inflowResult[0]?.totalInflow || 0;
+    const totalOutflow = outflowResult[0]?.totalOutflow || 0;
     const pendingDebts = pendingResult[0]?.pendingDebts || 0;
     const availableBalance = totalInflow - totalOutflow;
     
@@ -792,33 +1075,54 @@ export class MemStorage implements IStorage {
   }
 
   async markDebtAsPaid(cashbookId: string, paidAmount: number, paymentMethod: string, paymentDate: Date): Promise<CashbookEntry> {
-    // Get the original debt entry to retrieve its accountHeadId
-    const originalDebtEntry = await this.getCashbookEntry(cashbookId);
-    if (!originalDebtEntry) {
-      throw new Error("Original debt entry not found");
+    try {
+      // Validate inputs
+      if (!cashbookId || !paymentMethod || !paymentDate) {
+        throw new Error("Missing required fields: cashbookId, paymentMethod, paymentDate");
+      }
+
+      if (paidAmount <= 0) {
+        throw new Error("Paid amount must be positive");
+      }
+
+      // Get the original debt entry to retrieve its accountHeadId
+      const originalDebtEntry = await this.getCashbookEntry(cashbookId);
+      if (!originalDebtEntry) {
+        throw new Error("Original debt entry not found");
+      }
+
+      if (originalDebtEntry.isPending !== 1) {
+        throw new Error("Entry is not a pending debt");
+      }
+
+      // Update the original debt entry to mark it as not pending
+      await db
+        .update(cashbook)
+        .set({ isPending: 0 })
+        .where(eq(cashbook.id, cashbookId));
+
+      // Create a new payment entry
+      const paymentEntry = await this.createCashbookEntry({
+        transactionDate: paymentDate,
+        transactionType: "Supplier Payment",
+        category: "Debt Settlement",
+        accountHeadId: originalDebtEntry.accountHeadId,
+        amount: paidAmount.toFixed(2),
+        isInflow: 0, // Outflow since we're paying
+        description: `Debt payment for ${originalDebtEntry.counterparty}`,
+        paymentMethod,
+        referenceType: "debt_payment",
+        referenceId: cashbookId,
+        isPending: 0,
+        counterparty: originalDebtEntry.counterparty,
+        notes: `Payment for debt: ${originalDebtEntry.description}`,
+      });
+
+      return paymentEntry;
+    } catch (error) {
+      console.error("Error marking debt as paid:", error);
+      throw error;
     }
-
-    // Update the original debt entry
-    await db.update(cashbook)
-      .set({ isPending: 0 })
-      .where(eq(cashbook.id, cashbookId));
-
-    // Create a new payment entry
-    const paymentEntry = await db.insert(cashbook).values({
-      transactionDate: paymentDate,
-      transactionType: "Stock Payment",
-      accountHeadId: originalDebtEntry.accountHeadId, // Use the accountHeadId from the original debt
-      amount: paidAmount.toFixed(2),
-      isInflow: 0, // Outflow since we're paying
-      description: `Debt payment for ${originalDebtEntry.counterparty}`,
-      paymentMethod,
-      referenceType: "debt_payment",
-      referenceId: cashbookId,
-      isPending: 0,
-      counterparty: originalDebtEntry.counterparty,
-    }).returning();
-
-    return paymentEntry[0];
   }
 
   async getSalesWithDelays(): Promise<any[]> {
@@ -1057,6 +1361,362 @@ export class MemStorage implements IStorage {
     }));
   }
 
+  // Cashbook Payment Allocation methods
+  async getCashbookPaymentAllocations(): Promise<CashbookPaymentAllocationWithInvoice[]> {
+    const result = await db
+      .select({
+        id: cashbookPaymentAllocations.id,
+        cashbookEntryId: cashbookPaymentAllocations.cashbookEntryId,
+        invoiceId: cashbookPaymentAllocations.invoiceId,
+        amountAllocated: cashbookPaymentAllocations.amountAllocated,
+        createdAt: cashbookPaymentAllocations.createdAt,
+        invoice: invoices,
+        sale: sales,
+        client: clients,
+        project: projects,
+      })
+      .from(cashbookPaymentAllocations)
+      .leftJoin(invoices, eq(cashbookPaymentAllocations.invoiceId, invoices.id))
+      .leftJoin(sales, eq(invoices.saleId, sales.id))
+      .leftJoin(clients, eq(sales.clientId, clients.id))
+      .leftJoin(projects, eq(sales.projectId, projects.id))
+      .orderBy(desc(cashbookPaymentAllocations.createdAt));
+
+    return result.map(r => ({
+      ...r,
+      invoice: {
+        ...r.invoice!,
+        sale: {
+          ...r.sale!,
+          client: r.client!,
+          project: r.project!
+        }
+      }
+    }));
+  }
+
+  async createCashbookPaymentAllocation(allocation: InsertCashbookPaymentAllocation): Promise<CashbookPaymentAllocation> {
+    // Validate that the cashbook entry exists and has sufficient unallocated amount
+    const cashbookEntry = await this.getCashbookEntry(allocation.cashbookEntryId);
+    if (!cashbookEntry) {
+      throw new Error("Cashbook entry not found");
+    }
+
+    const cashbookEntryAllocatedAmount = await this.getCashbookEntryAllocatedAmount(allocation.cashbookEntryId);
+    const cashbookEntryAmount = parseFloat(cashbookEntry.amount);
+    const remainingCashbookAmount = cashbookEntryAmount - cashbookEntryAllocatedAmount;
+    const allocationAmount = parseFloat(allocation.amountAllocated);
+
+    if (allocationAmount > remainingCashbookAmount) {
+      throw new Error(`Cannot allocate AED ${allocationAmount.toFixed(2)}. Only AED ${remainingCashbookAmount.toFixed(2)} remains unallocated in this cashbook entry.`);
+    }
+
+    // Validate that allocation doesn't exceed invoice pending amount
+    const invoice = await this.getInvoice(allocation.invoiceId);
+    if (!invoice) {
+      throw new Error("Invoice not found");
+    }
+
+    const currentAllocatedAmount = await this.getInvoiceAllocatedAmount(allocation.invoiceId);
+    const totalAmount = parseFloat(invoice.totalAmount);
+    const pendingAmount = totalAmount - currentAllocatedAmount;
+
+    if (allocationAmount > pendingAmount) {
+      throw new Error(`Cannot allocate AED ${allocationAmount.toFixed(2)} to invoice ${invoice.invoiceNumber}. Pending amount is only AED ${pendingAmount.toFixed(2)}`);
+    }
+
+    // Create the allocation without transaction (for Neon HTTP driver compatibility)
+    const allocationResult = await db.insert(cashbookPaymentAllocations).values(allocation).returning();
+    
+    // Update invoice status if fully paid
+    await this.updateInvoiceStatusIfPaid(allocation.invoiceId);
+    
+    return allocationResult[0];
+  }
+
+  async getCashbookPaymentAllocationsByEntry(cashbookEntryId: string): Promise<CashbookPaymentAllocationWithInvoice[]> {
+    const result = await db
+      .select({
+        id: cashbookPaymentAllocations.id,
+        cashbookEntryId: cashbookPaymentAllocations.cashbookEntryId,
+        invoiceId: cashbookPaymentAllocations.invoiceId,
+        amountAllocated: cashbookPaymentAllocations.amountAllocated,
+        createdAt: cashbookPaymentAllocations.createdAt,
+        invoice: invoices,
+        sale: sales,
+        client: clients,
+        project: projects,
+      })
+      .from(cashbookPaymentAllocations)
+      .leftJoin(invoices, eq(cashbookPaymentAllocations.invoiceId, invoices.id))
+      .leftJoin(sales, eq(invoices.saleId, sales.id))
+      .leftJoin(clients, eq(sales.clientId, clients.id))
+      .leftJoin(projects, eq(sales.projectId, projects.id))
+      .where(eq(cashbookPaymentAllocations.cashbookEntryId, cashbookEntryId))
+      .orderBy(desc(cashbookPaymentAllocations.createdAt));
+
+    return result.map(r => ({
+      ...r,
+      invoice: {
+        ...r.invoice!,
+        sale: {
+          ...r.sale!,
+          client: r.client!,
+          project: r.project!
+        }
+      }
+    }));
+  }
+
+  async getPendingInvoicesForAllocation(accountHeadId?: string): Promise<any[]> {
+    // If accountHeadId is provided, filter by client
+    let clientId: string | undefined;
+    if (accountHeadId) {
+      // Get the account head to find the client
+      const accountHeadResult = await db
+        .select()
+        .from(accountHeads)
+        .where(eq(accountHeads.id, accountHeadId))
+        .limit(1);
+      
+      const accountHead = accountHeadResult[0];
+      if (accountHead && accountHead.type === "Client") {
+        // Find the client by name (assuming account head name matches client name)
+        const clientResult = await db
+          .select()
+          .from(clients)
+          .where(eq(clients.name, accountHead.name))
+          .limit(1);
+        
+        if (clientResult[0]) {
+          clientId = clientResult[0].id;
+        }
+      }
+    }
+
+    // Build the query with conditional client filter
+    const result = await db
+      .select({
+        id: invoices.id,
+        invoiceNumber: invoices.invoiceNumber,
+        invoiceDate: invoices.invoiceDate,
+        totalAmount: invoices.totalAmount,
+        status: invoices.status,
+        saleId: invoices.saleId,
+        sale: sales,
+        client: clients,
+        project: projects
+      })
+      .from(invoices)
+      .leftJoin(sales, eq(invoices.saleId, sales.id))
+      .leftJoin(clients, eq(sales.clientId, clients.id))
+      .leftJoin(projects, eq(sales.projectId, projects.id))
+      .where(clientId ? and(eq(invoices.status, "Generated"), eq(sales.clientId, clientId)) : eq(invoices.status, "Generated"));
+
+    // Calculate allocated amounts and build final result
+    const invoicesWithAllocations = await Promise.all(
+      result.map(async (row) => {
+        const allocatedAmount = await this.getInvoiceAllocatedAmount(row.id);
+        const pendingAmount = parseFloat(row.totalAmount) - allocatedAmount;
+        
+        return {
+          id: row.id,
+          invoiceNumber: row.invoiceNumber,
+          invoiceDate: row.invoiceDate,
+          totalAmount: row.totalAmount,
+          status: row.status,
+          allocatedAmount: allocatedAmount,
+          pendingAmount: pendingAmount,
+          sale: row.sale ? {
+            ...row.sale,
+            client: row.client,
+            project: row.project
+          } : null
+        };
+      })
+    );
+
+    // Only return invoices with pending amounts
+    return invoicesWithAllocations.filter(invoice => invoice.pendingAmount > 0);
+  }
+
+  async getInvoiceAllocatedAmount(invoiceId: string): Promise<number> {
+    const result = await db
+      .select({
+        allocatedAmount: sql<number>`COALESCE(SUM(${cashbookPaymentAllocations.amountAllocated})::numeric, 0)`,
+      })
+      .from(cashbookPaymentAllocations)
+      .where(eq(cashbookPaymentAllocations.invoiceId, invoiceId));
+
+    return result[0]?.allocatedAmount || 0;
+  }
+
+  async getCashbookEntryAllocatedAmount(cashbookEntryId: string): Promise<number> {
+    const result = await db
+      .select({
+        allocatedAmount: sql<number>`COALESCE(SUM(${cashbookPaymentAllocations.amountAllocated})::numeric, 0)`,
+      })
+      .from(cashbookPaymentAllocations)
+      .where(eq(cashbookPaymentAllocations.cashbookEntryId, cashbookEntryId));
+
+    return result[0]?.allocatedAmount || 0;
+  }
+
+  async updateInvoiceStatusIfPaid(invoiceId: string): Promise<void> {
+    const invoice = await this.getInvoice(invoiceId);
+    if (!invoice) return;
+
+    const allocatedAmount = await this.getInvoiceAllocatedAmount(invoiceId);
+    const totalAmount = parseFloat(invoice.totalAmount);
+
+    if (allocatedAmount >= totalAmount) {
+      await db
+        .update(invoices)
+        .set({ status: "Paid" })
+        .where(eq(invoices.id, invoiceId));
+    }
+  }
+
+  // Supplier Debt Tracking methods
+  async getSupplierDebts(): Promise<CashbookEntryWithAccountHead[]> {
+    const result = await db
+      .select({
+        id: cashbook.id,
+        transactionDate: cashbook.transactionDate,
+        transactionType: cashbook.transactionType,
+        category: cashbook.category,
+        accountHeadId: cashbook.accountHeadId,
+        amount: cashbook.amount,
+        isInflow: cashbook.isInflow,
+        description: cashbook.description,
+        counterparty: cashbook.counterparty,
+        paymentMethod: cashbook.paymentMethod,
+        referenceType: cashbook.referenceType,
+        referenceId: cashbook.referenceId,
+        isPending: cashbook.isPending,
+        notes: cashbook.notes,
+        createdAt: cashbook.createdAt,
+        accountHead: accountHeads,
+      })
+      .from(cashbook)
+      .leftJoin(accountHeads, eq(cashbook.accountHeadId, accountHeads.id))
+      .where(eq(accountHeads.type, "Supplier"))
+      .orderBy(desc(cashbook.transactionDate));
+
+    return result.map(r => ({
+      ...r,
+      accountHead: r.accountHead!,
+    }));
+  }
+
+  async getSupplierOutstandingBalance(supplierId: string): Promise<number> {
+    const result = await db.select({
+      totalDebt: sql<number>`COALESCE(SUM(CASE WHEN ${cashbook.accountHeadId} = ${supplierId} AND ${cashbook.isPending} = 1 THEN ${cashbook.amount}::numeric ELSE 0 END), 0)`
+    }).from(cashbook);
+    return result[0]?.totalDebt || 0;
+  }
+
+  async getSupplierPaymentHistory(supplierId: string): Promise<CashbookEntry[]> {
+    const result = await db
+      .select({
+        id: cashbook.id,
+        transactionDate: cashbook.transactionDate,
+        transactionType: cashbook.transactionType,
+        category: cashbook.category,
+        accountHeadId: cashbook.accountHeadId,
+        amount: cashbook.amount,
+        isInflow: cashbook.isInflow,
+        description: cashbook.description,
+        counterparty: cashbook.counterparty,
+        paymentMethod: cashbook.paymentMethod,
+        referenceType: cashbook.referenceType,
+        referenceId: cashbook.referenceId,
+        isPending: cashbook.isPending,
+        notes: cashbook.notes,
+        createdAt: cashbook.createdAt,
+        accountHead: accountHeads,
+      })
+      .from(cashbook)
+      .leftJoin(accountHeads, eq(cashbook.accountHeadId, accountHeads.id))
+      .where(eq(accountHeads.type, "Supplier"))
+      .orderBy(desc(cashbook.transactionDate));
+
+    return result.map(r => ({
+      ...r,
+      accountHead: r.accountHead!,
+    }));
+  }
+
+  // Client Payment Tracking methods
+  async getClientPayments(): Promise<CashbookEntryWithAccountHead[]> {
+    const result = await db
+      .select({
+        id: cashbook.id,
+        transactionDate: cashbook.transactionDate,
+        transactionType: cashbook.transactionType,
+        category: cashbook.category,
+        accountHeadId: cashbook.accountHeadId,
+        amount: cashbook.amount,
+        isInflow: cashbook.isInflow,
+        description: cashbook.description,
+        counterparty: cashbook.counterparty,
+        paymentMethod: cashbook.paymentMethod,
+        referenceType: cashbook.referenceType,
+        referenceId: cashbook.referenceId,
+        isPending: cashbook.isPending,
+        notes: cashbook.notes,
+        createdAt: cashbook.createdAt,
+        accountHead: accountHeads,
+      })
+      .from(cashbook)
+      .leftJoin(accountHeads, eq(cashbook.accountHeadId, accountHeads.id))
+      .where(eq(accountHeads.type, "Client"))
+      .orderBy(desc(cashbook.transactionDate));
+
+    return result.map(r => ({
+      ...r,
+      accountHead: r.accountHead!,
+    }));
+  }
+
+  async getClientOutstandingBalance(clientId: string): Promise<number> {
+    const result = await db.select({
+      totalDebt: sql<number>`COALESCE(SUM(CASE WHEN ${cashbook.accountHeadId} = ${clientId} AND ${cashbook.isPending} = 1 THEN ${cashbook.amount}::numeric ELSE 0 END), 0)`
+    }).from(cashbook);
+    return result[0]?.totalDebt || 0;
+  }
+
+  async getClientPaymentHistory(clientId: string): Promise<CashbookEntry[]> {
+    const result = await db
+      .select({
+        id: cashbook.id,
+        transactionDate: cashbook.transactionDate,
+        transactionType: cashbook.transactionType,
+        category: cashbook.category,
+        accountHeadId: cashbook.accountHeadId,
+        amount: cashbook.amount,
+        isInflow: cashbook.isInflow,
+        description: cashbook.description,
+        counterparty: cashbook.counterparty,
+        paymentMethod: cashbook.paymentMethod,
+        referenceType: cashbook.referenceType,
+        referenceId: cashbook.referenceId,
+        isPending: cashbook.isPending,
+        notes: cashbook.notes,
+        createdAt: cashbook.createdAt,
+        accountHead: accountHeads,
+      })
+      .from(cashbook)
+      .leftJoin(accountHeads, eq(cashbook.accountHeadId, accountHeads.id))
+      .where(eq(accountHeads.type, "Client"))
+      .orderBy(desc(cashbook.transactionDate));
+
+    return result.map(r => ({
+      ...r,
+      accountHead: r.accountHead!,
+    }));
+  }
+
   // Additional methods for stock update and delete operations
 
   async updateStock(id: string, stockData: InsertStock): Promise<Stock | undefined> {
@@ -1095,12 +1755,83 @@ export class MemStorage implements IStorage {
   }
 
   async deleteSale(id: string): Promise<boolean> {
-    const result = await db
-      .delete(sales)
-      .where(eq(sales.id, id))
-      .returning();
-    
-    return result.length > 0;
+    try {
+      console.log(`Starting deletion of sale: ${id}`);
+      
+      // Get the sale first to understand what we're deleting
+      const sale = await db
+        .select()
+        .from(sales)
+        .where(eq(sales.id, id))
+        .limit(1);
+
+      if (sale.length === 0) {
+        console.log(`Sale not found: ${id}`);
+        return false;
+      }
+
+      console.log(`Found sale: ${sale[0].lpoNumber || 'No LPO'} for client`);
+
+      // Delete operations without transaction (for Neon HTTP driver compatibility)
+      // 1. Delete all cashbook payment allocations for invoices of this sale
+      const saleInvoices = await db
+        .select()
+        .from(invoices)
+        .where(eq(invoices.saleId, id));
+
+      console.log(`Found ${saleInvoices.length} invoices to delete`);
+
+      for (const invoice of saleInvoices) {
+        // Delete allocations for this invoice
+        await db
+          .delete(cashbookPaymentAllocations)
+          .where(eq(cashbookPaymentAllocations.invoiceId, invoice.id));
+        console.log(`Deleted cashbook payment allocations for invoice: ${invoice.invoiceNumber}`);
+      }
+
+      // 2. Delete all cashbook entries related to payments for this sale
+      const salePayments = await db
+        .select()
+        .from(payments)
+        .where(eq(payments.saleId, id));
+
+      console.log(`Found ${salePayments.length} payments to delete`);
+
+      for (const payment of salePayments) {
+        // Delete cashbook entries for this payment
+        await db
+          .delete(cashbook)
+          .where(and(
+            eq(cashbook.referenceType, "payment"),
+            eq(cashbook.referenceId, payment.id)
+          ));
+        console.log(`Deleted cashbook entry for payment: ${payment.id}`);
+      }
+
+      // 3. Delete all payments for this sale
+      await db
+        .delete(payments)
+        .where(eq(payments.saleId, id));
+      console.log(`Deleted ${salePayments.length} payments`);
+
+      // 4. Delete all invoices for this sale
+      await db
+        .delete(invoices)
+        .where(eq(invoices.saleId, id));
+      console.log(`Deleted ${saleInvoices.length} invoices`);
+
+      // 5. Delete the sale itself
+      const result = await db
+        .delete(sales)
+        .where(eq(sales.id, id))
+        .returning();
+
+      console.log(`Sale deletion completed: ${result.length > 0 ? 'SUCCESS' : 'FAILED'}`);
+      return result.length > 0;
+    } catch (error) {
+      console.error("Error deleting sale:", error);
+      throw error;
+    }
   }
 
   async getInvoice(id: string): Promise<Invoice | undefined> {
@@ -1114,38 +1845,211 @@ export class MemStorage implements IStorage {
   }
 
   async deleteInvoice(id: string): Promise<boolean> {
-    const result = await db
-      .update(invoices)
-      .set({ status: "Deleted" })
-      .where(eq(invoices.id, id))
-      .returning();
+    try {
+      console.log(`Starting deletion of invoice: ${id}`);
+      
+      // First, get the invoice to check if it exists
+      const invoice = await this.getInvoice(id);
+      if (!invoice) {
+        console.log(`Invoice not found: ${id}`);
+        return false;
+      }
 
-    return result.length > 0;
-  }
+      console.log(`Found invoice: ${invoice.invoiceNumber} for sale: ${invoice.saleId}`);
 
-  async regenerateInvoice(invoiceId: string): Promise<Invoice | undefined> {
-    const originalInvoice = await this.getInvoice(invoiceId);
-    if (!originalInvoice) {
-      return undefined;
+      // Check if there are any payments associated with this invoice's sale
+      const payments = await this.getPaymentsBySale(invoice.saleId);
+      if (payments.length > 0) {
+        console.log(`Cannot delete invoice: ${payments.length} payments found for sale ${invoice.saleId}`);
+        // If payments exist, we cannot delete the invoice
+        throw new Error("Cannot delete invoice: Payments have been made for this sale");
+      }
+
+      console.log(`No payments found, proceeding with deletion`);
+
+      // Delete operations without transaction (for Neon HTTP driver compatibility)
+      console.log(`Starting invoice deletion process`);
+      
+      // 1. Delete all cashbook payment allocations for this invoice
+      const allocationsDeleted = await db
+        .delete(cashbookPaymentAllocations)
+        .where(eq(cashbookPaymentAllocations.invoiceId, id));
+      console.log(`Deleted cashbook payment allocations`);
+
+      // 2. Delete the invoice from the database
+      const deleteResult = await db
+        .delete(invoices)
+        .where(eq(invoices.id, id))
+        .returning();
+      console.log(`Deleted invoice: ${deleteResult.length > 0 ? 'SUCCESS' : 'FAILED'}`);
+
+      // 3. Revert the sale status back to "LPO Received" so it can be regenerated
+      if (deleteResult.length > 0) {
+        const saleUpdate = await db
+          .update(sales)
+          .set({ saleStatus: "LPO Received" })
+          .where(eq(sales.id, invoice.saleId));
+        console.log(`Updated sale status to LPO Received`);
+      }
+
+      console.log(`Invoice deletion completed: ${deleteResult.length > 0 ? 'SUCCESS' : 'FAILED'}`);
+      return deleteResult.length > 0;
+    } catch (error) {
+      console.error("Error deleting invoice:", error);
+      throw error;
     }
-
-    const newInvoiceData: InsertInvoice = {
-      ...originalInvoice,
-      status: "pending", 
-    };
-
-    const newInvoice = await this.createInvoice(newInvoiceData);
-    return newInvoice;
   }
+
+
 
   async deletePayment(id: string): Promise<boolean> {
-    const result = await db
-      .delete(payments)
-      .where(eq(payments.id, id))
-      .returning();
-    
-    return result.length > 0;
+    try {
+      // Get the payment first to understand what we're deleting
+      const payment = await db
+        .select()
+        .from(payments)
+        .where(eq(payments.id, id))
+        .limit(1);
+
+      if (payment.length === 0) {
+        return false;
+      }
+
+      // Delete operations without transaction (for Neon HTTP driver compatibility)
+      // 1. Delete all cashbook payment allocations related to this payment's cashbook entry
+      const cashbookEntry = await db
+        .select()
+        .from(cashbook)
+        .where(and(
+          eq(cashbook.referenceType, "payment"),
+          eq(cashbook.referenceId, id)
+        ))
+        .limit(1);
+
+      if (cashbookEntry.length > 0) {
+        // Delete all allocations for this cashbook entry
+        await db
+          .delete(cashbookPaymentAllocations)
+          .where(eq(cashbookPaymentAllocations.cashbookEntryId, cashbookEntry[0].id));
+      }
+
+      // 2. Delete the associated cashbook entry
+      await db
+        .delete(cashbook)
+        .where(and(
+          eq(cashbook.referenceType, "payment"),
+          eq(cashbook.referenceId, id)
+        ));
+
+      // 3. Delete the payment
+      const result = await db
+        .delete(payments)
+        .where(eq(payments.id, id))
+        .returning();
+
+      // 4. Update sale status if needed
+      if (result.length > 0) {
+        const sale = await db
+          .select()
+          .from(sales)
+          .where(eq(sales.id, payment[0].saleId))
+          .limit(1);
+
+        if (sale.length > 0) {
+          // Check if there are any remaining payments for this sale
+          const remainingPayments = await db
+            .select()
+            .from(payments)
+            .where(eq(payments.saleId, payment[0].saleId));
+
+          if (remainingPayments.length === 0) {
+            // No payments left, revert sale status to "Invoiced" if it was "Paid"
+            if (sale[0].saleStatus === "Paid") {
+              await db
+                .update(sales)
+                .set({ saleStatus: "Invoiced" })
+                .where(eq(sales.id, payment[0].saleId));
+            }
+          } else {
+            // Recalculate total paid and update status
+            const totalPaid = remainingPayments.reduce((sum, p) => sum + parseFloat(p.amountReceived), 0);
+            const saleTotal = parseFloat(sale[0].totalAmount);
+            
+            let newStatus = sale[0].saleStatus;
+            if (totalPaid >= saleTotal) {
+              newStatus = "Paid";
+            } else if (sale[0].saleStatus === "Paid") {
+              newStatus = "Invoiced";
+            }
+
+            if (newStatus !== sale[0].saleStatus) {
+              await db
+                .update(sales)
+                .set({ saleStatus: newStatus })
+                .where(eq(sales.id, payment[0].saleId));
+            }
+          }
+        }
+      }
+
+      return result.length > 0;
+    } catch (error) {
+      console.error("Error deleting payment:", error);
+      throw error;
+    }
   }
+
+  async migratePaymentsToCashbook(): Promise<number> {
+    // Get all payments that don't have corresponding cashbook entries
+    const allPayments = await this.getPayments();
+    let migratedCount = 0;
+
+    for (const payment of allPayments) {
+      // Check if cashbook entry already exists for this payment
+      const existingCashbookEntry = await db
+        .select()
+        .from(cashbook)
+        .where(and(
+          eq(cashbook.referenceType, "payment"),
+          eq(cashbook.referenceId, payment.id)
+        ))
+        .limit(1);
+
+      if (existingCashbookEntry.length === 0) {
+        // Create cashbook entry for this payment
+        const client = payment.sale.client;
+        
+        let clientAccountHead = await db.select().from(accountHeads).where(eq(accountHeads.name, client.name)).limit(1);
+        if (!clientAccountHead[0]) {
+          clientAccountHead = [await this.createAccountHead({
+            name: client.name,
+            type: "Client",
+          })];
+        }
+
+        await this.createCashbookEntry({
+          transactionDate: payment.paymentDate,
+          transactionType: "Sale Revenue",
+          accountHeadId: clientAccountHead[0].id,
+          amount: parseFloat(payment.amountReceived).toFixed(2),
+          isInflow: 1,
+          description: `Payment received from ${client.name} for LPO ${payment.sale.lpoNumber || "N/A"}`,
+          counterparty: client.name,
+          paymentMethod: payment.paymentMethod,
+          referenceType: "payment",
+          referenceId: payment.id,
+          isPending: 0,
+          notes: `Amount: ${payment.amountReceived}`
+        });
+
+        migratedCount++;
+      }
+    }
+
+    return migratedCount;
+  }
+
+
 }
 
-export const storage = new MemStorage();
+export const storage = new DatabaseStorage();

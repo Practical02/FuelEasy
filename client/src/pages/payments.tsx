@@ -1,3 +1,5 @@
+// Temporary fix for missing type
+type SaleWithClient = any;
 import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import Header from "@/components/layout/header";
@@ -40,7 +42,8 @@ export default function Payments() {
     queryKey: ["/api/clients"],
   });
 
-  const { data: sales } = useQuery<SaleWithClient[]>({
+// type SaleWithClient = any;
+const { data: sales } = useQuery<SaleWithClient[]>({
     queryKey: ["/api/sales"],
   });
 
@@ -69,6 +72,27 @@ export default function Payments() {
     },
   });
 
+  const migratePaymentsMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/payments/migrate-to-cashbook");
+      return response.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/cashbook"] });
+      toast({
+        title: "Migration Successful",
+        description: data.message,
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Migration Failed",
+        description: "Failed to migrate payments to cashbook. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleDeleteClick = (payment: PaymentWithSaleAndClient) => {
     setSelectedPayment(payment);
     setShowDeleteDialog(true);
@@ -82,7 +106,7 @@ export default function Payments() {
 
   // Filtering logic
   const filteredPayments = useMemo(() => {
-    if (!payments) return [];
+    if (!payments) { return []; }
 
     return payments.filter((payment) => {
       // Search term filter (client name, LPO number, cheque number)
@@ -191,7 +215,7 @@ export default function Payments() {
   const avgPayment = filteredPayments.length ? totalPayments / filteredPayments.length : 0;
 
   const totalPendingAmount = useMemo(() => {
-    if (!sales) return 0;
+    if (!sales) { return 0; }
     const totalSalesAmount = sales.reduce((sum, sale) => sum + parseFloat(sale.totalAmount), 0);
     return totalSalesAmount - totalPayments;
   }, [sales, totalPayments]);
@@ -208,6 +232,7 @@ export default function Payments() {
       />
 
       <div className="p-6">
+        
         {/* Search Bar */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
           <SearchInput
@@ -216,12 +241,22 @@ export default function Payments() {
             placeholder="Search by client name, LPO number, or cheque number..."
             className="flex-1 max-w-md"
           />
-          <Button 
-            onClick={() => setShowPaymentModal(true)}
-            className="bg-primary-600 text-white hover:bg-primary-700"
-          >
-            Record Payment
-          </Button>
+          <div className="flex gap-2">
+            <Button 
+              onClick={() => migratePaymentsMutation.mutate()}
+              disabled={migratePaymentsMutation.isPending}
+              variant="outline"
+              className="border-orange-500 text-orange-600 hover:bg-orange-50"
+            >
+              {migratePaymentsMutation.isPending ? "Migrating..." : "Migrate to Cashbook"}
+            </Button>
+            <Button 
+              onClick={() => setShowPaymentModal(true)}
+              className="bg-primary-600 text-white hover:bg-primary-700"
+            >
+              Record Payment
+            </Button>
+          </div>
         </div>
 
         {/* Advanced Filters Panel */}

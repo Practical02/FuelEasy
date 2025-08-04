@@ -19,7 +19,7 @@ vi.mock('@/lib/queryClient', () => ({
 vi.mock('drizzle-orm', async (importOriginal) => {
   const mod = await importOriginal();
   return {
-    ...mod,
+    ...(mod as object),
     eq: vi.fn(),
     desc: vi.fn(),
     sql: vi.fn(() => ({})), // Mock sql template literal function

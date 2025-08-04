@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { MemStorage } from './storage';
-import { db } from './storage'; // Import the mocked db
+import { DatabaseStorage } from './storage';
 import { eq, desc, sql } from 'drizzle-orm';
 
 // Mock the UUID generation
@@ -8,11 +7,11 @@ vi.mock('crypto', () => ({
   randomUUID: vi.fn(() => 'mock-uuid'),
 }));
 
-describe('MemStorage', () => {
-  let storage: MemStorage;
+describe('DatabaseStorage', () => {
+  let storage: DatabaseStorage;
 
   beforeEach(() => {
-    storage = new MemStorage();
+    storage = new DatabaseStorage();
     // Reset all mocks on db before each test
     vi.clearAllMocks();
     // Re-mock db methods to return predictable values

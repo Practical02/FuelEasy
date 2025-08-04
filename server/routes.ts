@@ -11,7 +11,8 @@ import {
   insertInvoiceSchema,
   insertProjectSchema,
   insertCashbookSchema,
-  insertAccountHeadSchema
+  insertAccountHeadSchema,
+  insertCashbookPaymentAllocationSchema
 } from "@shared/schema";
 
 const apiInsertSaleSchema = insertSaleSchema.extend({
@@ -25,6 +26,25 @@ const apiInsertPaymentSchema = insertPaymentSchema.extend({
 });
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  
+  // Health check endpoints
+  app.get("/health", (req, res) => {
+    res.json({ 
+      status: "ok", 
+      timestamp: new Date().toISOString(),
+      environment: process.env.NODE_ENV,
+      version: "1.0.0"
+    });
+  });
+
+  app.get("/api/health", (req, res) => {
+    res.json({ 
+      status: "ok", 
+      timestamp: new Date().toISOString(),
+      environment: process.env.NODE_ENV,
+      version: "1.0.0"
+    });
+  });
   
   // Stock routes
   app.get("/api/stock", async (req, res) => {
@@ -337,6 +357,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/payments/migrate-to-cashbook", async (req, res) => {
+    try {
+      const migratedCount = await storage.migratePaymentsToCashbook();
+      res.json({ 
+        message: `Successfully migrated ${migratedCount} payments to cashbook`,
+        migratedCount 
+      });
+    } catch (error) {
+      res.status(500).json({ 
+        message: "Failed to migrate payments to cashbook", 
+        error: error instanceof Error ? error.message : String(error) 
+      });
+    }
+  });
+
   // Invoice routes
   app.get("/api/invoices", async (req, res) => {
     try {
@@ -408,17 +443,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/invoices/:id/regenerate", async (req, res) => {
-    try {
-      const newInvoice = await storage.regenerateInvoice(req.params.id);
-      if (!newInvoice) {
-        return res.status(404).json({ message: "Invoice not found" });
-      }
-      res.json(newInvoice);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to regenerate invoice", error: error instanceof Error ? error.message : String(error) });
-    }
-  });
+
 
   // Reports routes
   app.get("/api/reports/overview", async (req, res) => {
@@ -602,6 +627,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.put("/api/cashbook/:id", async (req, res) => {
+    try {
+      const requestData = {
+        ...req.body,
+        transactionDate: new Date(req.body.transactionDate)
+      };
+      const cashbookData = insertCashbookSchema.parse(requestData);
+      const entry = await storage.updateCashbookEntry(req.params.id, cashbookData);
+      if (!entry) {
+        return res.status(404).json({ message: "Cashbook entry not found" });
+      }
+      res.json(entry);
+    } catch (error) {
+      res.status(400).json({ message: "Invalid cashbook data", error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
   app.delete("/api/cashbook/:id", async (req, res) => {
     try {
       const success = await storage.deleteCashbookEntry(req.params.id);
@@ -611,6 +653,101 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ message: "Cashbook entry deleted successfully" });
     } catch (error) {
       res.status(500).json({ message: "Failed to delete cashbook entry", error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  // Cashbook Payment Allocation routes
+  app.get("/api/cashbook/payment-allocations", async (req, res) => {
+    try {
+      const allocations = await storage.getCashbookPaymentAllocations();
+      res.json(allocations);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch payment allocations", error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post("/api/cashbook/payment-allocations", async (req, res) => {
+    try {
+      const allocationData = insertCashbookPaymentAllocationSchema.parse(req.body);
+      const allocation = await storage.createCashbookPaymentAllocation(allocationData);
+      res.json(allocation);
+    } catch (error) {
+      res.status(400).json({ message: "Invalid allocation data", error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.get("/api/cashbook/payment-allocations/:entryId", async (req, res) => {
+    try {
+      const allocations = await storage.getCashbookPaymentAllocationsByEntry(req.params.entryId);
+      res.json(allocations);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch payment allocations", error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.get("/api/cashbook/pending-invoices", async (req, res) => {
+    try {
+      const accountHeadId = req.query.accountHeadId as string;
+      const pendingInvoices = await storage.getPendingInvoicesForAllocation(accountHeadId);
+      res.json(pendingInvoices);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch pending invoices", error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  // Supplier Debt Tracking routes
+  app.get("/api/cashbook/supplier-debts", async (req, res) => {
+    try {
+      const debts = await storage.getSupplierDebts();
+      res.json(debts);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch supplier debts", error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.get("/api/cashbook/supplier-debts/:supplierId/balance", async (req, res) => {
+    try {
+      const balance = await storage.getSupplierOutstandingBalance(req.params.supplierId);
+      res.json({ balance });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch supplier balance", error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.get("/api/cashbook/supplier-debts/:supplierId/history", async (req, res) => {
+    try {
+      const history = await storage.getSupplierPaymentHistory(req.params.supplierId);
+      res.json(history);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch supplier history", error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  // Client Payment Tracking routes
+  app.get("/api/cashbook/client-payments", async (req, res) => {
+    try {
+      const payments = await storage.getClientPayments();
+      res.json(payments);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch client payments", error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.get("/api/cashbook/client-payments/:clientId/balance", async (req, res) => {
+    try {
+      const balance = await storage.getClientOutstandingBalance(req.params.clientId);
+      res.json({ balance });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch client balance", error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.get("/api/cashbook/client-payments/:clientId/history", async (req, res) => {
+    try {
+      const history = await storage.getClientPaymentHistory(req.params.clientId);
+      res.json(history);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch client history", error: error instanceof Error ? error.message : String(error) });
     }
   });
 

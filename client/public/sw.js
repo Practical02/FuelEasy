@@ -1,10 +1,13 @@
-const CACHE_NAME = 'dieseltrack-v1';
+const CACHE_NAME = 'dieseltrack-v2';
 const STATIC_CACHE_URLS = [
   '/',
   '/manifest.json',
   'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap',
   'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css'
 ];
+
+// Dynamic cache for API responses
+const DYNAMIC_CACHE = 'dieseltrack-dynamic-v2';
 
 // Install event - cache static resources
 self.addEventListener('install', (event) => {
@@ -28,7 +31,7 @@ self.addEventListener('activate', (event) => {
       .then((cacheNames) => {
         return Promise.all(
           cacheNames.map((cacheName) => {
-            if (cacheName !== CACHE_NAME) {
+            if (cacheName !== CACHE_NAME && cacheName !== DYNAMIC_CACHE) {
               console.log('Deleting old cache:', cacheName);
               return caches.delete(cacheName);
             }
@@ -56,7 +59,7 @@ self.addEventListener('fetch', (event) => {
           
           // Cache successful responses
           if (response.status === 200) {
-            caches.open(CACHE_NAME)
+            caches.open(DYNAMIC_CACHE)
               .then((cache) => {
                 cache.put(event.request, responseClone);
               });
@@ -75,11 +78,15 @@ self.addEventListener('fetch', (event) => {
               // Return offline fallback for API requests
               return new Response(JSON.stringify({
                 error: 'Offline',
-                message: 'This feature requires an internet connection'
+                message: 'This feature requires an internet connection',
+                timestamp: new Date().toISOString()
               }), {
                 status: 503,
                 statusText: 'Service Unavailable',
-                headers: { 'Content-Type': 'application/json' }
+                headers: { 
+                  'Content-Type': 'application/json',
+                  'Cache-Control': 'no-cache'
+                }
               });
             });
         })
@@ -128,19 +135,24 @@ self.addEventListener('fetch', (event) => {
 self.addEventListener('sync', (event) => {
   if (event.tag === 'background-sync') {
     console.log('Background sync triggered');
-    // This could be used to sync offline actions when connection is restored
+    event.waitUntil(
+      // Sync offline data when connection is restored
+      syncOfflineData()
+    );
   }
 });
 
 // Handle push notifications (for future use)
 self.addEventListener('push', (event) => {
   if (event.data) {
+    const data = event.data.json();
     const options = {
-      body: event.data.text(),
+      body: data.body || 'New update available',
       icon: '/manifest-icon-192.png',
       badge: '/manifest-icon-192.png',
       vibrate: [200, 100, 200],
       tag: 'dieseltrack-notification',
+      data: data,
       actions: [
         {
           action: 'view',
@@ -150,11 +162,13 @@ self.addEventListener('push', (event) => {
           action: 'dismiss',
           title: 'Dismiss'
         }
-      ]
+      ],
+      requireInteraction: false,
+      silent: false
     };
 
     event.waitUntil(
-      self.registration.showNotification('DieselTrack Update', options)
+      self.registration.showNotification(data.title || 'DieselTrack Update', options)
     );
   }
 });
@@ -167,5 +181,79 @@ self.addEventListener('notificationclick', (event) => {
     event.waitUntil(
       clients.openWindow('/')
     );
+  } else if (event.action === 'dismiss') {
+    // Just close the notification
+    return;
+  } else {
+    // Default action - open the app
+    event.waitUntil(
+      clients.openWindow('/')
+    );
   }
+});
+
+// Handle notification close
+self.addEventListener('notificationclose', (event) => {
+  console.log('Notification closed:', event.notification.tag);
+});
+
+// Background sync function
+async function syncOfflineData() {
+  try {
+    // Get all clients
+    const clients = await self.clients.matchAll();
+    
+    // Send message to all clients about sync
+    clients.forEach(client => {
+      client.postMessage({
+        type: 'SYNC_STARTED',
+        timestamp: new Date().toISOString()
+      });
+    });
+    
+    // Here you would implement the actual sync logic
+    // For example, sync offline form submissions, etc.
+    
+    console.log('Background sync completed');
+  } catch (error) {
+    console.error('Background sync failed:', error);
+  }
+}
+
+// Handle messages from the main thread
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+  
+  if (event.data && event.data.type === 'GET_VERSION') {
+    event.ports[0].postMessage({ version: CACHE_NAME });
+  }
+});
+
+// Periodic background sync (if supported)
+self.addEventListener('periodicsync', (event) => {
+  if (event.tag === 'periodic-sync') {
+    event.waitUntil(
+      syncOfflineData()
+    );
+  }
+});
+
+// Handle app updates
+self.addEventListener('appinstalled', (event) => {
+  console.log('App installed successfully');
+  
+  // Clear any existing caches to ensure fresh start
+  event.waitUntil(
+    caches.keys().then(cacheNames => {
+      return Promise.all(
+        cacheNames.map(cacheName => {
+          if (cacheName !== CACHE_NAME && cacheName !== DYNAMIC_CACHE) {
+            return caches.delete(cacheName);
+          }
+        })
+      );
+    })
+  );
 });

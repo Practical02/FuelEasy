@@ -1,11 +1,10 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, DollarSign, TrendingUp, TrendingDown, AlertTriangle } from "lucide-react";
+import { Plus, DollarSign, TrendingUp, TrendingDown, AlertTriangle, Edit, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
@@ -14,13 +13,20 @@ import { Textarea } from "@/components/ui/textarea";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertCashbookSchema, type CashbookEntry, type AccountHead, type CashbookEntryWithAccountHead } from "@shared/schema";
+import { z } from "zod";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { PaymentAllocationModal } from "@/components/modals/payment-allocation-modal";
 
 export default function CashbookPage() {
   const [isTransactionModalOpen, setIsTransactionModalOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isPayDebtModalOpen, setIsPayDebtModalOpen] = useState(false);
-  const [selectedDebt, setSelectedDebt] = useState<CashbookEntryWithAccountHead | null>(null);
+  const [isAllocationModalOpen, setIsAllocationModalOpen] = useState(false);
+  const [isAccountHeadModalOpen, setIsAccountHeadModalOpen] = useState(false);
+  const [selectedDebt, setSelectedDebt] = useState<CashbookEntry | null>(null);
+  const [selectedPaymentForAllocation, setSelectedPaymentForAllocation] = useState<CashbookEntryWithAccountHead | null>(null);
+  const [selectedEntryForEdit, setSelectedEntryForEdit] = useState<CashbookEntryWithAccountHead | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -42,9 +48,7 @@ export default function CashbookPage() {
     queryKey: ["/api/cashbook/summary"],
   });
 
-  const { data: pendingDebts = [], isLoading: debtsLoading } = useQuery<CashbookEntry[]>({
-    queryKey: ["/api/cashbook/pending-debts"],
-  });
+
 
   // Transaction Form
   const transactionForm = useForm({
@@ -55,11 +59,12 @@ export default function CashbookPage() {
     })),
     defaultValues: {
       transactionDate: new Date(),
-      transactionType: "Investment",
+      transactionType: "Invoice",
+      category: "",
       amount: "",
       isInflow: 1,
       description: "",
-      accountHeadId: "", // New field
+      accountHeadId: "",
       counterparty: "",
       paymentMethod: "Cash",
       referenceType: "manual",
@@ -70,11 +75,15 @@ export default function CashbookPage() {
 
   // Debt Payment Form
   const debtPaymentForm = useForm({
-    resolver: zodResolver(insertCashbookSchema.pick({
-      amount: true,
-      paymentMethod: true,
-    }).extend({
-      paymentDate: insertCashbookSchema.shape.transactionDate,
+    resolver: zodResolver(z.object({
+      amount: z.string().min(1, "Amount is required").refine(
+        (val) => !isNaN(parseFloat(val)) && parseFloat(val) > 0,
+        "Amount must be a positive number"
+      ),
+      paymentMethod: z.string().min(1, "Payment method is required"),
+      paymentDate: z.date({
+        required_error: "Payment date is required",
+      }),
     })),
     defaultValues: {
       amount: "",
@@ -83,10 +92,34 @@ export default function CashbookPage() {
     },
   });
 
+  // Edit Transaction Form
+  const editTransactionForm = useForm({
+    resolver: zodResolver(insertCashbookSchema.extend({
+      transactionDate: insertCashbookSchema.shape.transactionDate.refine((date) => date instanceof Date, {
+        message: "Please select a valid date",
+      }),
+    })),
+    defaultValues: {
+      transactionDate: new Date(),
+      transactionType: "Invoice",
+      category: "",
+      amount: "",
+      isInflow: 1,
+      description: "",
+      accountHeadId: "",
+      counterparty: "",
+      paymentMethod: "Cash",
+      referenceType: "manual",
+      isPending: 0,
+      notes: "",
+    },
+  });
+
   // Mutations
   const createTransactionMutation = useMutation({
     mutationFn: async (data: any) => {
-      return apiRequest("/api/cashbook", "POST", data);
+      const response = await apiRequest("POST", "/api/cashbook", data);
+      return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/cashbook"] });
@@ -99,10 +132,11 @@ export default function CashbookPage() {
         description: "Your cashbook has been updated.",
       });
     },
-    onError: () => {
+    onError: (error: any) => {
+      console.error("Create transaction error:", error);
       toast({
         title: "Error",
-        description: "Failed to add transaction. Please try again.",
+        description: error?.message || "Failed to add transaction. Please try again.",
         variant: "destructive",
       });
     },
@@ -110,7 +144,8 @@ export default function CashbookPage() {
 
   const payDebtMutation = useMutation({
     mutationFn: async ({ debtId, data }: { debtId: string; data: any }) => {
-      return apiRequest(`/api/cashbook/pay-debt/${debtId}`, "POST", data);
+      const response = await apiRequest("POST", `/api/cashbook/pay-debt/${debtId}`, data);
+      return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/cashbook"] });
@@ -124,14 +159,109 @@ export default function CashbookPage() {
         description: "The debt has been marked as paid.",
       });
     },
-    onError: () => {
+    onError: (error: any) => {
+      console.error("Debt payment error:", error);
       toast({
         title: "Error",
-        description: "Failed to record debt payment. Please try again.",
+        description: error?.message || "Failed to record debt payment. Please try again.",
         variant: "destructive",
       });
     },
   });
+
+  const createAccountHeadMutation = useMutation({
+    mutationFn: async (data: any) => {
+      return apiRequest("POST", "/api/account-heads", data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/account-heads"] });
+      setIsAccountHeadModalOpen(false);
+      toast({
+        title: "Account head created",
+        description: "New account head has been added successfully.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to create account head. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const updateTransactionMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: any }) => {
+      const response = await apiRequest("PUT", `/api/cashbook/${id}`, data);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/cashbook"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/cashbook/summary"] });
+      setIsEditModalOpen(false);
+      setSelectedEntryForEdit(null);
+      editTransactionForm.reset();
+      toast({
+        title: "Transaction updated successfully",
+        description: "Your cashbook has been updated.",
+      });
+    },
+    onError: (error: any) => {
+      console.error("Update transaction error:", error);
+      toast({
+        title: "Error",
+        description: error?.message || "Failed to update transaction. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const deleteTransactionMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const response = await apiRequest("DELETE", `/api/cashbook/${id}`);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/cashbook"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/cashbook/summary"] });
+      toast({
+        title: "Transaction deleted successfully",
+        description: "The transaction has been removed from your cashbook.",
+      });
+    },
+    onError: (error: any) => {
+      console.error("Delete transaction error:", error);
+      toast({
+        title: "Error",
+        description: error?.message || "Failed to delete transaction. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleTransactionTypeChange = (transactionType: string) => {
+    // Auto-set money flow based on transaction type
+    let isInflow = 1;
+    
+    switch (transactionType) {
+      case "Invoice":
+      case "Investment":
+        isInflow = 1; // Money in
+        break;
+      case "Supplier Payment":
+      case "Expense":
+      case "Withdrawal":
+        isInflow = 0; // Money out
+        break;
+      default:
+        // Keep current values for "Other"
+        break;
+    }
+    
+    transactionForm.setValue("isInflow", isInflow);
+    // Remove pending logic - all transactions are completed
+    transactionForm.setValue("isPending", 0);
+  };
 
   const onSubmitTransaction = (data: any) => {
     const processedData = {
@@ -147,11 +277,16 @@ export default function CashbookPage() {
   const onSubmitDebtPayment = (data: any) => {
     if (!selectedDebt) return;
     
+    console.log("Debt payment form data:", data);
+    console.log("Selected debt:", selectedDebt);
+    
     const processedData = {
       paidAmount: parseFloat(data.amount),
       paymentMethod: data.paymentMethod,
       paymentDate: data.paymentDate,
     };
+    
+    console.log("Processed data:", processedData);
     payDebtMutation.mutate({ debtId: selectedDebt.id, data: processedData });
   };
 
@@ -159,6 +294,72 @@ export default function CashbookPage() {
     setSelectedDebt(debt);
     debtPaymentForm.setValue("amount", debt.amount);
     setIsPayDebtModalOpen(true);
+  };
+
+  const openAllocationModal = (payment: CashbookEntryWithAccountHead) => {
+    setSelectedPaymentForAllocation(payment);
+    setIsAllocationModalOpen(true);
+  };
+
+  const openEditModal = (entry: CashbookEntryWithAccountHead) => {
+    setSelectedEntryForEdit(entry);
+    editTransactionForm.reset({
+      transactionDate: new Date(entry.transactionDate),
+      transactionType: entry.transactionType,
+      category: entry.category || "",
+      amount: entry.amount,
+      isInflow: entry.isInflow,
+      description: entry.description,
+      accountHeadId: entry.accountHeadId,
+      counterparty: entry.counterparty || "",
+      paymentMethod: entry.paymentMethod || "Cash",
+      referenceType: entry.referenceType || "manual",
+      isPending: entry.isPending,
+      notes: entry.notes || "",
+    });
+    setIsEditModalOpen(true);
+  };
+
+  const handleEditTransactionTypeChange = (transactionType: string) => {
+    // Auto-set money flow based on transaction type
+    let isInflow = 1;
+    
+    switch (transactionType) {
+      case "Invoice":
+      case "Investment":
+        isInflow = 1; // Money in
+        break;
+      case "Supplier Payment":
+      case "Expense":
+      case "Withdrawal":
+        isInflow = 0; // Money out
+        break;
+      default:
+        // Keep current values for "Other"
+        break;
+    }
+    
+    editTransactionForm.setValue("isInflow", isInflow);
+    editTransactionForm.setValue("isPending", 0);
+  };
+
+  const onSubmitEditTransaction = (data: any) => {
+    if (!selectedEntryForEdit) return;
+    
+    const processedData = {
+      ...data,
+      isInflow: parseInt(data.isInflow),
+      isPending: parseInt(data.isPending),
+      amount: parseFloat(data.amount).toFixed(2),
+      accountHeadId: data.accountHeadId,
+    };
+    updateTransactionMutation.mutate({ id: selectedEntryForEdit.id, data: processedData });
+  };
+
+  const handleDeleteTransaction = (id: string) => {
+    if (confirm("Are you sure you want to delete this transaction? This action cannot be undone.")) {
+      deleteTransactionMutation.mutate(id);
+    }
   };
 
   const getTransactionTypeColor = (type: string, isInflow: number) => {
@@ -185,15 +386,59 @@ export default function CashbookPage() {
   return (
     <div className="p-6 space-y-6">
       <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold">Company Cashbook</h1>
-        <Dialog open={isTransactionModalOpen} onOpenChange={setIsTransactionModalOpen}>
+         <h1 className="text-3xl font-bold">Company Cashbook</h1>
+         <div className="flex gap-2">
+           <Dialog open={isAccountHeadModalOpen} onOpenChange={setIsAccountHeadModalOpen}>
+             <DialogTrigger asChild>
+               <Button variant="outline">
+                 <Plus className="h-4 w-4 mr-2" />
+                 Create Account Head
+               </Button>
+             </DialogTrigger>
+             <DialogContent className="max-w-md">
+               <DialogHeader>
+                 <DialogTitle>Create New Account Head</DialogTitle>
+               </DialogHeader>
+               <form onSubmit={(e) => {
+                 e.preventDefault();
+                 const formData = new FormData(e.currentTarget);
+                 createAccountHeadMutation.mutate({
+                   name: formData.get('name') as string,
+                   type: formData.get('type') as string,
+                 });
+               }} className="space-y-4">
+                 <div>
+                   <label className="text-sm font-medium">Account Head Name</label>
+                   <Input name="name" placeholder="e.g., Office Rent, Transport, Marketing" required />
+                 </div>
+                 <div>
+                   <label className="text-sm font-medium">Type</label>
+                   <Select name="type" defaultValue="Other">
+                     <SelectTrigger>
+                       <SelectValue />
+                     </SelectTrigger>
+                     <SelectContent>
+                       <SelectItem value="Client">Client</SelectItem>
+                       <SelectItem value="Supplier">Supplier</SelectItem>
+                       <SelectItem value="Other">Other</SelectItem>
+                     </SelectContent>
+                   </Select>
+                 </div>
+                 <Button type="submit" className="w-full" disabled={createAccountHeadMutation.isPending}>
+                   {createAccountHeadMutation.isPending ? "Creating..." : "Create Account Head"}
+                 </Button>
+               </form>
+             </DialogContent>
+           </Dialog>
+           
+           <Dialog open={isTransactionModalOpen} onOpenChange={setIsTransactionModalOpen}>
           <DialogTrigger asChild>
             <Button>
               <Plus className="h-4 w-4 mr-2" />
               Add Transaction
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-md">
+          <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Add New Transaction</DialogTitle>
             </DialogHeader>
@@ -224,30 +469,46 @@ export default function CashbookPage() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Transaction Type</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <Select onValueChange={(value) => {
+                        field.onChange(value);
+                        handleTransactionTypeChange(value);
+                      }} defaultValue={field.value}>
                         <FormControl>
                           <SelectTrigger>
                             <SelectValue placeholder="Select transaction type" />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          <SelectItem value="Investment">Personal Investment</SelectItem>
-                          <SelectItem value="Profit Withdrawal">Profit Withdrawal</SelectItem>
-                          <SelectItem value="Stock Purchase">Stock Purchase (Credit)</SelectItem>
-                          <SelectItem value="Stock Payment">Stock Payment</SelectItem>
-                          <SelectItem value="Sale Revenue">Sale Revenue</SelectItem>
-                          <SelectItem value="Expense">Business Expense</SelectItem>
+                          <SelectItem value="Invoice">Invoice (Money In)</SelectItem>
+                          <SelectItem value="Investment">Investment (Money In)</SelectItem>
+                          <SelectItem value="Supplier Payment">Supplier Payment (Money Out)</SelectItem>
+                          <SelectItem value="Expense">Expense (Money Out)</SelectItem>
+                          <SelectItem value="Withdrawal">Withdrawal (Money Out)</SelectItem>
                           <SelectItem value="Other">Other</SelectItem>
                         </SelectContent>
                       </Select>
                       <FormMessage />
                     </FormItem>
                   )}
-                />
+                                 />
 
-                <FormField
-                  control={transactionForm.control}
-                  name="accountHeadId"
+                 <FormField
+                   control={transactionForm.control}
+                   name="category"
+                   render={({ field }) => (
+                     <FormItem>
+                       <FormLabel>Category (Optional)</FormLabel>
+                       <FormControl>
+                         <Input placeholder="e.g., Fuel Sales, Office Rent, Salary, Transport" {...field} />
+                       </FormControl>
+                       <FormMessage />
+                     </FormItem>
+                   )}
+                 />
+
+                 <FormField
+                   control={transactionForm.control}
+                   name="accountHeadId"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Account Head</FormLabel>
@@ -313,7 +574,7 @@ export default function CashbookPage() {
                     <FormItem>
                       <FormLabel>Description</FormLabel>
                       <FormControl>
-                        <Input placeholder="Enter transaction description" {...field} />
+                        <Input placeholder="e.g., Diesel purchase from supplier, Fuel delivery to client, Office rent payment" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -327,7 +588,7 @@ export default function CashbookPage() {
                     <FormItem>
                       <FormLabel>Counterparty</FormLabel>
                       <FormControl>
-                        <Input placeholder="Who is this transaction with?" {...field} />
+                        <Input placeholder="e.g., Supplier name, Client name, Bank name, Employee name" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -350,7 +611,11 @@ export default function CashbookPage() {
                           <SelectItem value="Cash">Cash</SelectItem>
                           <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
                           <SelectItem value="Cheque">Cheque</SelectItem>
+                          <SelectItem value="Credit Card">Credit Card</SelectItem>
+                          <SelectItem value="Debit Card">Debit Card</SelectItem>
                           <SelectItem value="Credit">Credit (Debt)</SelectItem>
+                          <SelectItem value="Letter of Credit">Letter of Credit</SelectItem>
+                          <SelectItem value="Trade Credit">Trade Credit</SelectItem>
                         </SelectContent>
                       </Select>
                       <FormMessage />
@@ -358,27 +623,7 @@ export default function CashbookPage() {
                   )}
                 />
 
-                <FormField
-                  control={transactionForm.control}
-                  name="isPending"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Payment Status</FormLabel>
-                      <Select onValueChange={(value) => field.onChange(parseInt(value))} defaultValue={field.value.toString()}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="0">Paid/Completed</SelectItem>
-                          <SelectItem value="1">Pending (Debt)</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                
 
                 <FormField
                   control={transactionForm.control}
@@ -387,7 +632,7 @@ export default function CashbookPage() {
                     <FormItem>
                       <FormLabel>Notes</FormLabel>
                       <FormControl>
-                        <Textarea placeholder="Additional notes..." {...field} />
+                        <Textarea placeholder="e.g., Invoice number, LPO reference, delivery details, payment terms" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -401,6 +646,7 @@ export default function CashbookPage() {
             </Form>
           </DialogContent>
         </Dialog>
+         </div>
       </div>
 
       {/* Summary Cards */}
@@ -454,107 +700,114 @@ export default function CashbookPage() {
         </Card>
       </div>
 
-      {/* Tabs for different views */}
-      <Tabs defaultValue="all-transactions" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="all-transactions">All Transactions</TabsTrigger>
-          <TabsTrigger value="pending-debts">Pending Debts ({pendingDebts.length})</TabsTrigger>
-        </TabsList>
+   
 
-        <TabsContent value="all-transactions">
-          <Card>
-            <CardHeader>
-              <CardTitle>All Transactions</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Description</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Account Head</TableHead>
-                    <TableHead>Method</TableHead>
-                    <TableHead>Amount</TableHead>
-                    <TableHead>Status</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {entries.map((entry: CashbookEntry) => (
-                    <TableRow key={entry.id}>
-                      <TableCell>{formatDate(entry.transactionDate)}</TableCell>
-                      <TableCell>{entry.description}</TableCell>
-                      <TableCell>
-                        <Badge className={getTransactionTypeColor(entry.transactionType, entry.isInflow)}>
-                          {entry.transactionType}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>{entry.accountHead.name || "—"}</TableCell>
-                      <TableCell>{entry.paymentMethod || "—"}</TableCell>
-                      <TableCell className={entry.isInflow === 1 ? "text-green-600" : "text-red-600"}>
-                        {entry.isInflow === 1 ? "+" : "-"}{formatCurrency(entry.amount)}
-                      </TableCell>
-                      <TableCell>
-                        {entry.isPending === 1 ? (
-                          <Badge variant="outline" className="text-orange-600">Pending</Badge>
-                        ) : (
-                          <Badge variant="outline" className="text-green-600">Completed</Badge>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="pending-debts">
-          <Card>
-            <CardHeader>
-              <CardTitle>Pending Debts</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Description</TableHead>
-                    <TableHead>Account Head</TableHead>
-                    <TableHead>Amount</TableHead>
-                    <TableHead>Action</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {pendingDebts.map((debt: CashbookEntry) => (
-                    <TableRow key={debt.id}>
-                      <TableCell>{formatDate(debt.transactionDate)}</TableCell>
-                      <TableCell>{debt.description}</TableCell>
-                      <TableCell>{debt.accountHead.name || "—"}</TableCell>
-                      <TableCell className="text-red-600">
-                        {formatCurrency(debt.amount)}
-                      </TableCell>
-                      <TableCell>
+      {/* All Transactions Table */}
+      <Card>
+        <CardHeader>
+          <CardTitle>All Transactions</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Table>
+                                     <TableHeader>
+              <TableRow>
+                <TableHead>Date</TableHead>
+                <TableHead>Account Head</TableHead>
+                <TableHead>Type</TableHead>
+                <TableHead>Category</TableHead>
+                <TableHead>Description</TableHead>
+                <TableHead>Method</TableHead>
+                <TableHead>Amount</TableHead>
+                <TableHead>Allocation Status</TableHead>
+                <TableHead>Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+                            {entries.map((entry: CashbookEntryWithAccountHead) => (
+                <TableRow key={entry.id}>
+                  <TableCell>{formatDate(entry.transactionDate)}</TableCell>
+                  <TableCell>{entry.accountHead?.name || "—"}</TableCell>
+                  <TableCell>
+                    <Badge className={getTransactionTypeColor(entry.transactionType, entry.isInflow)}>
+                      {entry.transactionType}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>{entry.category || "—"}</TableCell>
+                  <TableCell>{entry.description}</TableCell>
+                  <TableCell>{entry.paymentMethod || "—"}</TableCell>
+                  <TableCell className={entry.isInflow === 1 ? "text-green-600" : "text-red-600"}>
+                    {entry.isInflow === 1 ? "+" : "-"}{formatCurrency(entry.amount)}
+                  </TableCell>
+                  <TableCell>
+                    {entry.isInflow === 1 && entry.accountHead?.type === "Client" ? (
+                      <Badge 
+                        className={
+                          entry.allocationStatus === "Fully Allocated" ? "bg-green-100 text-green-600" :
+                          entry.allocationStatus === "Partially Allocated" ? "bg-blue-100 text-blue-600" :
+                          entry.allocationStatus === "Not Allocated" ? "bg-orange-100 text-orange-600" :
+                          "bg-gray-100 text-gray-600"
+                        }
+                      >
+                        {entry.allocationStatus || "Not Allocated"}
+                      </Badge>
+                    ) : (
+                      "—"
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex gap-2">
+                      {/* Edit button for all transactions */}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => openEditModal(entry)}
+                      >
+                        <Edit className="h-3 w-3" />
+                      </Button>
+                      
+                      {/* Delete button for all transactions */}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleDeleteTransaction(entry.id)}
+                        className="text-red-600 hover:text-red-700"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                      
+                      {/* Allocate button for client payments that have unallocated amounts */}
+                      {entry.isInflow === 1 && entry.accountHead?.type === "Client" && entry.allocationStatus !== "Fully Allocated" && (
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => openPayDebtModal(debt)}
+                          onClick={() => openAllocationModal(entry)}
                         >
-                          Mark as Paid
+                          Allocate
                         </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+                      )}
+                      
+                      {/* Settle pending button for pending debts */}
+                      {entry.isPending === 1 && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openPayDebtModal(entry)}
+                        >
+                          Settle Pending
+                        </Button>
+                      )}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
 
       {/* Pay Debt Modal */}
       <Dialog open={isPayDebtModalOpen} onOpenChange={setIsPayDebtModalOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Mark Debt as Paid</DialogTitle>
           </DialogHeader>
@@ -617,6 +870,9 @@ export default function CashbookPage() {
                             <SelectItem value="Cash">Cash</SelectItem>
                             <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
                             <SelectItem value="Cheque">Cheque</SelectItem>
+                            <SelectItem value="Credit Card">Credit Card</SelectItem>
+                            <SelectItem value="Debit Card">Debit Card</SelectItem>
+                            <SelectItem value="Letter of Credit">Letter of Credit</SelectItem>
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -633,6 +889,228 @@ export default function CashbookPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Edit Transaction Modal */}
+      <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
+        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit Transaction</DialogTitle>
+          </DialogHeader>
+          <Form {...editTransactionForm}>
+            <form onSubmit={editTransactionForm.handleSubmit(onSubmitEditTransaction)} className="space-y-4">
+              <FormField
+                control={editTransactionForm.control}
+                name="transactionDate"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Transaction Date</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="date"
+                        {...field}
+                        value={field.value instanceof Date ? field.value.toISOString().split('T')[0] : field.value}
+                        onChange={(e) => field.onChange(new Date(e.target.value))}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={editTransactionForm.control}
+                name="transactionType"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Transaction Type</FormLabel>
+                    <Select onValueChange={(value) => {
+                      field.onChange(value);
+                      handleEditTransactionTypeChange(value);
+                    }} defaultValue={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select transaction type" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="Invoice">Invoice (Money In)</SelectItem>
+                        <SelectItem value="Investment">Investment (Money In)</SelectItem>
+                        <SelectItem value="Supplier Payment">Supplier Payment (Money Out)</SelectItem>
+                        <SelectItem value="Expense">Expense (Money Out)</SelectItem>
+                        <SelectItem value="Withdrawal">Withdrawal (Money Out)</SelectItem>
+                        <SelectItem value="Other">Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={editTransactionForm.control}
+                name="category"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Category (Optional)</FormLabel>
+                    <FormControl>
+                      <Input placeholder="e.g., Fuel Sales, Office Rent, Salary, Transport" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={editTransactionForm.control}
+                name="accountHeadId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Account Head</FormLabel>
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select an account head" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {accountHeads.map((head) => (
+                          <SelectItem key={head.id} value={head.id}>
+                            {head.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={editTransactionForm.control}
+                name="isInflow"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Money Flow</FormLabel>
+                    <Select onValueChange={(value) => field.onChange(parseInt(value))} defaultValue={field.value.toString()}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="1">Money In (Credit)</SelectItem>
+                        <SelectItem value="0">Money Out (Debit)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={editTransactionForm.control}
+                name="amount"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Amount (AED)</FormLabel>
+                    <FormControl>
+                      <Input type="number" step="0.01" placeholder="0.00" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={editTransactionForm.control}
+                name="description"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Description</FormLabel>
+                    <FormControl>
+                      <Input placeholder="e.g., Diesel purchase from supplier, Fuel delivery to client, Office rent payment" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={editTransactionForm.control}
+                name="counterparty"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Counterparty</FormLabel>
+                    <FormControl>
+                      <Input placeholder="e.g., Supplier name, Client name, Bank name, Employee name" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={editTransactionForm.control}
+                name="paymentMethod"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Payment Method</FormLabel>
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select payment method" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="Cash">Cash</SelectItem>
+                        <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
+                        <SelectItem value="Cheque">Cheque</SelectItem>
+                        <SelectItem value="Credit Card">Credit Card</SelectItem>
+                        <SelectItem value="Debit Card">Debit Card</SelectItem>
+                        <SelectItem value="Credit">Credit (Debt)</SelectItem>
+                        <SelectItem value="Letter of Credit">Letter of Credit</SelectItem>
+                        <SelectItem value="Trade Credit">Trade Credit</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={editTransactionForm.control}
+                name="notes"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Notes</FormLabel>
+                    <FormControl>
+                      <Textarea placeholder="e.g., Invoice number, LPO reference, delivery details, payment terms" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <Button type="submit" className="w-full" disabled={updateTransactionMutation.isPending}>
+                {updateTransactionMutation.isPending ? "Updating..." : "Update Transaction"}
+              </Button>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Payment Allocation Modal */}
+      <PaymentAllocationModal
+        isOpen={isAllocationModalOpen}
+        onOpenChange={setIsAllocationModalOpen}
+        cashbookEntryId={selectedPaymentForAllocation?.id}
+        totalAmount={selectedPaymentForAllocation ? parseFloat(selectedPaymentForAllocation.amount) : 0}
+        accountHeadId={selectedPaymentForAllocation?.accountHeadId}
+        onSuccess={() => {
+          queryClient.invalidateQueries({ queryKey: ["/api/cashbook"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/cashbook/payment-allocations"] });
+        }}
+      />
     </div>
   );
 }
