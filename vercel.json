@@ -3,70 +3,18 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "functions": {
-    "server/vercel.ts": {
-      "runtime": "@vercel/node"
+    "api/vercel.ts": {
+      "runtime": "@vercel/node@5.3.10",
+      "maxDuration": 30
     }
   },
   "rewrites": [
     {
-      "source": "/api/(.*)",
-      "destination": "/server/vercel.ts"
-    },
-    {
-      "source": "/sw.js",
-      "destination": "/dist/sw.js"
-    },
-    {
-      "source": "/manifest.json",
-      "destination": "/dist/manifest.json"
-    },
-    {
       "source": "/(.*)",
-      "destination": "/dist/$1"
+      "destination": "/api/vercel.ts"
     }
   ],
   "env": {
     "NODE_ENV": "production"
-  },
-  "headers": [
-    {
-      "source": "/sw.js",
-      "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "public, max-age=0, must-revalidate"
-        },
-        {
-          "key": "Service-Worker-Allowed",
-          "value": "/"
-        }
-      ]
-    },
-    {
-      "source": "/manifest.json",
-      "headers": [
-        {
-          "key": "Content-Type",
-          "value": "application/manifest+json"
-        }
-      ]
-    },
-    {
-      "source": "/(.*)",
-      "headers": [
-        {
-          "key": "X-Content-Type-Options",
-          "value": "nosniff"
-        },
-        {
-          "key": "X-Frame-Options",
-          "value": "DENY"
-        },
-        {
-          "key": "X-XSS-Protection",
-          "value": "1; mode=block"
-        }
-      ]
-    }
-  ]
+  }
 } 
