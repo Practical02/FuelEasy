@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import Header from "@/components/layout/header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -29,6 +29,8 @@ export default function Sales() {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [selectedSaleId, setSelectedSaleId] = useState<string>("");
   const { toast } = useToast();
+
+  
 
   // Filter states
   const [searchTerm, setSearchTerm] = useState("");
@@ -223,16 +225,21 @@ export default function Sales() {
 
   const handlePaymentClick = (saleId: string) => {
     setSelectedSaleId(saleId);
-    setShowPaymentModal(true);
   };
+
+
+
+
 
   const handleEditClick = (saleId: string) => {
     setSelectedSaleId(saleId);
+    setShowPaymentModal(false);
     setShowEditSaleModal(true);
   };
 
   const handleViewClick = (saleId: string) => {
     setSelectedSaleId(saleId);
+    setShowPaymentModal(false);
     setShowViewSaleModal(true);
   };
 
@@ -248,6 +255,13 @@ export default function Sales() {
   };
 
 
+
+  const handleCloseModal = (setter: React.Dispatch<React.SetStateAction<boolean>>) => (open: boolean) => {
+    setter(open);
+    if (!open) {
+      setSelectedSaleId("");
+    }
+  };
 
   return (
     <>
@@ -406,7 +420,7 @@ export default function Sales() {
                             >
                               <Eye className="w-4 h-4" />
                             </Button>
-                            {sale.saleStatus !== "Paid" && (
+                            {sale.saleStatus === "Invoiced" && (
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -507,7 +521,7 @@ export default function Sales() {
                             <Eye className="w-4 h-4 mr-1" />
                             View
                           </Button>
-                          {sale.saleStatus !== "Paid" && (
+                          {sale.saleStatus === "Invoiced" && (
                             <Button
                               variant="outline"
                               size="sm"
@@ -547,25 +561,25 @@ export default function Sales() {
 
       <NewSaleModal 
         open={showNewSaleModal} 
-        onOpenChange={setShowNewSaleModal} 
+        onOpenChange={(open) => handleCloseModal(setShowNewSaleModal)(open)} 
       />
       {selectedSaleId && (
         <EditSaleModal 
           open={showEditSaleModal} 
-          onOpenChange={setShowEditSaleModal}
+          onOpenChange={(open) => handleCloseModal(setShowEditSaleModal)(open)}
           sale={filteredSales.find(s => s.id === selectedSaleId)!}
         />
       )}
       {selectedSaleId && (
         <ViewSaleModal 
           open={showViewSaleModal} 
-          onOpenChange={setShowViewSaleModal}
+          onOpenChange={(open) => handleCloseModal(setShowViewSaleModal)(open)}
           sale={filteredSales.find(s => s.id === selectedSaleId) || null}
         />
       )}
       <PaymentModal 
         open={showPaymentModal} 
-        onOpenChange={setShowPaymentModal}
+        onOpenChange={(open) => handleCloseModal(setShowPaymentModal)(open)}
         saleId={selectedSaleId}
       />
       <ConfirmationDialog

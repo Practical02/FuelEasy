@@ -76,6 +76,16 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
     }
   }, [sale, form]);
 
+  // Automatically update saleStatus to "LPO Received" if LPO Number is entered
+  useEffect(() => {
+    const currentLpoNumber = form.watch("lpoNumber");
+    const currentSaleStatus = form.watch("saleStatus");
+
+    if (currentLpoNumber && currentLpoNumber.trim() !== "" && currentSaleStatus === "Pending LPO") {
+      form.setValue("saleStatus", "LPO Received");
+    }
+  }, [form.watch("lpoNumber"), form.watch("saleStatus"), form]);
+
   const updateSaleMutation = useMutation({
     mutationFn: async (data: z.infer<typeof editSaleFormSchema>) => {
       if (!sale) throw new Error("No sale to update");

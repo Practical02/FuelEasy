@@ -13,20 +13,24 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { insertCashbookSchema, type CashbookEntry } from "@shared/schema";
+import { insertCashbookSchema, type CashbookEntry, type AccountHead, type CashbookEntryWithAccountHead } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 
 export default function CashbookPage() {
   const [isTransactionModalOpen, setIsTransactionModalOpen] = useState(false);
   const [isPayDebtModalOpen, setIsPayDebtModalOpen] = useState(false);
-  const [selectedDebt, setSelectedDebt] = useState<CashbookEntry | null>(null);
+  const [selectedDebt, setSelectedDebt] = useState<CashbookEntryWithAccountHead | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
   // Queries
-  const { data: entries = [], isLoading: entriesLoading } = useQuery<CashbookEntry[]>({
+  const { data: entries = [], isLoading: entriesLoading } = useQuery<CashbookEntryWithAccountHead[]>({
     queryKey: ["/api/cashbook"],
+  });
+
+  const { data: accountHeads = [], isLoading: accountHeadsLoading } = useQuery<AccountHead[]>({
+    queryKey: ["/api/account-heads"],
   });
 
   const { data: summary, isLoading: summaryLoading } = useQuery<{
@@ -55,6 +59,7 @@ export default function CashbookPage() {
       amount: "",
       isInflow: 1,
       description: "",
+      accountHeadId: "", // New field
       counterparty: "",
       paymentMethod: "Cash",
       referenceType: "manual",
@@ -134,6 +139,7 @@ export default function CashbookPage() {
       isInflow: parseInt(data.isInflow),
       isPending: parseInt(data.isPending),
       amount: parseFloat(data.amount).toFixed(2),
+      accountHeadId: data.accountHeadId, // Include accountHeadId
     };
     createTransactionMutation.mutate(processedData);
   };
@@ -232,6 +238,31 @@ export default function CashbookPage() {
                           <SelectItem value="Sale Revenue">Sale Revenue</SelectItem>
                           <SelectItem value="Expense">Business Expense</SelectItem>
                           <SelectItem value="Other">Other</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={transactionForm.control}
+                  name="accountHeadId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Account Head</FormLabel>
+                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select an account head" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {accountHeads.map((head) => (
+                            <SelectItem key={head.id} value={head.id}>
+                              {head.name}
+                            </SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                       <FormMessage />
@@ -442,7 +473,7 @@ export default function CashbookPage() {
                     <TableHead>Date</TableHead>
                     <TableHead>Description</TableHead>
                     <TableHead>Type</TableHead>
-                    <TableHead>Counterparty</TableHead>
+                    <TableHead>Account Head</TableHead>
                     <TableHead>Method</TableHead>
                     <TableHead>Amount</TableHead>
                     <TableHead>Status</TableHead>
@@ -458,7 +489,7 @@ export default function CashbookPage() {
                           {entry.transactionType}
                         </Badge>
                       </TableCell>
-                      <TableCell>{entry.counterparty || "—"}</TableCell>
+                      <TableCell>{entry.accountHead.name || "—"}</TableCell>
                       <TableCell>{entry.paymentMethod || "—"}</TableCell>
                       <TableCell className={entry.isInflow === 1 ? "text-green-600" : "text-red-600"}>
                         {entry.isInflow === 1 ? "+" : "-"}{formatCurrency(entry.amount)}
@@ -489,7 +520,7 @@ export default function CashbookPage() {
                   <TableRow>
                     <TableHead>Date</TableHead>
                     <TableHead>Description</TableHead>
-                    <TableHead>Counterparty</TableHead>
+                    <TableHead>Account Head</TableHead>
                     <TableHead>Amount</TableHead>
                     <TableHead>Action</TableHead>
                   </TableRow>
@@ -499,7 +530,7 @@ export default function CashbookPage() {
                     <TableRow key={debt.id}>
                       <TableCell>{formatDate(debt.transactionDate)}</TableCell>
                       <TableCell>{debt.description}</TableCell>
-                      <TableCell>{debt.counterparty || "—"}</TableCell>
+                      <TableCell>{debt.accountHead.name || "—"}</TableCell>
                       <TableCell className="text-red-600">
                         {formatCurrency(debt.amount)}
                       </TableCell>

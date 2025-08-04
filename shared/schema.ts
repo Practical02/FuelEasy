@@ -83,10 +83,18 @@ export const payments = pgTable("payments", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const accountHeads = pgTable("account_heads", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull().unique(),
+  type: text("type").notNull(), // 'Client', 'Supplier', 'Expense', 'Revenue', 'Other'
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const cashbook = pgTable("cashbook", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   transactionDate: timestamp("transaction_date").notNull(),
   transactionType: text("transaction_type").notNull(), // "Investment", "Profit Withdrawal", "Stock Purchase", "Stock Payment", "Sale Revenue", "Expense", "Other"
+  accountHeadId: uuid("account_head_id").references(() => accountHeads.id).notNull(),
   amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
   isInflow: integer("is_inflow").notNull(), // 1 for inflow, 0 for outflow
   description: text("description").notNull(),
@@ -134,6 +142,11 @@ export const insertCashbookSchema = createInsertSchema(cashbook).omit({
   createdAt: true,
 });
 
+export const insertAccountHeadSchema = createInsertSchema(accountHeads).omit({
+  id: true,
+  createdAt: true,
+});
+
 export const insertInvoiceSchema = createInsertSchema(invoices).omit({
   id: true,
   createdAt: true,
@@ -169,6 +182,9 @@ export type Invoice = typeof invoices.$inferSelect;
 export type InsertPayment = z.infer<typeof insertPaymentSchema>;
 export type Payment = typeof payments.$inferSelect;
 
+export type InsertAccountHead = z.infer<typeof insertAccountHeadSchema>;
+export type AccountHead = typeof accountHeads.$inferSelect;
+
 // Additional types for joined data
 export type SaleWithClient = Sale & {
   client: Client;
@@ -184,4 +200,8 @@ export type PaymentWithSaleAndClient = Payment & {
   sale: Sale & {
     client: Client;
   };
+};
+
+export type CashbookEntryWithAccountHead = CashbookEntry & {
+  accountHead: AccountHead;
 };

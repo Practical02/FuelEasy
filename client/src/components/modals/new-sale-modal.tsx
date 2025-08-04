@@ -46,7 +46,7 @@ export default function NewSaleModal({ open, onOpenChange }: NewSaleModalProps) 
       quantityGallons: undefined,
       salePricePerGallon: undefined,
       purchasePricePerGallon: undefined,
-      saleStatus: "Invoiced",
+      saleStatus: "Pending LPO",
       vatPercentage: VAT_PERCENTAGE.toString(),
     },
   });

@@ -16,8 +16,9 @@ import { CURRENCY, PAYMENT_METHODS } from "@/lib/constants";
 import { z } from "zod";
 
 const paymentFormSchema = insertPaymentSchema.extend({
-  amountReceived: z.string().min(0.01, "Amount must be greater than 0."),
+  amountReceived: z.number().min(0.01, "Amount must be greater than 0."),
   paymentDate: z.coerce.date(),
+  paymentMethod: z.string().min(1, "Payment method is required."),
 });
 
 interface PaymentModalProps {
@@ -39,20 +40,22 @@ export default function PaymentModal({ open, onOpenChange, saleId }: PaymentModa
     enabled: !!saleId,
   });
 
-  const { data: existingPayments } = useQuery<Payment[]>({
-    queryKey: ["/api/payments/sale", saleId],
-    enabled: !!saleId,
-  });
-
   const form = useForm<z.infer<typeof paymentFormSchema>>({
     resolver: zodResolver(paymentFormSchema),
     defaultValues: {
       saleId: saleId || "",
       paymentDate: new Date(),
-      amountReceived: 0,
+      amountReceived: undefined,
       paymentMethod: "",
       chequeNumber: "",
     },
+  });
+
+  const selectedSaleId = form.watch("saleId") || saleId;
+
+  const { data: existingPayments } = useQuery<Payment[]>({
+    queryKey: ["/api/payments/sale", selectedSaleId],
+    enabled: !!selectedSaleId,
   });
 
   const createPaymentMutation = useMutation({
@@ -72,8 +75,8 @@ export default function PaymentModal({ open, onOpenChange, saleId }: PaymentModa
       queryClient.invalidateQueries({ queryKey: ["/api/payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/sales"] });
       queryClient.invalidateQueries({ queryKey: ["/api/reports/overview"] });
-      if (saleId) {
-        queryClient.invalidateQueries({ queryKey: ["/api/payments/sale", saleId] });
+      if (selectedSaleId) {
+        queryClient.invalidateQueries({ queryKey: ["/api/payments/sale", selectedSaleId] });
       }
       toast({
         title: "Payment Recorded",
@@ -99,7 +102,6 @@ export default function PaymentModal({ open, onOpenChange, saleId }: PaymentModa
   const availableSales = sales?.filter(sale => sale.saleStatus !== "Paid") || [];
   
   // Calculate remaining amount for selected sale
-  const selectedSaleId = form.watch("saleId") || saleId;
   const selectedSale = selectedSaleId 
     ? (specificSale || availableSales.find(s => s.id === selectedSaleId))
     : null;
@@ -225,6 +227,7 @@ export default function PaymentModal({ open, onOpenChange, saleId }: PaymentModa
                       step="0.01" 
                       placeholder="0.00" 
                       {...field}
+                      onChange={(e) => field.onChange(parseFloat(e.target.value))}
                     />
                   </FormControl>
                   <FormMessage />

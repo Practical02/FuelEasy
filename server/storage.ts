@@ -18,6 +18,9 @@ import {
   type PaymentWithSaleAndClient,
   type CashbookEntry,
   type InsertCashbook,
+  type AccountHead,
+  type InsertAccountHead,
+  type CashbookEntryWithAccountHead,
   users,
   stock,
   clients,
@@ -25,7 +28,8 @@ import {
   sales,
   invoices,
   payments,
-  cashbook
+  cashbook,
+  accountHeads
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { drizzle } from "drizzle-orm/neon-http";
@@ -35,7 +39,7 @@ import { eq, desc, sql } from "drizzle-orm";
 // Initialize database connection
 const connectionString = process.env.DATABASE_URL || "";
 const sql_conn = neon(connectionString);
-const db = drizzle(sql_conn, { schema: { users, stock, clients, projects, sales, invoices, payments, cashbook } });
+const db = drizzle(sql_conn, { schema: { users, stock, clients, projects, sales, invoices, payments, cashbook, accountHeads } });
 
 export interface IStorage {
   // User methods
@@ -56,6 +60,10 @@ export interface IStorage {
   createClient(client: InsertClient): Promise<Client>;
   updateClient(id: string, client: InsertClient): Promise<Client | undefined>;
   deleteClient(id: string): Promise<boolean>;
+
+  // Account Head methods
+  getAccountHeads(): Promise<AccountHead[]>;
+  createAccountHead(accountHead: InsertAccountHead): Promise<AccountHead>;
   
   // Project methods
   getProjects(clientId?: string): Promise<ProjectWithClient[]>;
@@ -163,14 +171,24 @@ export class MemStorage implements IStorage {
     
     const result = await db.insert(stock).values(stockData).returning();
     
+    // Find or create "Supplier" account head
+    let supplierAccountHead = await db.select().from(accountHeads).where(eq(accountHeads.name, "Sigma Diesel Trading Pvt Ltd")).limit(1);
+    if (!supplierAccountHead[0]) {
+      supplierAccountHead = [await this.createAccountHead({
+        name: "Sigma Diesel Trading Pvt Ltd",
+        type: "Supplier",
+      })];
+    }
+
     // Create cashbook entry for stock purchase (as debt)
     await db.insert(cashbook).values({
       transactionDate: insertStock.purchaseDate,
       transactionType: "Stock Purchase",
+      accountHeadId: supplierAccountHead[0].id,
       amount: totalCost.toFixed(2),
       isInflow: 0, // Outflow since we're purchasing
       description: `Stock purchase: ${quantity} gallons at ${pricePerGallon} AED/gallon`,
-      counterparty: "Supplier",
+      counterparty: "Sigma Diesel Trading Pvt Ltd",
       paymentMethod: "Credit", // Default to credit (debt)
       referenceType: "stock",
       referenceId: result[0].id,
@@ -208,7 +226,15 @@ export class MemStorage implements IStorage {
 
   async createClient(insertClient: InsertClient): Promise<Client> {
     const result = await db.insert(clients).values(insertClient).returning();
-    return result[0];
+    const newClient = result[0];
+
+    // Create an account head for the new client
+    await this.createAccountHead({
+      name: newClient.name,
+      type: "Client",
+    });
+
+    return newClient;
   }
 
   async updateClient(id: string, insertClient: InsertClient): Promise<Client | undefined> {
@@ -223,6 +249,15 @@ export class MemStorage implements IStorage {
   async deleteClient(id: string): Promise<boolean> {
     const result = await db.delete(clients).where(eq(clients.id, id)).returning();
     return result.length > 0;
+  }
+
+  async getAccountHeads(): Promise<AccountHead[]> {
+    return await db.select().from(accountHeads).orderBy(accountHeads.name);
+  }
+
+  async createAccountHead(insertAccountHead: InsertAccountHead): Promise<AccountHead> {
+    const result = await db.insert(accountHeads).values(insertAccountHead).returning();
+    return result[0];
   }
 
   // Project methods
@@ -566,6 +601,8 @@ export class MemStorage implements IStorage {
 
   async createInvoice(insertInvoice: InsertInvoice): Promise<Invoice> {
     const result = await db.insert(invoices).values(insertInvoice).returning();
+    // Update sale status to "Invoiced"
+    await this.updateSaleStatus(insertInvoice.saleId, "Invoiced");
     return result[0];
   }
 
@@ -614,6 +651,35 @@ export class MemStorage implements IStorage {
       throw new Error("Sale not found for this payment");
     }
 
+    const client = await this.getClient(sale.clientId);
+    if (!client) {
+      throw new Error("Client not found for this sale");
+    }
+
+    let clientAccountHead = await db.select().from(accountHeads).where(eq(accountHeads.name, client.name)).limit(1);
+    if (!clientAccountHead[0]) {
+      clientAccountHead = [await this.createAccountHead({
+        name: client.name,
+        type: "Client",
+      })];
+    }
+
+    // Create cashbook entry for payment received
+    await this.createCashbookEntry({
+      transactionDate: insertPayment.paymentDate,
+      transactionType: "Sale Revenue",
+      accountHeadId: clientAccountHead[0].id,
+      amount: parseFloat(insertPayment.amountReceived).toFixed(2),
+      isInflow: 1,
+      description: `Payment received from ${client.name} for LPO ${sale.lpoNumber || "N/A"}`,
+      counterparty: client.name,
+      paymentMethod: insertPayment.paymentMethod,
+      referenceType: "payment",
+      referenceId: payment.id,
+      isPending: 0,
+      notes: `Amount: ${insertPayment.amountReceived}`
+    });
+
     const totalPaid = (await this.getPaymentsBySale(insertPayment.saleId))
       .reduce((sum, p) => sum + parseFloat(p.amountReceived), 0);
 
@@ -634,8 +700,33 @@ export class MemStorage implements IStorage {
   }
 
   // Cashbook methods
-  async getCashbookEntries(): Promise<CashbookEntry[]> {
-    return await db.select().from(cashbook).orderBy(desc(cashbook.createdAt));
+  async getCashbookEntries(): Promise<CashbookEntryWithAccountHead[]> {
+    const result = await db
+      .select({
+        id: cashbook.id,
+        transactionDate: cashbook.transactionDate,
+        transactionType: cashbook.transactionType,
+        accountHeadId: cashbook.accountHeadId,
+        amount: cashbook.amount,
+        isInflow: cashbook.isInflow,
+        description: cashbook.description,
+        counterparty: cashbook.counterparty,
+        paymentMethod: cashbook.paymentMethod,
+        referenceType: cashbook.referenceType,
+        referenceId: cashbook.referenceId,
+        isPending: cashbook.isPending,
+        notes: cashbook.notes,
+        createdAt: cashbook.createdAt,
+        accountHead: accountHeads,
+      })
+      .from(cashbook)
+      .leftJoin(accountHeads, eq(cashbook.accountHeadId, accountHeads.id))
+      .orderBy(desc(cashbook.createdAt));
+
+    return result.map(r => ({
+      ...r,
+      accountHead: r.accountHead!,
+    }));
   }
 
   async getCashbookEntry(id: string): Promise<CashbookEntry | undefined> {
@@ -701,6 +792,12 @@ export class MemStorage implements IStorage {
   }
 
   async markDebtAsPaid(cashbookId: string, paidAmount: number, paymentMethod: string, paymentDate: Date): Promise<CashbookEntry> {
+    // Get the original debt entry to retrieve its accountHeadId
+    const originalDebtEntry = await this.getCashbookEntry(cashbookId);
+    if (!originalDebtEntry) {
+      throw new Error("Original debt entry not found");
+    }
+
     // Update the original debt entry
     await db.update(cashbook)
       .set({ isPending: 0 })
@@ -710,14 +807,15 @@ export class MemStorage implements IStorage {
     const paymentEntry = await db.insert(cashbook).values({
       transactionDate: paymentDate,
       transactionType: "Stock Payment",
+      accountHeadId: originalDebtEntry.accountHeadId, // Use the accountHeadId from the original debt
       amount: paidAmount.toFixed(2),
       isInflow: 0, // Outflow since we're paying
-      description: "Debt payment for stock purchase",
+      description: `Debt payment for ${originalDebtEntry.counterparty}`,
       paymentMethod,
       referenceType: "debt_payment",
       referenceId: cashbookId,
       isPending: 0,
-      counterparty: "Supplier"
+      counterparty: originalDebtEntry.counterparty,
     }).returning();
 
     return paymentEntry[0];

@@ -10,7 +10,8 @@ import {
   insertPaymentSchema,
   insertInvoiceSchema,
   insertProjectSchema,
-  insertCashbookSchema
+  insertCashbookSchema,
+  insertAccountHeadSchema
 } from "@shared/schema";
 
 const apiInsertSaleSchema = insertSaleSchema.extend({
@@ -148,6 +149,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ message: "Client deleted successfully" });
     } catch (error) {
       res.status(500).json({ message: "Failed to delete client", error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  // Account Head routes
+  app.get("/api/account-heads", async (req, res) => {
+    try {
+      const accountHeads = await storage.getAccountHeads();
+      res.json(accountHeads);
+    } catch (error) {
+      console.error("Error fetching account heads:", error);
+      res.status(500).json({ message: "Failed to fetch account heads", error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post("/api/account-heads", async (req, res) => {
+    try {
+      const accountHeadData = insertAccountHeadSchema.parse(req.body);
+      const accountHead = await storage.createAccountHead(accountHeadData);
+      res.json(accountHead);
+    } catch (error) {
+      res.status(400).json({ message: "Invalid account head data", error: error instanceof Error ? error.message : String(error) });
     }
   });
 
@@ -440,7 +462,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         dateTo as string
       );
       res.json(pendingBusiness);
-    } catch (error).json({ message: "Failed to fetch pending business report", error: error instanceof Error ? error.message : String(error) });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch pending business report", error: error instanceof Error ? error.message : String(error) });
     }
   });
 

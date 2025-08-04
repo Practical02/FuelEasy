@@ -40,6 +40,10 @@ export default function Payments() {
     queryKey: ["/api/clients"],
   });
 
+  const { data: sales } = useQuery<SaleWithClient[]>({
+    queryKey: ["/api/sales"],
+  });
+
   const deletePaymentMutation = useMutation({
     mutationFn: async (paymentId: string) => {
       const response = await apiRequest("DELETE", `/api/payments/${paymentId}`);
@@ -186,6 +190,12 @@ export default function Payments() {
 
   const avgPayment = filteredPayments.length ? totalPayments / filteredPayments.length : 0;
 
+  const totalPendingAmount = useMemo(() => {
+    if (!sales) return 0;
+    const totalSalesAmount = sales.reduce((sum, sale) => sum + parseFloat(sale.totalAmount), 0);
+    return totalSalesAmount - totalPayments;
+  }, [sales, totalPayments]);
+
   return (
     <>
       <Header 
@@ -291,11 +301,11 @@ export default function Payments() {
 
           <Card>
             <CardContent className="p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Avg Payment</h3>
-              <p className="text-3xl font-bold text-gray-900">
-                {CURRENCY} {avgPayment.toLocaleString()}
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">Pending Amount</h3>
+              <p className="text-3xl font-bold text-red-600">
+                {CURRENCY} {totalPendingAmount.toLocaleString()}
               </p>
-              <p className="text-gray-600">Per transaction</p>
+              <p className="text-gray-600">To be received</p>
             </CardContent>
           </Card>
         </div>
