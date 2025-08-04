@@ -7,15 +7,16 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { insertSaleSchema, type Client, type Sale } from "@shared/schema";
+import { insertSaleSchema, type Client, type Sale, type Project } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { CURRENCY } from "@/lib/constants";
 import { z } from "zod";
 
 const editSaleFormSchema = insertSaleSchema.extend({
-  quantityGallons: z.string().min(1, "Quantity is required"),
-  salePricePerGallon: z.string().min(1, "Sale price is required"),
+  quantityGallons: z.coerce.number().min(0.01, "Quantity is required"),
+  salePricePerGallon: z.coerce.number().min(0.001, "Sale price is required"),
+  purchasePricePerGallon: z.coerce.number().min(0.001, "Purchase price is required"),
   vatPercentage: z.string().default("5.00"),
 });
 
@@ -40,8 +41,9 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
     defaultValues: {
       clientId: "",
       saleDate: new Date(),
-      quantityGallons: "",
-      salePricePerGallon: "",
+      quantityGallons: undefined,
+      salePricePerGallon: undefined,
+      purchasePricePerGallon: undefined,
       lpoNumber: "",
       lpoDueDate: new Date(),
       vatPercentage: "5.00",
@@ -49,16 +51,25 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
     },
   });
 
+  const selectedClientId = form.watch("clientId");
+  const { data: projects = [] } = useQuery<Project[]>({
+    queryKey: ["projects", "by-client", selectedClientId],
+    queryFn: () => apiRequest("GET", `/api/projects/by-client/${selectedClientId}`).then(res => res.json()),
+    enabled: !!selectedClientId,
+  });
+
   // Set form values when sale changes
   useEffect(() => {
     if (sale) {
       form.reset({
         clientId: sale.clientId,
+        projectId: sale.projectId,
         saleDate: new Date(sale.saleDate),
-        quantityGallons: sale.quantityGallons,
-        salePricePerGallon: sale.salePricePerGallon,
-        lpoNumber: sale.lpoNumber,
-        lpoDueDate: new Date(sale.lpoDueDate),
+        quantityGallons: parseFloat(sale.quantityGallons),
+        salePricePerGallon: parseFloat(sale.salePricePerGallon),
+        purchasePricePerGallon: sale.purchasePricePerGallon ? parseFloat(sale.purchasePricePerGallon) : undefined,
+        lpoNumber: sale.lpoNumber || "",
+        lpoDueDate: sale.lpoDueDate ? new Date(sale.lpoDueDate) : new Date(),
         vatPercentage: sale.vatPercentage,
         saleStatus: sale.saleStatus,
       });
@@ -69,14 +80,20 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
     mutationFn: async (data: z.infer<typeof editSaleFormSchema>) => {
       if (!sale) throw new Error("No sale to update");
       
-      const response = await apiRequest("PATCH", `/api/sales/${sale.id}`, {
-        ...data,
+      const { lpoDueDate, ...rest } = data;
+      const saleData: any = {
+        ...rest,
         saleDate: new Date(data.saleDate).toISOString(),
-        lpoDueDate: new Date(data.lpoDueDate).toISOString(),
         invoiceDate: data.saleStatus === "Invoiced" || data.saleStatus === "Paid" 
           ? new Date().toISOString() 
           : null,
-      });
+      };
+
+      if (lpoDueDate) {
+        saleData.lpoDueDate = new Date(lpoDueDate).toISOString();
+      }
+
+      const response = await apiRequest("PATCH", `/api/sales/${sale.id}`, saleData);
       return response.json();
     },
     onSuccess: () => {
@@ -98,8 +115,8 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
   });
 
   const calculateTotals = () => {
-    const quantity = parseFloat(form.watch("quantityGallons") || "0");
-    const pricePerGallon = parseFloat(form.watch("salePricePerGallon") || "0");
+    const quantity = form.watch("quantityGallons") || 0;
+    const pricePerGallon = form.watch("salePricePerGallon") || 0;
     const vatPercentage = parseFloat(form.watch("vatPercentage") || "0");
 
     const sub = quantity * pricePerGallon;
@@ -166,6 +183,31 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
 
               <FormField
                 control={form.control}
+                name="projectId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Project</FormLabel>
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select a project..." />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {projects?.map((project) => (
+                          <SelectItem key={project.id} value={project.id}>
+                            {project.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
                 name="saleDate"
                 render={({ field }) => (
                   <FormItem>
@@ -189,7 +231,7 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
                   <FormItem>
                     <FormLabel>LPO Number</FormLabel>
                     <FormControl>
-                      <Input placeholder="LPO-ABC-2025-001" {...field} />
+                      <Input placeholder="LPO-ABC-2025-001" {...field} value={field.value || ''} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -205,7 +247,7 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
                     <FormControl>
                       <Input
                         type="date"
-                        value={field.value instanceof Date ? field.value.toISOString().split('T')[0] : field.value}
+                        value={field.value instanceof Date ? field.value.toISOString().split('T')[0] : ''}
                         onChange={(e) => field.onChange(new Date(e.target.value))}
                       />
                     </FormControl>
@@ -236,6 +278,20 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
                     <FormLabel>Sale Price per Gallon ({CURRENCY})</FormLabel>
                     <FormControl>
                       <Input type="number" step="0.001" placeholder="0.000" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="purchasePricePerGallon"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Purchase Price per Gallon ({CURRENCY})</FormLabel>
+                    <FormControl>
+                      <Input type="number" step="0.001" placeholder="0.000" {...field} value={field.value || ''} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

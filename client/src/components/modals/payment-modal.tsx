@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -15,7 +16,8 @@ import { CURRENCY, PAYMENT_METHODS } from "@/lib/constants";
 import { z } from "zod";
 
 const paymentFormSchema = insertPaymentSchema.extend({
-  amountReceived: z.string().min(1, "Amount is required"),
+  amountReceived: z.string().min(0.01, "Amount must be greater than 0."),
+  paymentDate: z.coerce.date(),
 });
 
 interface PaymentModalProps {
@@ -47,7 +49,7 @@ export default function PaymentModal({ open, onOpenChange, saleId }: PaymentModa
     defaultValues: {
       saleId: saleId || "",
       paymentDate: new Date(),
-      amountReceived: "",
+      amountReceived: 0,
       paymentMethod: "",
       chequeNumber: "",
     },
@@ -55,11 +57,15 @@ export default function PaymentModal({ open, onOpenChange, saleId }: PaymentModa
 
   const createPaymentMutation = useMutation({
     mutationFn: async (data: z.infer<typeof paymentFormSchema>) => {
-      const response = await apiRequest("POST", "/api/payments", {
+      // Ensure all required fields are present and types are correct
+      const paymentDate = (data.paymentDate instanceof Date ? data.paymentDate : new Date(data.paymentDate));
+      const payload = {
         ...data,
-        paymentDate: new Date(data.paymentDate).toISOString(),
-        chequeNumber: data.chequeNumber || null,
-      });
+        paymentDate: paymentDate.toISOString().split('T')[0], // Send as YYYY-MM-DD
+        amountReceived: Number(data.amountReceived),
+        chequeNumber: data.paymentMethod === "Cheque" ? (data.chequeNumber || null) : null,
+      };
+      const response = await apiRequest("POST", "/api/payments", payload);
       return response.json();
     },
     onSuccess: () => {
@@ -76,10 +82,10 @@ export default function PaymentModal({ open, onOpenChange, saleId }: PaymentModa
       form.reset();
       onOpenChange(false);
     },
-    onError: () => {
+    onError: (error: Error) => {
       toast({
         title: "Error",
-        description: "Failed to record payment. Please try again.",
+        description: error.message || "Failed to record payment. Please try again.",
         variant: "destructive",
       });
     },
@@ -109,14 +115,14 @@ export default function PaymentModal({ open, onOpenChange, saleId }: PaymentModa
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-2xl w-full">
         <DialogHeader>
           <DialogTitle>Record Payment</DialogTitle>
           <DialogDescription>
             Record a payment received from a client for their purchase.
           </DialogDescription>
         </DialogHeader>
-
+        <ScrollArea className="h-[70vh] p-4">
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
             {!saleId && (
@@ -198,7 +204,7 @@ export default function PaymentModal({ open, onOpenChange, saleId }: PaymentModa
                   <FormControl>
                     <Input
                       type="date"
-                      value={field.value instanceof Date ? field.value.toISOString().split('T')[0] : field.value}
+                      value={field.value instanceof Date ? field.value.toISOString().split('T')[0] : new Date(field.value).toISOString().split('T')[0]}
                       onChange={(e) => field.onChange(new Date(e.target.value))}
                     />
                   </FormControl>
@@ -285,6 +291,7 @@ export default function PaymentModal({ open, onOpenChange, saleId }: PaymentModa
             </div>
           </form>
         </Form>
+        </ScrollArea>
       </DialogContent>
     </Dialog>
   );

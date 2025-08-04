@@ -58,8 +58,8 @@ export interface IStorage {
   deleteClient(id: string): Promise<boolean>;
   
   // Project methods
-  getProjects(): Promise<ProjectWithClient[]>;
-  getProjectsByClient(clientId: string): Promise<Project[]>;
+  getProjects(clientId?: string): Promise<ProjectWithClient[]>;
+  getProjectsByClient(clientId: string): Promise<ProjectWithClient[]>;
   getProject(id: string): Promise<ProjectWithClient | undefined>;
   createProject(project: InsertProject): Promise<Project>;
   updateProject(id: string, project: InsertProject): Promise<Project | undefined>;
@@ -67,6 +67,7 @@ export interface IStorage {
   
   // Sale methods
   getSales(): Promise<SaleWithClient[]>;
+  getSalesByClient(clientId: string): Promise<SaleWithClient[]>;
   getSalesByStatus(status: string): Promise<SaleWithClient[]>;
   getSale(id: string): Promise<SaleWithClient | undefined>;
   createSale(sale: InsertSale): Promise<Sale>;
@@ -75,9 +76,10 @@ export interface IStorage {
   deleteSale(id: string): Promise<boolean>;
   
   // Invoice methods
-  getInvoices(): Promise<Invoice[]>;
+  getInvoices(): Promise<any[]>;
   getInvoice(id: string): Promise<Invoice | undefined>;
   createInvoice(invoice: InsertInvoice): Promise<Invoice>;
+  updateInvoice(id: string, invoice: InsertInvoice): Promise<Invoice | undefined>;
   deleteInvoice(id: string): Promise<boolean>;
   
   // Payment methods
@@ -224,6 +226,29 @@ export class MemStorage implements IStorage {
   }
 
   // Project methods
+  async getProjectsByClient(clientId: string): Promise<ProjectWithClient[]> {
+    const result = await db
+      .select({
+        id: projects.id,
+        clientId: projects.clientId,
+        name: projects.name,
+        description: projects.description,
+        location: projects.location,
+        status: projects.status,
+        createdAt: projects.createdAt,
+        client: clients
+      })
+      .from(projects)
+      .leftJoin(clients, eq(projects.clientId, clients.id))
+      .where(eq(projects.clientId, clientId))
+      .orderBy(desc(projects.createdAt));
+    
+    return result.filter(r => r.client).map(r => ({
+      ...r,
+      client: r.client!
+    }));
+  }
+  
   async getProjects(): Promise<ProjectWithClient[]> {
     const result = await db
       .select({
@@ -244,10 +269,6 @@ export class MemStorage implements IStorage {
       ...r,
       client: r.client!
     }));
-  }
-
-  async getProjectsByClient(clientId: string): Promise<Project[]> {
-    return await db.select().from(projects).where(eq(projects.clientId, clientId));
   }
 
   async getProject(id: string): Promise<ProjectWithClient | undefined> {
@@ -295,6 +316,44 @@ export class MemStorage implements IStorage {
     return result.length > 0;
   }
 
+  async getSalesByClient(clientId: string): Promise<SaleWithClient[]> {
+    const result = await db
+      .select({
+        id: sales.id,
+        clientId: sales.clientId,
+        projectId: sales.projectId,
+        saleDate: sales.saleDate,
+        quantityGallons: sales.quantityGallons,
+        salePricePerGallon: sales.salePricePerGallon,
+        purchasePricePerGallon: sales.purchasePricePerGallon,
+        lpoNumber: sales.lpoNumber,
+        lpoReceivedDate: sales.lpoReceivedDate,
+        lpoDueDate: sales.lpoDueDate,
+        invoiceDate: sales.invoiceDate,
+        saleStatus: sales.saleStatus,
+        vatPercentage: sales.vatPercentage,
+        subtotal: sales.subtotal,
+        vatAmount: sales.vatAmount,
+        totalAmount: sales.totalAmount,
+        cogs: sales.cogs,
+        grossProfit: sales.grossProfit,
+        createdAt: sales.createdAt,
+        client: clients,
+        project: projects
+      })
+      .from(sales)
+      .leftJoin(clients, eq(sales.clientId, clients.id))
+      .leftJoin(projects, eq(sales.projectId, projects.id))
+      .where(eq(sales.clientId, clientId))
+      .orderBy(desc(sales.createdAt));
+    
+    return result.map(r => ({
+      ...r,
+      client: r.client!,
+      project: r.project
+    }));
+  }
+
   async getSales(): Promise<SaleWithClient[]> {
     const result = await db
       .select({
@@ -325,10 +384,10 @@ export class MemStorage implements IStorage {
       .leftJoin(projects, eq(sales.projectId, projects.id))
       .orderBy(desc(sales.createdAt));
     
-    return result.filter(r => r.client && r.project).map(r => ({
+    return result.map(r => ({
       ...r,
       client: r.client!,
-      project: r.project!
+      project: r.project
     }));
   }
 
@@ -363,10 +422,10 @@ export class MemStorage implements IStorage {
       .where(eq(sales.saleStatus, status))
       .orderBy(desc(sales.createdAt));
     
-    return result.filter(r => r.client && r.project).map(r => ({
+    return result.map(r => ({
       ...r,
       client: r.client!,
-      project: r.project!
+      project: r.project
     }));
   }
 
@@ -401,7 +460,7 @@ export class MemStorage implements IStorage {
       .where(eq(sales.id, id))
       .limit(1);
     
-    if (result[0]?.client && result[0]?.project) {
+    if (result[0]?.client) {
       return {
         ...result[0],
         client: result[0].client,
@@ -467,12 +526,55 @@ export class MemStorage implements IStorage {
     return result[0];
   }
 
-  async getInvoices(): Promise<Invoice[]> {
-    return await db.select().from(invoices).orderBy(desc(invoices.createdAt));
+  async getInvoices(): Promise<any[]> {
+    const results = await db
+      .select()
+      .from(invoices)
+      .leftJoin(sales, eq(invoices.saleId, sales.id))
+      .leftJoin(clients, eq(sales.clientId, clients.id))
+      .leftJoin(projects, eq(sales.projectId, projects.id))
+      .orderBy(desc(invoices.createdAt));
+
+    const allPayments = await db.select().from(payments);
+    const paymentsBySaleId = allPayments.reduce((acc, p) => {
+        if (!acc[p.saleId]) {
+            acc[p.saleId] = [];
+        }
+        acc[p.saleId].push(p);
+        return acc;
+    }, {} as Record<string, Payment[]>);
+
+    return results.map(r => {
+      if (!r.sales || !r.clients) {
+        return { ...r.invoices, sale: null };
+      }
+      
+      const salePayments = paymentsBySaleId[r.sales.id] || [];
+      const totalPaid = salePayments.reduce((sum, p) => sum + parseFloat(p.amountReceived), 0);
+      const pendingAmount = parseFloat(r.sales.totalAmount) - totalPaid;
+
+      const sale = {
+        ...r.sales,
+        client: r.clients,
+        project: r.projects || null,
+        pendingAmount: pendingAmount.toFixed(2)
+      };
+      
+      return { ...r.invoices, sale };
+    });
   }
 
   async createInvoice(insertInvoice: InsertInvoice): Promise<Invoice> {
     const result = await db.insert(invoices).values(insertInvoice).returning();
+    return result[0];
+  }
+
+  async updateInvoice(id: string, insertInvoice: InsertInvoice): Promise<Invoice | undefined> {
+    const result = await db
+      .update(invoices)
+      .set(insertInvoice)
+      .where(eq(invoices.id, id))
+      .returning();
     return result[0];
   }
 
@@ -506,22 +608,26 @@ export class MemStorage implements IStorage {
   async createPayment(insertPayment: InsertPayment): Promise<Payment> {
     const result = await db.insert(payments).values(insertPayment).returning();
     const payment = result[0];
+
+    const sale = await this.getSale(insertPayment.saleId);
+    if (!sale) {
+      throw new Error("Sale not found for this payment");
+    }
+
+    const totalPaid = (await this.getPaymentsBySale(insertPayment.saleId))
+      .reduce((sum, p) => sum + parseFloat(p.amountReceived), 0);
+
+    const saleTotal = parseFloat(sale.totalAmount);
     
-    // Check if sale is fully paid and update status
-    const [saleResult, paymentsResult] = await Promise.all([
-      db.select().from(sales).where(eq(sales.id, insertPayment.saleId)).limit(1),
-      this.getPaymentsBySale(insertPayment.saleId)
-    ]);
-    
-    if (saleResult[0]) {
-      const totalPaid = paymentsResult.reduce((sum, p) => 
-        sum + parseFloat(p.amountReceived), 0);
-      
-      const saleTotal = parseFloat(saleResult[0].totalAmount);
-      
-      if (totalPaid >= saleTotal) {
-        await this.updateSaleStatus(insertPayment.saleId, "Paid");
-      }
+    let newStatus = sale.saleStatus;
+    if (totalPaid >= saleTotal) {
+      newStatus = "Paid";
+    } else if (sale.saleStatus !== "Paid") {
+      newStatus = "Invoiced"; 
+    }
+
+    if (newStatus !== sale.saleStatus) {
+      await this.updateSaleStatus(insertPayment.saleId, newStatus);
     }
     
     return payment;
@@ -794,10 +900,10 @@ export class MemStorage implements IStorage {
       .where(sql.join(conditions, sql` AND `))
       .orderBy(desc(sales.createdAt));
     
-    return result.filter(r => r.client && r.project).map(r => ({
+    return result.map(r => ({
       ...r,
       client: r.client!,
-      project: r.project!
+      project: r.project
     }));
   }
 
@@ -846,10 +952,10 @@ export class MemStorage implements IStorage {
       .where(sql.join(conditions, sql` AND `))
       .orderBy(desc(sales.createdAt));
     
-    return result.filter(r => r.client && r.project).map(r => ({
+    return result.map(r => ({
       ...r,
       client: r.client!,
-      project: r.project!
+      project: r.project
     }));
   }
 
@@ -911,11 +1017,27 @@ export class MemStorage implements IStorage {
 
   async deleteInvoice(id: string): Promise<boolean> {
     const result = await db
-      .delete(invoices)
+      .update(invoices)
+      .set({ status: "Deleted" })
       .where(eq(invoices.id, id))
       .returning();
-    
+
     return result.length > 0;
+  }
+
+  async regenerateInvoice(invoiceId: string): Promise<Invoice | undefined> {
+    const originalInvoice = await this.getInvoice(invoiceId);
+    if (!originalInvoice) {
+      return undefined;
+    }
+
+    const newInvoiceData: InsertInvoice = {
+      ...originalInvoice,
+      status: "pending", 
+    };
+
+    const newInvoice = await this.createInvoice(newInvoiceData);
+    return newInvoice;
   }
 
   async deletePayment(id: string): Promise<boolean> {

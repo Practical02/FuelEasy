@@ -172,7 +172,8 @@ export type Payment = typeof payments.$inferSelect;
 // Additional types for joined data
 export type SaleWithClient = Sale & {
   client: Client;
-  project: Project;
+  project: Project | null;
+  pendingAmount?: string;
 };
 
 export type ProjectWithClient = Project & {

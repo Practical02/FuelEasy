@@ -13,11 +13,13 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { CURRENCY, VAT_PERCENTAGE } from "@/lib/constants";
 import { z } from "zod";
-import type { Client } from "@shared/schema";
+import type { Client, Project } from "@shared/schema";
 
 const saleFormSchema = insertSaleSchema.extend({
-  quantityGallons: z.string().min(1, "Quantity is required"),
-  salePricePerGallon: z.string().min(1, "Price per gallon is required"),
+  projectId: z.string().min(1, "Project is required"),
+  quantityGallons: z.coerce.number().min(0.01, "Quantity is required"),
+  salePricePerGallon: z.coerce.number().min(0.001, "Price per gallon is required"),
+  purchasePricePerGallon: z.coerce.number().min(0.001, "Purchase price is required"),
 });
 
 interface NewSaleModalProps {
@@ -39,23 +41,35 @@ export default function NewSaleModal({ open, onOpenChange }: NewSaleModalProps) 
     resolver: zodResolver(saleFormSchema),
     defaultValues: {
       clientId: "",
+      projectId: "",
       saleDate: new Date(),
-      quantityGallons: "",
-      salePricePerGallon: "",
-      lpoNumber: "",
-      lpoDueDate: new Date(),
-      saleStatus: "Pending LPO",
+      quantityGallons: undefined,
+      salePricePerGallon: undefined,
+      purchasePricePerGallon: undefined,
+      saleStatus: "Invoiced",
       vatPercentage: VAT_PERCENTAGE.toString(),
     },
   });
 
+  const selectedClientId = form.watch("clientId");
+  const { data: projects } = useQuery<Project[]>({
+    queryKey: ["projects", "by-client", selectedClientId],
+    queryFn: () => apiRequest("GET", `/api/projects/by-client/${selectedClientId}`).then(res => res.json()),
+    enabled: !!selectedClientId,
+  });
+
   const createSaleMutation = useMutation({
     mutationFn: async (data: z.infer<typeof saleFormSchema>) => {
-      const response = await apiRequest("POST", "/api/sales", {
+      const saleData: any = {
         ...data,
         saleDate: new Date(data.saleDate).toISOString(),
-        lpoDueDate: new Date(data.lpoDueDate).toISOString(),
-      });
+      };
+
+      const response = await apiRequest("POST", "/api/sales", saleData);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || "Failed to create sale");
+      }
       return response.json();
     },
     onSuccess: () => {
@@ -79,8 +93,8 @@ export default function NewSaleModal({ open, onOpenChange }: NewSaleModalProps) 
   });
 
   const calculateTotals = () => {
-    const quantity = parseFloat(form.watch("quantityGallons") || "0");
-    const pricePerGallon = parseFloat(form.watch("salePricePerGallon") || "0");
+    const quantity = form.watch("quantityGallons") || 0;
+    const pricePerGallon = form.watch("salePricePerGallon") || 0;
     const vatPercentage = parseFloat(form.watch("vatPercentage") || "0");
 
     const sub = quantity * pricePerGallon;
@@ -99,7 +113,7 @@ export default function NewSaleModal({ open, onOpenChange }: NewSaleModalProps) 
 
   useEffect(() => {
     calculateTotals();
-  }, [quantity, price, vatPercentage]);
+  }, [quantity, price, vatPercentage, form]);
 
   const onSubmit = (data: z.infer<typeof saleFormSchema>) => {
     createSaleMutation.mutate(data);
@@ -124,7 +138,13 @@ export default function NewSaleModal({ open, onOpenChange }: NewSaleModalProps) 
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Client</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <Select
+                      onValueChange={(value) => {
+                        field.onChange(value);
+                        form.setValue("projectId", ""); // Reset project when client changes
+                      }}
+                      defaultValue={field.value}
+                    >
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder="Select a client..." />
@@ -145,6 +165,31 @@ export default function NewSaleModal({ open, onOpenChange }: NewSaleModalProps) 
 
               <FormField
                 control={form.control}
+                name="projectId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Project</FormLabel>
+                    <Select onValueChange={field.onChange} defaultValue={field.value} disabled={!selectedClientId}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select a project..." />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {projects?.map((project) => (
+                          <SelectItem key={project.id} value={project.id}>
+                            {project.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
                 name="saleDate"
                 render={({ field }) => (
                   <FormItem>
@@ -152,7 +197,7 @@ export default function NewSaleModal({ open, onOpenChange }: NewSaleModalProps) 
                     <FormControl>
                       <Input
                         type="date"
-                        value={field.value instanceof Date ? field.value.toISOString().split('T')[0] : field.value}
+                        value={field.value instanceof Date ? field.value.toISOString().split('T')[0] : ''}
                         onChange={(e) => field.onChange(new Date(e.target.value))}
                       />
                     </FormControl>
@@ -195,36 +240,19 @@ export default function NewSaleModal({ open, onOpenChange }: NewSaleModalProps) 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <FormField
                 control={form.control}
-                name="lpoNumber"
+                name="purchasePricePerGallon"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>LPO Number</FormLabel>
+                    <FormLabel>Purchase Price ({CURRENCY}/Gallon)</FormLabel>
                     <FormControl>
-                      <Input placeholder="LPO-2024-XXXX" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="lpoDueDate"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>LPO Due Date</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="date"
-                        value={field.value instanceof Date ? field.value.toISOString().split('T')[0] : field.value}
-                        onChange={(e) => field.onChange(new Date(e.target.value))}
-                      />
+                      <Input type="number" step="0.001" placeholder="0.000" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
             </div>
+
 
             {/* Sale Summary */}
             <div className="bg-gray-50 rounded-lg p-4 space-y-3">

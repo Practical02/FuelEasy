@@ -27,8 +27,8 @@ export default function Payments() {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedClients, setSelectedClients] = useState<string[]>([]);
   const [selectedPaymentMethods, setSelectedPaymentMethods] = useState<string[]>([]);
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
+  const [startDate, setStartDate] = useState<Date | null>(null);
+  const [endDate, setEndDate] = useState<Date | null>(null);
   const [minAmount, setMinAmount] = useState("");
   const [maxAmount, setMaxAmount] = useState("");
 
@@ -85,7 +85,7 @@ export default function Payments() {
       if (searchTerm) {
         const searchLower = searchTerm.toLowerCase();
         const matchesClient = payment.sale.client.name.toLowerCase().includes(searchLower);
-        const matchesLPO = payment.sale.lpoNumber.toLowerCase().includes(searchLower);
+        const matchesLPO = payment.sale.lpoNumber?.toLowerCase().includes(searchLower) || false;
         const matchesCheque = payment.chequeNumber?.toLowerCase().includes(searchLower) || false;
         
         if (!matchesClient && !matchesLPO && !matchesCheque) {
@@ -149,16 +149,16 @@ export default function Payments() {
     setSearchTerm("");
     setSelectedClients([]);
     setSelectedPaymentMethods([]);
-    setStartDate("");
-    setEndDate("");
+    setStartDate(null);
+    setEndDate(null);
     setMinAmount("");
     setMaxAmount("");
   };
 
   // Clear date filters
   const clearDateFilters = () => {
-    setStartDate("");
-    setEndDate("");
+    setStartDate(null);
+    setEndDate(null);
   };
 
   // Clear amount filters
@@ -240,10 +240,10 @@ export default function Payments() {
           />
 
           <DateRangePicker
-            startDate={startDate}
-            endDate={endDate}
-            onStartDateChange={setStartDate}
-            onEndDateChange={setEndDate}
+            startDate={startDate ? startDate.toISOString().split('T')[0] : ''}
+            endDate={endDate ? endDate.toISOString().split('T')[0] : ''}
+            onStartDateChange={(date) => setStartDate(date ? new Date(date) : null)}
+            onEndDateChange={(date) => setEndDate(date ? new Date(date) : null)}
             onClear={clearDateFilters}
             label="Payment Date Range"
           />
@@ -341,7 +341,7 @@ export default function Payments() {
                           {payment.sale.client.name}
                         </td>
                         <td className="py-3 px-4 text-sm text-gray-900">
-                          {payment.sale.lpoNumber}
+                          {payment.sale.lpoNumber || "N/A"}
                         </td>
                         <td className="py-3 px-4 text-sm font-medium text-gray-900">
                           {CURRENCY} {parseFloat(payment.amountReceived).toLocaleString()}

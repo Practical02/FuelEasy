@@ -12,7 +12,8 @@ import {
   type InsertInvoice,
   type Payment,
   type InsertPayment,
-  type PaymentWithSaleAndClient
+  type PaymentWithSaleAndClient,
+  type Project
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 
@@ -60,6 +61,7 @@ export class MemStorage implements IStorage {
   private users: Map<string, User>;
   private stock: Map<string, Stock>;
   private clients: Map<string, Client>;
+  private projects: Map<string, Project>;
   private sales: Map<string, Sale>;
   private invoices: Map<string, Invoice>;
   private payments: Map<string, Payment>;
@@ -68,6 +70,7 @@ export class MemStorage implements IStorage {
     this.users = new Map();
     this.stock = new Map();
     this.clients = new Map();
+    this.projects = new Map();
     this.sales = new Map();
     this.invoices = new Map();
     this.payments = new Map();
@@ -112,6 +115,38 @@ export class MemStorage implements IStorage {
     this.clients.set(client2.id, client2);
     this.clients.set(client3.id, client3);
 
+    // Add test projects
+    const project1: Project = {
+      id: "project-1",
+      clientId: "client-1",
+      name: "Fleet Fueling Contract",
+      description: "Ongoing fuel supply for Emirates Transport Co. fleet.",
+      location: "Dubai",
+      status: "Active",
+      createdAt: new Date("2025-01-10T09:00:00Z"),
+    };
+    const project2: Project = {
+      id: "project-2",
+      clientId: "client-2",
+      name: "Warehouse Generator Supply",
+      description: "Diesel supply for backup generators at Jebel Ali warehouse.",
+      location: "Jebel Ali",
+      status: "Completed",
+      createdAt: new Date("2025-01-12T10:00:00Z"),
+    };
+    const project3: Project = {
+      id: "project-3",
+      clientId: "client-3",
+      name: "Showroom Heating Oil",
+      description: "Seasonal heating oil supply for Al Futtaim Motors showrooms.",
+      location: "Abu Dhabi",
+      status: "On Hold",
+      createdAt: new Date("2025-01-14T11:00:00Z"),
+    };
+    this.projects.set(project1.id, project1);
+    this.projects.set(project2.id, project2);
+    this.projects.set(project3.id, project3);
+
     // Add test stock with VAT
     const stock1: Stock = {
       id: "stock-1",
@@ -154,10 +189,13 @@ export class MemStorage implements IStorage {
     const sale1: Sale = {
       id: "sale-1",
       clientId: "client-1",
+      projectId: "project-1",
       saleDate: new Date("2025-01-22T10:00:00Z"),
       quantityGallons: "1500.00",
       salePricePerGallon: "3.200",
+      purchasePricePerGallon: "2.800",
       lpoNumber: "LPO-EMT-2025-001",
+      lpoReceivedDate: new Date("2025-01-22T09:00:00Z"),
       lpoDueDate: new Date("2025-02-15T23:59:59Z"),
       invoiceDate: null,
       saleStatus: "LPO Received",
@@ -165,16 +203,21 @@ export class MemStorage implements IStorage {
       subtotal: "4800.00",
       vatAmount: "240.00", 
       totalAmount: "5040.00",
+      cogs: "4200.00",
+      grossProfit: "600.00",
       createdAt: new Date("2025-01-22T10:30:00Z")
     };
     
     const sale2: Sale = {
       id: "sale-2",
       clientId: "client-2",
+      projectId: "project-2",
       saleDate: new Date("2025-01-25T14:30:00Z"),
       quantityGallons: "2200.00",
       salePricePerGallon: "3.150",
+      purchasePricePerGallon: "2.750",
       lpoNumber: "LPO-DUB-2025-012",
+      lpoReceivedDate: new Date("2025-01-25T13:00:00Z"),
       lpoDueDate: new Date("2025-02-20T23:59:59Z"),
       invoiceDate: new Date("2025-01-26T09:00:00Z"),
       saleStatus: "Invoiced",
@@ -182,16 +225,21 @@ export class MemStorage implements IStorage {
       subtotal: "6930.00",
       vatAmount: "346.50",
       totalAmount: "7276.50",
+      cogs: "6050.00",
+      grossProfit: "880.00",
       createdAt: new Date("2025-01-25T15:00:00Z")
     };
     
     const sale3: Sale = {
       id: "sale-3",
       clientId: "client-3",
+      projectId: "project-3",
       saleDate: new Date("2025-01-30T11:15:00Z"),
       quantityGallons: "800.00",
       salePricePerGallon: "3.180",
+      purchasePricePerGallon: "2.850",
       lpoNumber: "LPO-ALF-2025-005",
+      lpoReceivedDate: null,
       lpoDueDate: new Date("2025-02-25T23:59:59Z"),
       invoiceDate: null,
       saleStatus: "Pending LPO",
@@ -199,6 +247,8 @@ export class MemStorage implements IStorage {
       subtotal: "2544.00",
       vatAmount: "127.20",
       totalAmount: "2671.20",
+      cogs: "2280.00",
+      grossProfit: "264.00",
       createdAt: new Date("2025-01-30T11:45:00Z")
     };
     
@@ -310,8 +360,9 @@ export class MemStorage implements IStorage {
     
     for (const sale of salesArray) {
       const client = this.clients.get(sale.clientId);
+      const project = sale.projectId ? this.projects.get(sale.projectId) : null;
       if (client) {
-        salesWithClients.push({ ...sale, client });
+        salesWithClients.push({ ...sale, client, project: project || null, cogs: sale.cogs, grossProfit: sale.grossProfit });
       }
     }
     
@@ -330,9 +381,10 @@ export class MemStorage implements IStorage {
     if (!sale) return undefined;
     
     const client = this.clients.get(sale.clientId);
+    const project = sale.projectId ? this.projects.get(sale.projectId) : null;
     if (!client) return undefined;
     
-    return { ...sale, client };
+    return { ...sale, client, project };
   }
 
   async createSale(insertSale: InsertSale): Promise<Sale> {
@@ -352,10 +404,12 @@ export class MemStorage implements IStorage {
       id,
       invoiceDate: insertSale.invoiceDate || null,
       saleStatus: insertSale.saleStatus || "Pending LPO",
-      vatPercentage: insertSale.vatPercentage || "5.00",
+      vatPercentage: vatPercentage.toFixed(2),
       subtotal: subtotal.toFixed(2),
       vatAmount: vatAmount.toFixed(2),
       totalAmount: totalAmount.toFixed(2),
+      cogs: "0.00", // Placeholder, calculate actual COGS if needed
+      grossProfit: "0.00", // Placeholder, calculate actual gross profit if needed
       createdAt: new Date() 
     };
     

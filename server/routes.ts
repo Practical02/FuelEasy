@@ -1,15 +1,27 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
+import { z } from "zod";
 import { 
   insertStockSchema, 
   insertClientSchema, 
   insertSaleSchema, 
+  type InsertSale,
   insertPaymentSchema,
   insertInvoiceSchema,
   insertProjectSchema,
   insertCashbookSchema
 } from "@shared/schema";
+
+const apiInsertSaleSchema = insertSaleSchema.extend({
+  quantityGallons: z.number(),
+  salePricePerGallon: z.number(),
+  purchasePricePerGallon: z.number(),
+});
+
+const apiInsertPaymentSchema = insertPaymentSchema.extend({
+  amountReceived: z.number(),
+});
 
 export async function registerRoutes(app: Express): Promise<Server> {
   
@@ -19,7 +31,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const stock = await storage.getStock();
       res.json(stock);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch stock" });
+      res.status(500).json({ message: "Failed to fetch stock", error: error instanceof Error ? error.message : String(error) });
     }
   });
 
@@ -48,7 +60,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const level = await storage.getCurrentStockLevel();
       res.json({ currentLevel: level });
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch current stock level" });
+      res.status(500).json({ message: "Failed to fetch current stock level", error: error instanceof Error ? error.message : String(error) });
     }
   });
 
@@ -65,7 +77,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json(stock);
     } catch (error) {
-      res.status(400).json({ message: "Invalid stock data" });
+      res.status(400).json({ message: "Invalid stock data", error: error instanceof Error ? error.message : String(error) });
     }
   });
 
@@ -77,7 +89,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json({ message: "Stock entry deleted successfully" });
     } catch (error) {
-      res.status(500).json({ message: "Failed to delete stock entry" });
+      res.status(500).json({ message: "Failed to delete stock entry", error: error instanceof Error ? error.message : String(error) });
     }
   });
 
@@ -88,7 +100,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(clients);
     } catch (error) {
       console.error("Error fetching clients:", error);
-      res.status(500).json({ message: "Failed to fetch clients" });
+      res.status(500).json({ message: "Failed to fetch clients", error: error instanceof Error ? error.message : String(error) });
     }
   });
 
@@ -98,7 +110,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const client = await storage.createClient(clientData);
       res.json(client);
     } catch (error) {
-      res.status(400).json({ message: "Invalid client data" });
+      res.status(400).json({ message: "Invalid client data", error: error instanceof Error ? error.message : String(error) });
     }
   });
 
@@ -110,7 +122,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json(client);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch client" });
+      res.status(500).json({ message: "Failed to fetch client", error: error instanceof Error ? error.message : String(error) });
     }
   });
 
@@ -123,7 +135,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json(client);
     } catch (error) {
-      res.status(400).json({ message: "Invalid client data" });
+      res.status(400).json({ message: "Invalid client data", error: error instanceof Error ? error.message : String(error) });
     }
   });
 
@@ -135,7 +147,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json({ message: "Client deleted successfully" });
     } catch (error) {
-      res.status(500).json({ message: "Failed to delete client" });
+      res.status(500).json({ message: "Failed to delete client", error: error instanceof Error ? error.message : String(error) });
     }
   });
 
@@ -148,17 +160,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         : await storage.getSales();
       res.json(sales);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch sales" });
+      res.status(500).json({ message: "Failed to fetch sales", error: error instanceof Error ? error.message : String(error) });
     }
   });
 
   app.post("/api/sales", async (req, res) => {
     try {
-      const saleData = insertSaleSchema.parse(req.body);
-      const sale = await storage.createSale(saleData);
+      const requestData = {
+        ...req.body,
+        saleDate: new Date(req.body.saleDate),
+      };
+      const validatedData = apiInsertSaleSchema.parse(requestData);
+      const saleDataForStorage: InsertSale = {
+        ...validatedData,
+        quantityGallons: validatedData.quantityGallons.toString(),
+        salePricePerGallon: validatedData.salePricePerGallon.toString(),
+        purchasePricePerGallon: validatedData.purchasePricePerGallon.toString(),
+      };
+      const sale = await storage.createSale(saleDataForStorage);
       res.json(sale);
     } catch (error) {
-      res.status(400).json({ message: "Invalid sale data" });
+      console.error("Sale validation error:", error);
+      res.status(400).json({ message: "Invalid sale data", error: error instanceof Error ? error.message : String(error) });
     }
   });
 
@@ -171,7 +194,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json(sale);
     } catch (error) {
-      res.status(500).json({ message: "Failed to update sale status" });
+      res.status(500).json({ message: "Failed to update sale status", error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.get("/api/sales/by-client/:clientId", async (req, res) => {
+    try {
+      const sales = await storage.getSalesByClient(req.params.clientId);
+      res.json(sales);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch sales by client", error: error instanceof Error ? error.message : String(error) });
     }
   });
 
@@ -183,20 +215,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json(sale);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch sale" });
+      res.status(500).json({ message: "Failed to fetch sale", error: error instanceof Error ? error.message : String(error) });
     }
   });
 
   app.patch("/api/sales/:id", async (req, res) => {
     try {
-      const saleData = insertSaleSchema.parse(req.body);
-      const sale = await storage.updateSale(req.params.id, saleData);
+      const requestData = {
+        ...req.body,
+        saleDate: new Date(req.body.saleDate),
+        ...(req.body.lpoDueDate && { lpoDueDate: new Date(req.body.lpoDueDate) }),
+      };
+      const validatedData = apiInsertSaleSchema.parse(requestData);
+      const saleDataForStorage: InsertSale = {
+        ...validatedData,
+        quantityGallons: validatedData.quantityGallons.toString(),
+        salePricePerGallon: validatedData.salePricePerGallon.toString(),
+        purchasePricePerGallon: validatedData.purchasePricePerGallon.toString(),
+      };
+      const sale = await storage.updateSale(req.params.id, saleDataForStorage);
       if (!sale) {
         return res.status(404).json({ message: "Sale not found" });
       }
       res.json(sale);
     } catch (error) {
-      res.status(400).json({ message: "Invalid sale data" });
+      console.error("Sale update validation error:", error);
+      res.status(400).json({ message: "Invalid sale data", error: error instanceof Error ? error.message : String(error) });
     }
   });
 
@@ -208,7 +252,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json({ message: "Sale deleted successfully" });
     } catch (error) {
-      res.status(500).json({ message: "Failed to delete sale" });
+      res.status(500).json({ message: "Failed to delete sale", error: error instanceof Error ? error.message : String(error) });
     }
   });
 
@@ -218,17 +262,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const payments = await storage.getPayments();
       res.json(payments);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch payments" });
+      res.status(500).json({ message: "Failed to fetch payments", error: error instanceof Error ? error.message : String(error) });
     }
   });
 
   app.post("/api/payments", async (req, res) => {
     try {
-      const paymentData = insertPaymentSchema.parse(req.body);
-      const payment = await storage.createPayment(paymentData);
+      const requestData = {
+        ...req.body,
+        paymentDate: new Date(req.body.paymentDate),
+      };
+      const paymentData = apiInsertPaymentSchema.parse(requestData);
+      const payment = await storage.createPayment({
+        ...paymentData,
+        amountReceived: paymentData.amountReceived.toString(),
+      });
+
+      // After successful payment, check if the sale is fully paid
+      const sale = await storage.getSale(paymentData.saleId);
+      if (sale) {
+        const payments = await storage.getPaymentsBySale(paymentData.saleId);
+        const totalPaid = payments.reduce((acc, p) => acc + parseFloat(p.amountReceived), 0);
+        if (totalPaid >= parseFloat(sale.totalAmount)) {
+          await storage.updateSaleStatus(paymentData.saleId, "Paid");
+        }
+      }
+
       res.json(payment);
     } catch (error) {
-      res.status(400).json({ message: "Invalid payment data" });
+      res.status(400).json({ message: "Invalid payment data", error: error instanceof Error ? error.message : String(error) });
     }
   });
 
@@ -237,7 +299,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const payments = await storage.getPaymentsBySale(req.params.saleId);
       res.json(payments);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch payments for sale" });
+      res.status(500).json({ message: "Failed to fetch payments for sale", error: error instanceof Error ? error.message : String(error) });
     }
   });
 
@@ -249,7 +311,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json({ message: "Payment deleted successfully" });
     } catch (error) {
-      res.status(500).json({ message: "Failed to delete payment" });
+      res.status(500).json({ message: "Failed to delete payment", error: error instanceof Error ? error.message : String(error) });
     }
   });
 
@@ -259,17 +321,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const invoices = await storage.getInvoices();
       res.json(invoices);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch invoices" });
+      res.status(500).json({ message: "Failed to fetch invoices", error: error instanceof Error ? error.message : String(error) });
     }
   });
 
   app.post("/api/invoices", async (req, res) => {
     try {
-      const invoiceData = insertInvoiceSchema.parse(req.body);
+      const requestData = {
+        ...req.body,
+        invoiceDate: new Date(req.body.invoiceDate),
+      };
+      const invoiceData = insertInvoiceSchema.parse(requestData);
       const invoice = await storage.createInvoice(invoiceData);
+
+      // Update sale status to "Invoiced"
+      await storage.updateSaleStatus(invoiceData.saleId, "Invoiced");
+
       res.json(invoice);
     } catch (error) {
-      res.status(400).json({ message: "Invalid invoice data" });
+      console.error("Invoice validation error:", error);
+      res.status(400).json({ message: "Invalid invoice data", error: error instanceof Error ? error.message : String(error) });
     }
   });
 
@@ -281,7 +352,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json(invoice);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch invoice" });
+      res.status(500).json({ message: "Failed to fetch invoice", error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.patch("/api/invoices/:id", async (req, res) => {
+    try {
+      const requestData = {
+        ...req.body,
+        invoiceDate: new Date(req.body.invoiceDate),
+      };
+      const invoiceData = insertInvoiceSchema.parse(requestData);
+      const invoice = await storage.updateInvoice(req.params.id, invoiceData);
+      if (!invoice) {
+        return res.status(404).json({ message: "Invoice not found" });
+      }
+      res.json(invoice);
+    } catch (error) {
+      console.error("Invoice update error:", error);
+      res.status(400).json({ message: "Invalid invoice data", error: error instanceof Error ? error.message : String(error) });
     }
   });
 
@@ -293,7 +382,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json({ message: "Invoice deleted successfully" });
     } catch (error) {
-      res.status(500).json({ message: "Failed to delete invoice" });
+      res.status(500).json({ message: "Failed to delete invoice", error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post("/api/invoices/:id/regenerate", async (req, res) => {
+    try {
+      const newInvoice = await storage.regenerateInvoice(req.params.id);
+      if (!newInvoice) {
+        return res.status(404).json({ message: "Invoice not found" });
+      }
+      res.json(newInvoice);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to regenerate invoice", error: error instanceof Error ? error.message : String(error) });
     }
   });
 
@@ -326,7 +427,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         grossMargin: totalRevenue > 0 ? (grossProfit / totalRevenue) * 100 : 0
       });
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch report data" });
+      res.status(500).json({ message: "Failed to fetch report data", error: error instanceof Error ? error.message : String(error) });
     }
   });
 
@@ -339,8 +440,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         dateTo as string
       );
       res.json(pendingBusiness);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch pending business report" });
+    } catch (error).json({ message: "Failed to fetch pending business report", error: error instanceof Error ? error.message : String(error) });
     }
   });
 
@@ -354,7 +454,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
       res.json(vatReport);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch VAT report" });
+      res.status(500).json({ message: "Failed to fetch VAT report", error: error instanceof Error ? error.message : String(error) });
     }
   });
 
@@ -364,7 +464,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const projects = await storage.getProjects();
       res.json(projects);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch projects" });
+      res.status(500).json({ message: "Failed to fetch projects", error: error instanceof Error ? error.message : String(error) });
     }
   });
 
@@ -373,7 +473,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const projects = await storage.getProjectsByClient(req.params.clientId);
       res.json(projects);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch projects by client" });
+      res.status(500).json({ message: "Failed to fetch projects by client", error: error instanceof Error ? error.message : String(error) });
     }
   });
 
@@ -383,7 +483,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const project = await storage.createProject(projectData);
       res.json(project);
     } catch (error) {
-      res.status(400).json({ message: "Invalid project data" });
+      res.status(400).json({ message: "Invalid project data", error: error instanceof Error ? error.message : String(error) });
     }
   });
 
@@ -396,7 +496,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json(project);
     } catch (error) {
-      res.status(400).json({ message: "Invalid project data" });
+      res.status(400).json({ message: "Invalid project data", error: error instanceof Error ? error.message : String(error) });
     }
   });
 
@@ -408,7 +508,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json({ message: "Project deleted successfully" });
     } catch (error) {
-      res.status(500).json({ message: "Failed to delete project" });
+      res.status(500).json({ message: "Failed to delete project", error: error instanceof Error ? error.message : String(error) });
     }
   });
 
@@ -418,7 +518,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const entries = await storage.getCashbookEntries();
       res.json(entries);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch cashbook entries" });
+      res.status(500).json({ message: "Failed to fetch cashbook entries", error: error instanceof Error ? error.message : String(error) });
     }
   });
 
@@ -427,7 +527,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const balance = await storage.getCashBalance();
       res.json({ balance });
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch cash balance" });
+      res.status(500).json({ message: "Failed to fetch cash balance", error: error instanceof Error ? error.message : String(error) });
     }
   });
 
@@ -436,7 +536,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const summary = await storage.getTransactionSummary();
       res.json(summary);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch transaction summary" });
+      res.status(500).json({ message: "Failed to fetch transaction summary", error: error instanceof Error ? error.message : String(error) });
     }
   });
 
@@ -445,7 +545,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const debts = await storage.getPendingDebts();
       res.json(debts);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch pending debts" });
+      res.status(500).json({ message: "Failed to fetch pending debts", error: error instanceof Error ? error.message : String(error) });
     }
   });
 
@@ -461,7 +561,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
       res.json(paymentEntry);
     } catch (error) {
-      res.status(400).json({ message: "Failed to process debt payment" });
+      res.status(400).json({ message: "Failed to process debt payment", error: error instanceof Error ? error.message : String(error) });
     }
   });
 
@@ -475,7 +575,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const entry = await storage.createCashbookEntry(cashbookData);
       res.json(entry);
     } catch (error) {
-      res.status(400).json({ message: "Invalid cashbook data" });
+      res.status(400).json({ message: "Invalid cashbook data", error: error instanceof Error ? error.message : String(error) });
     }
   });
 
@@ -487,7 +587,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json({ message: "Cashbook entry deleted successfully" });
     } catch (error) {
-      res.status(500).json({ message: "Failed to delete cashbook entry" });
+      res.status(500).json({ message: "Failed to delete cashbook entry", error: error instanceof Error ? error.message : String(error) });
     }
   });
 
@@ -497,7 +597,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const salesWithDelays = await storage.getSalesWithDelays();
       res.json(salesWithDelays);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch sales with delays" });
+      res.status(500).json({ message: "Failed to fetch sales with delays", error: error instanceof Error ? error.message : String(error) });
     }
   });
 

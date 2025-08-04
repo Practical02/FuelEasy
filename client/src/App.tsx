@@ -12,6 +12,7 @@ import Payments from "@/pages/payments";
 import Invoices from "@/pages/invoices";
 import Reports from "@/pages/reports";
 import Cashbook from "@/pages/cashbook";
+import ClientPage from "@/pages/client";
 import Sidebar from "@/components/layout/sidebar";
 
 function Router() {
@@ -24,6 +25,7 @@ function Router() {
           <Route path="/dashboard" component={Dashboard} />
           <Route path="/stock" component={Stock} />
           <Route path="/clients" component={Clients} />
+          <Route path="/clients/:id" component={ClientPage} />
           <Route path="/sales" component={Sales} />
           <Route path="/payments" component={Payments} />
           <Route path="/invoices" component={Invoices} />

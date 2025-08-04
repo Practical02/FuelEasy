@@ -95,15 +95,17 @@ export default function ViewSaleModal({ open, onOpenChange, sale }: ViewSaleModa
                     <p className="font-medium text-gray-900">{sale.lpoNumber}</p>
                   </div>
                 </div>
-                <div className="flex items-center space-x-3">
-                  <Clock className="w-4 h-4 text-gray-500" />
-                  <div>
-                    <p className="text-sm text-gray-500">LPO Due Date</p>
-                    <p className="font-medium text-gray-900">
-                      {new Date(sale.lpoDueDate).toLocaleDateString()}
-                    </p>
+                {sale.lpoDueDate && (
+                  <div className="flex items-center space-x-3">
+                    <Clock className="w-4 h-4 text-gray-500" />
+                    <div>
+                      <p className="text-sm text-gray-500">LPO Due Date</p>
+                      <p className="font-medium text-gray-900">
+                        {new Date(sale.lpoDueDate).toLocaleDateString()}
+                      </p>
+                    </div>
                   </div>
-                </div>
+                )}
                 {sale.invoiceDate && (
                   <div className="flex items-center space-x-3">
                     <Receipt className="w-4 h-4 text-gray-500" />

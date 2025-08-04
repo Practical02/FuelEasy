@@ -11,6 +11,7 @@ import EditClientModal from "@/components/modals/edit-client-modal";
 import ViewClientModal from "@/components/modals/view-client-modal";
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { Phone, Mail, MapPin, Edit, Eye, TrendingUp, Trash2 } from "lucide-react";
+import { Link } from "wouter";
 import { CURRENCY } from "@/lib/constants";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -200,71 +201,73 @@ export default function Clients() {
         ) : filteredClients && filteredClients.length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-6">
             {filteredClients.map((client) => (
-              <Card key={client.id} className="hover:shadow-md transition-shadow">
-                <CardContent className="p-4 lg:p-6">
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex-1">
-                      <h4 className="font-semibold text-gray-900 text-lg">{client.name}</h4>
-                      <p className="text-gray-600">{client.contactPerson}</p>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        onClick={() => handleEditClick(client)}
-                        className="text-blue-500 hover:text-blue-700 hover:bg-blue-50"
-                      >
-                        <Edit className="w-4 h-4" />
-                      </Button>
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        onClick={() => handleViewClick(client)}
-                        className="text-gray-500 hover:text-gray-700 hover:bg-gray-50"
-                      >
-                        <Eye className="w-4 h-4" />
-                      </Button>
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        onClick={() => handleDeleteClick(client)}
-                        className="text-red-500 hover:text-red-700 hover:bg-red-50"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div className="space-y-3 text-sm text-gray-600 mb-4">
-                    <div className="flex items-center space-x-3">
-                      <Phone className="w-4 h-4 flex-shrink-0" />
-                      <span>{client.phoneNumber}</span>
-                    </div>
-                    <div className="flex items-center space-x-3">
-                      <Mail className="w-4 h-4 flex-shrink-0" />
-                      <span className="truncate">{client.email}</span>
-                    </div>
-                    <div className="flex items-start space-x-3">
-                      <MapPin className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                      <span className="text-xs leading-relaxed">{client.address}</span>
-                    </div>
-                  </div>
-
-                  <div className="pt-4 border-t border-gray-100">
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-500 text-sm">Total Sales:</span>
+              <Link key={client.id} href={`/clients/${client.id}`}>
+                <Card className="hover:shadow-md transition-shadow cursor-pointer h-full">
+                  <CardContent className="p-4 lg:p-6">
+                    <div className="flex items-start justify-between mb-4">
+                      <div className="flex-1">
+                        <h4 className="font-semibold text-gray-900 text-lg">{client.name}</h4>
+                        <p className="text-gray-600">{client.contactPerson}</p>
+                      </div>
                       <div className="flex items-center space-x-2">
-                        <span className="font-semibold text-gray-900">
-                          {CURRENCY} {(clientSales[client.id] || 0).toLocaleString()}
-                        </span>
-                        {clientSales[client.id] > 0 && (
-                          <TrendingUp className="w-4 h-4 text-success-500" />
-                        )}
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          onClick={(e) => { e.preventDefault(); handleEditClick(client); }}
+                          className="text-blue-500 hover:text-blue-700 hover:bg-blue-50"
+                        >
+                          <Edit className="w-4 h-4" />
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          onClick={(e) => { e.preventDefault(); handleViewClick(client); }}
+                          className="text-gray-500 hover:text-gray-700 hover:bg-gray-50"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          onClick={(e) => { e.preventDefault(); handleDeleteClick(client); }}
+                          className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
                       </div>
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
+
+                    <div className="space-y-3 text-sm text-gray-600 mb-4">
+                      <div className="flex items-center space-x-3">
+                        <Phone className="w-4 h-4 flex-shrink-0" />
+                        <span>{client.phoneNumber}</span>
+                      </div>
+                      <div className="flex items-center space-x-3">
+                        <Mail className="w-4 h-4 flex-shrink-0" />
+                        <span className="truncate">{client.email}</span>
+                      </div>
+                      <div className="flex items-start space-x-3">
+                        <MapPin className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                        <span className="text-xs leading-relaxed">{client.address}</span>
+                      </div>
+                    </div>
+
+                    <div className="pt-4 border-t border-gray-100">
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-500 text-sm">Total Sales:</span>
+                        <div className="flex items-center space-x-2">
+                          <span className="font-semibold text-gray-900">
+                            {CURRENCY} {(clientSales[client.id] || 0).toLocaleString()}
+                          </span>
+                          {clientSales[client.id] > 0 && (
+                            <TrendingUp className="w-4 h-4 text-success-500" />
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </Link>
             ))}
           </div>
         ) : (

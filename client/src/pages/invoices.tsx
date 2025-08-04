@@ -5,19 +5,26 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
-import { FileText, Download, Trash2, Eye } from "lucide-react";
+import { FileText, Download, Trash2, Eye, PlusCircle, Pencil, RefreshCw } from "lucide-react";
 import { CURRENCY } from "@/lib/constants";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Invoice, SaleWithClient } from "@shared/schema";
+import NewInvoiceModal from "@/components/modals/new-invoice-modal";
+import EditInvoiceModal from "@/components/modals/edit-invoice-modal";
+import ViewInvoiceModal from "@/components/modals/view-invoice-modal";
+import { generateInvoicePDF } from "@/lib/pdf";
 
-type InvoiceWithSale = Invoice & {
+export type InvoiceWithSale = Invoice & {
   sale: SaleWithClient;
 };
 
 export default function Invoices() {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
+  const [selectedInvoice, setSelectedInvoice] = useState<InvoiceWithSale | null>(null);
+  const [isNewInvoiceModalOpen, setIsNewInvoiceModalOpen] = useState(false);
+  const [isEditInvoiceModalOpen, setIsEditInvoiceModalOpen] = useState(false);
+  const [isViewInvoiceModalOpen, setIsViewInvoiceModalOpen] = useState(false);
   const { toast } = useToast();
 
   const { data: invoices, isLoading } = useQuery<InvoiceWithSale[]>({
@@ -26,41 +33,6 @@ export default function Invoices() {
 
   const { data: sales } = useQuery<SaleWithClient[]>({
     queryKey: ["/api/sales"],
-  });
-
-  const createInvoiceMutation = useMutation({
-    mutationFn: async (saleId: string) => {
-      const sale = sales?.find(s => s.id === saleId);
-      if (!sale) throw new Error("Sale not found");
-
-      const invoiceNumber = `INV-${sale.lpoNumber}`;
-      const invoiceData = {
-        saleId: sale.id,
-        invoiceNumber,
-        invoiceDate: new Date(),
-        totalAmount: sale.totalAmount,
-        vatAmount: sale.vatAmount,
-        status: "Generated"
-      };
-
-      const response = await apiRequest("POST", "/api/invoices", invoiceData);
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/sales"] });
-      toast({
-        title: "Invoice Generated",
-        description: "Invoice has been generated successfully.",
-      });
-    },
-    onError: () => {
-      toast({
-        title: "Error",
-        description: "Failed to generate invoice. Please try again.",
-        variant: "destructive",
-      });
-    },
   });
 
   const deleteInvoiceMutation = useMutation({
@@ -86,13 +58,47 @@ export default function Invoices() {
     },
   });
 
-  const handleGenerateInvoice = (saleId: string) => {
-    createInvoiceMutation.mutate(saleId);
-  };
+  const regenerateInvoiceMutation = useMutation({
+    mutationFn: async (invoiceId: string) => {
+      const response = await apiRequest(
+        "POST",
+        `/api/invoices/${invoiceId}/regenerate`
+      );
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+      toast({
+        title: "Invoice Regenerated",
+        description: "A new invoice has been created.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to regenerate invoice. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
 
-  const handleDeleteClick = (invoice: Invoice) => {
+  const handleDeleteClick = (invoice: InvoiceWithSale) => {
     setSelectedInvoice(invoice);
     setShowDeleteDialog(true);
+  };
+
+  const handleRegenerateClick = (invoice: InvoiceWithSale) => {
+    regenerateInvoiceMutation.mutate(invoice.id);
+  };
+
+  const handleEditClick = (invoice: InvoiceWithSale) => {
+    setSelectedInvoice(invoice);
+    setIsEditInvoiceModalOpen(true);
+  };
+
+  const handleViewClick = (invoice: InvoiceWithSale) => {
+    setSelectedInvoice(invoice);
+    setIsViewInvoiceModalOpen(true);
   };
 
   const handleDeleteConfirm = () => {
@@ -101,21 +107,19 @@ export default function Invoices() {
     }
   };
 
-  // Get invoiceable sales (LPO Received status)
-  const invoiceableSales = sales?.filter(sale => 
-    sale.saleStatus === "LPO Received" && 
-    !invoices?.some(inv => inv.saleId === sale.id)
-  ) || [];
-
   const totalInvoiceAmount = invoices?.reduce((sum, invoice) => 
     sum + parseFloat(invoice.totalAmount), 0
   ) || 0;
 
   return (
     <>
-      <Header 
+      <Header
         title="Invoice Management"
         description="Generate and manage invoices for your sales"
+        primaryAction={{
+          label: "Create Invoice",
+          onClick: () => setIsNewInvoiceModalOpen(true),
+        }}
       />
 
       <div className="p-4 lg:p-6">
@@ -157,7 +161,13 @@ export default function Invoices() {
                 <div>
                   <p className="text-sm font-medium text-gray-600">Pending Generation</p>
                   <p className="text-2xl font-bold text-gray-900">
-                    {invoiceableSales.length}
+                    {
+                      (sales?.filter(
+                        (sale) =>
+                          sale.saleStatus === "LPO Received" &&
+                          !invoices?.some((inv) => inv.saleId === sale.id)
+                      ) || []).length
+                    }
                   </p>
                 </div>
                 <div className="h-8 w-8 bg-orange-100 rounded-full flex items-center justify-center">
@@ -167,35 +177,6 @@ export default function Invoices() {
             </CardContent>
           </Card>
         </div>
-
-        {/* Generate Invoices Section */}
-        {invoiceableSales.length > 0 && (
-          <Card className="mb-8">
-            <CardContent className="p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Ready for Invoice Generation</h3>
-              <div className="space-y-3">
-                {invoiceableSales.map((sale) => (
-                  <div key={sale.id} className="flex items-center justify-between py-3 border-b border-gray-100 last:border-0">
-                    <div className="flex-1">
-                      <p className="font-medium text-gray-900">{sale.client.name}</p>
-                      <p className="text-sm text-gray-500">
-                        LPO: {sale.lpoNumber} • {CURRENCY} {parseFloat(sale.totalAmount).toLocaleString()}
-                      </p>
-                    </div>
-                    <Button
-                      onClick={() => handleGenerateInvoice(sale.id)}
-                      disabled={createInvoiceMutation.isPending}
-                      className="bg-blue-600 text-white hover:bg-blue-700"
-                    >
-                      <FileText className="w-4 h-4 mr-2" />
-                      {createInvoiceMutation.isPending ? "Generating..." : "Generate Invoice"}
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
 
         {/* Invoice List */}
         <Card>
@@ -211,6 +192,7 @@ export default function Invoices() {
                     <th className="text-left py-3 px-4 font-medium text-gray-900">LPO Number</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Invoice Date</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Amount</th>
+                    <th className="text-left py-3 px-4 font-medium text-gray-900">Pending Amount</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Status</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Actions</th>
                   </tr>
@@ -240,11 +222,15 @@ export default function Invoices() {
                         <td className="py-3 px-4 text-sm font-medium text-gray-900">
                           {CURRENCY} {parseFloat(invoice.totalAmount).toLocaleString()}
                         </td>
+                        <td className="py-3 px-4 text-sm font-medium text-red-600">
+                          {CURRENCY} {parseFloat(invoice.sale.pendingAmount || "0").toLocaleString()}
+                        </td>
                         <td className="py-3 px-4">
-                          <Badge 
+                          <Badge
                             className={
                               invoice.status === "Paid" ? "bg-green-100 text-green-600" :
                               invoice.status === "Sent" ? "bg-blue-100 text-blue-600" :
+                              invoice.status === "Deleted" ? "bg-red-100 text-red-600" :
                               "bg-gray-100 text-gray-600"
                             }
                           >
@@ -256,6 +242,7 @@ export default function Invoices() {
                             <Button
                               variant="ghost"
                               size="sm"
+                              onClick={() => handleViewClick(invoice)}
                               className="text-gray-600 hover:text-gray-800 hover:bg-gray-50"
                             >
                               <Eye className="w-4 h-4" />
@@ -263,26 +250,48 @@ export default function Invoices() {
                             <Button
                               variant="ghost"
                               size="sm"
+                              onClick={() => generateInvoicePDF(invoice)}
                               className="text-blue-600 hover:text-blue-800 hover:bg-blue-50"
                             >
                               <Download className="w-4 h-4" />
                             </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleDeleteClick(invoice)}
-                              className="text-red-600 hover:text-red-800 hover:bg-red-50"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
+                            {invoice.status !== "Deleted" && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleEditClick(invoice)}
+                                className="text-yellow-600 hover:text-yellow-800 hover:bg-yellow-50"
+                              >
+                                <Pencil className="w-4 h-4" />
+                              </Button>
+                            )}
+                            {invoice.status === "Deleted" ? (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleRegenerateClick(invoice)}
+                                className="text-green-600 hover:text-green-800 hover:bg-green-50"
+                              >
+                                <RefreshCw className="w-4 h-4" />
+                              </Button>
+                            ) : (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleDeleteClick(invoice)}
+                                className="text-red-600 hover:text-red-800 hover:bg-red-50"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            )}
                           </div>
                         </td>
                       </tr>
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={7} className="py-8 text-center text-gray-500">
-                        No invoices generated yet. Invoices will appear here once you generate them from eligible sales.
+                      <td colSpan={8} className="py-8 text-center text-gray-500">
+                        No invoices created yet.
                       </td>
                     </tr>
                   )}
@@ -292,6 +301,23 @@ export default function Invoices() {
           </CardContent>
         </Card>
       </div>
+
+      <NewInvoiceModal
+        open={isNewInvoiceModalOpen}
+        onOpenChange={setIsNewInvoiceModalOpen}
+      />
+
+      <EditInvoiceModal
+        open={isEditInvoiceModalOpen}
+        onOpenChange={setIsEditInvoiceModalOpen}
+        invoice={selectedInvoice}
+      />
+
+      <ViewInvoiceModal
+        open={isViewInvoiceModalOpen}
+        onOpenChange={setIsViewInvoiceModalOpen}
+        invoice={selectedInvoice}
+      />
 
       <ConfirmationDialog
         open={showDeleteDialog}

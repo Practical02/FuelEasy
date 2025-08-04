@@ -108,7 +108,7 @@ export default function Sales() {
       // Search term filter (LPO number, client name)
       if (searchTerm) {
         const searchLower = searchTerm.toLowerCase();
-        const matchesLPO = sale.lpoNumber.toLowerCase().includes(searchLower);
+        const matchesLPO = sale.lpoNumber?.toLowerCase().includes(searchLower) || false;
         const matchesClient = sale.client.name.toLowerCase().includes(searchLower);
         const matchesContact = sale.client.contactPerson.toLowerCase().includes(searchLower);
         
@@ -383,7 +383,7 @@ export default function Sales() {
                         </td>
                         <td className="py-3 px-4 text-sm text-gray-900">{sale.lpoNumber}</td>
                         <td className="py-3 px-4 text-sm text-gray-900">
-                          {new Date(sale.lpoDueDate).toLocaleDateString()}
+                          {sale.lpoDueDate ? new Date(sale.lpoDueDate).toLocaleDateString() : "N/A"}
                         </td>
                         <td className="py-3 px-4">
                           <StatusBadge status={sale.saleStatus as any} />
