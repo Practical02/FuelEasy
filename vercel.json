@@ -1,46 +1,32 @@
 {
   "version": 2,
-  "name": "fuelflow",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "builds": [
-    {
-      "src": "server/vercel.ts",
-      "use": "@vercel/node"
+  "functions": {
+    "api/**/*.ts": {
+      "runtime": "@vercel/node"
     }
-  ],
-  "routes": [
+  },
+  "rewrites": [
     {
-      "src": "/api/(.*)",
-      "dest": "/server/vercel.ts"
+      "source": "/api/(.*)",
+      "destination": "/api/$1"
     },
     {
-      "src": "/sw.js",
-      "dest": "/dist/sw.js",
-      "headers": {
-        "Cache-Control": "public, max-age=0, must-revalidate",
-        "Service-Worker-Allowed": "/"
-      }
+      "source": "/sw.js",
+      "destination": "/dist/sw.js"
     },
     {
-      "src": "/manifest.json",
-      "dest": "/dist/manifest.json",
-      "headers": {
-        "Content-Type": "application/manifest+json"
-      }
+      "source": "/manifest.json",
+      "destination": "/dist/manifest.json"
     },
     {
-      "src": "/(.*)",
-      "dest": "/dist/$1"
+      "source": "/(.*)",
+      "destination": "/dist/$1"
     }
   ],
   "env": {
     "NODE_ENV": "production"
-  },
-  "functions": {
-    "server/vercel.ts": {
-      "maxDuration": 30
-    }
   },
   "headers": [
     {
