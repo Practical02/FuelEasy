@@ -137,6 +137,11 @@ export interface IStorage {
   getClientPayments(): Promise<CashbookEntryWithAccountHead[]>;
   getClientOutstandingBalance(clientId: string): Promise<number>;
   getClientPaymentHistory(clientId: string): Promise<CashbookEntry[]>;
+  getOverdueClientPayments(daysThreshold: number): Promise<{
+    client: Client;
+    invoices: Array<{ id: string; invoiceNumber: string | null; invoiceDate: Date | null; pendingAmount: number; totalAmount: number }>;
+    totalPending: number;
+  }[]>;
   
   // Reporting methods
   getTotalRevenue(): Promise<number>;
@@ -1722,6 +1727,59 @@ export class DatabaseStorage implements IStorage {
       ...r,
       accountHead: r.accountHead!,
     }));
+  }
+
+  async getOverdueClientPayments(daysThreshold: number): Promise<{
+    client: Client;
+    invoices: Array<{ id: string; invoiceNumber: string | null; invoiceDate: Date | null; pendingAmount: number; totalAmount: number }>;
+    totalPending: number;
+  }[]> {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - Math.max(1, daysThreshold || 30));
+
+    // Fetch candidate invoices that are still not marked Paid
+    const rows = await db
+      .select({
+        invoice: invoices,
+        sale: sales,
+        client: clients,
+      })
+      .from(invoices)
+      .leftJoin(sales, eq(invoices.saleId, sales.id))
+      .leftJoin(clients, eq(sales.clientId, clients.id));
+
+    // Compute pending amounts and filter overdue
+    const perClient: Record<string, { client: Client; invoices: Array<{ id: string; invoiceNumber: string | null; invoiceDate: Date | null; pendingAmount: number; totalAmount: number }>; totalPending: number }>
+      = {};
+
+    for (const r of rows) {
+      if (!r.invoice || !r.sale || !r.client) continue;
+      // Consider only invoices that are not paid
+      if (r.invoice.status === 'Paid') continue;
+      // Must have an invoice date
+      const invDate = r.invoice.invoiceDate ? new Date(r.invoice.invoiceDate as any) : undefined;
+      if (!invDate || invDate > cutoff) continue;
+
+      const allocated = await this.getInvoiceAllocatedAmount(r.invoice.id);
+      const totalAmt = parseFloat(r.invoice.totalAmount);
+      const pending = totalAmt - allocated;
+      if (pending <= 0) continue;
+
+      const clientId = r.client.id;
+      if (!perClient[clientId]) {
+        perClient[clientId] = { client: r.client, invoices: [], totalPending: 0 };
+      }
+      perClient[clientId].invoices.push({
+        id: r.invoice.id,
+        invoiceNumber: r.invoice.invoiceNumber,
+        invoiceDate: invDate,
+        pendingAmount: parseFloat(pending.toFixed(2)),
+        totalAmount: totalAmt,
+      });
+      perClient[clientId].totalPending = parseFloat((perClient[clientId].totalPending + pending).toFixed(2));
+    }
+
+    return Object.values(perClient).sort((a, b) => b.totalPending - a.totalPending);
   }
 
   // Additional methods for stock update and delete operations

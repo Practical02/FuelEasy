@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button";
-import { Plus, Bell } from "lucide-react";
+import { Plus } from "lucide-react";
+import NotificationsBell from "@/components/layout/notifications-bell";
 
 interface HeaderProps {
   title: string;
@@ -29,9 +30,7 @@ export default function Header({ title, description, primaryAction }: HeaderProp
               <span className="hidden lg:inline">{primaryAction.label}</span>
             </Button>
           )}
-          <button className="text-gray-400 hover:text-gray-600 p-2 lg:p-1">
-            <Bell className="w-5 h-5" />
-          </button>
+          <NotificationsBell />
         </div>
       </div>
     </header>

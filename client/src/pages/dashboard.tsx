@@ -35,6 +35,10 @@ export default function Dashboard() {
   const [selectedSaleId, setSelectedSaleId] = useState<string>("");
   const [, setLocation] = useLocation();
 
+  const { data: overdue } = useQuery<{ days: number; data: any[] }>({
+    queryKey: ["/api/notifications/overdue-clients?days=30"],
+  });
+
   const { data: overview, isLoading: overviewLoading } = useQuery<{
     totalRevenue: number;
     totalCOGS: number;
@@ -117,6 +121,15 @@ export default function Dashboard() {
           onClick: () => setShowNewSaleModal(true)
         }}
       />
+
+      {/* Top alert strip if there are overdue clients */}
+      {overdue && overdue.data && overdue.data.length > 0 && (
+        <div className="mx-4 md:mx-6 mt-4">
+          <div className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-800">
+            {overdue.data.length} client(s) have invoices overdue by more than {overdue.days} days. Check the bell icon for details.
+          </div>
+        </div>
+      )}
 
       <div className="p-4 md:p-6">
         {/* Key Metrics */}

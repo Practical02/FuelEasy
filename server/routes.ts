@@ -685,6 +685,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
 
   // Reports routes
+  app.get("/api/notifications/overdue-clients", requireAuth, async (req, res) => {
+    try {
+      const days = Math.max(1, parseInt((req.query.days as string) || '30'));
+      const result = await storage.getOverdueClientPayments(days);
+      res.json({ days, data: result });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch overdue clients", error: error instanceof Error ? error.message : String(error) });
+    }
+  });
   app.get("/api/reports/overview", requireAuth, async (req, res) => {
     try {
       const [
