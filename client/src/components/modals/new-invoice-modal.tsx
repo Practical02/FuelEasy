@@ -1,6 +1,8 @@
 import { useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Drawer, DrawerContent } from "@/components/ui/drawer";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -22,6 +24,7 @@ interface NewInvoiceModalProps {
 }
 
 export default function NewInvoiceModal({ open, onOpenChange }: NewInvoiceModalProps) {
+  const isMobile = useIsMobile();
   const { toast } = useToast();
 
   const { data: salesResponse } = useQuery<any>({
@@ -92,18 +95,17 @@ export default function NewInvoiceModal({ open, onOpenChange }: NewInvoiceModalP
     sale.saleStatus === "LPO Received"
   ) || [];
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Create New Invoice</DialogTitle>
-          <DialogDescription>
-            Manually create a new invoice for a sale.
-          </DialogDescription>
-        </DialogHeader>
+  const body = (
+    <>
+      <DialogHeader>
+        <DialogTitle>Create New Invoice</DialogTitle>
+        <DialogDescription>
+          Manually create a new invoice for a sale.
+        </DialogDescription>
+      </DialogHeader>
 
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6 pt-4">
+      <Form {...form}>
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6 pt-4">
             <FormField
               control={form.control}
               name="saleId"
@@ -161,23 +163,44 @@ export default function NewInvoiceModal({ open, onOpenChange }: NewInvoiceModalP
               )}
             />
 
-            <div className="flex items-center justify-end space-x-3 pt-4 border-t">
+            <div className="sticky bottom-0 bg-background pt-4 -mx-6 px-6 border-t border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-end gap-3 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
               <Button
                 type="button"
                 variant="outline"
                 onClick={() => onOpenChange(false)}
+                className="w-full sm:w-auto"
               >
                 Cancel
               </Button>
               <Button
                 type="submit"
                 disabled={createInvoiceMutation.isPending}
+                className="w-full sm:w-auto"
               >
                 {createInvoiceMutation.isPending ? "Creating..." : "Create Invoice"}
               </Button>
             </div>
           </form>
         </Form>
+    </>
+  );
+
+  if (isMobile) {
+    return (
+      <Drawer open={open} onOpenChange={onOpenChange}>
+        <DrawerContent>
+          <div className="p-6 max-h-[90vh] overflow-y-auto">
+            {body}
+          </div>
+        </DrawerContent>
+      </Drawer>
+    );
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        {body}
       </DialogContent>
     </Dialog>
   );

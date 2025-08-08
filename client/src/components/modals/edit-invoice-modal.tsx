@@ -1,6 +1,8 @@
 import { useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Drawer, DrawerContent } from "@/components/ui/drawer";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useForm } from "react-hook-form";
@@ -20,6 +22,7 @@ interface EditInvoiceModalProps {
 }
 
 export default function EditInvoiceModal({ open, onOpenChange, invoice }: EditInvoiceModalProps) {
+  const isMobile = useIsMobile();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -43,7 +46,9 @@ export default function EditInvoiceModal({ open, onOpenChange, invoice }: EditIn
 
   const updateInvoiceMutation = useMutation({
     mutationFn: async (data: z.infer<typeof editInvoiceFormSchema>) => {
-      if (!invoice) throw new Error("No invoice to update");
+      if (!invoice) {
+        throw new Error("No invoice to update");
+      }
       const response = await apiRequest("PATCH", `/api/invoices/${invoice.id}`, data);
       return response.json();
     },
@@ -68,20 +73,21 @@ export default function EditInvoiceModal({ open, onOpenChange, invoice }: EditIn
     updateInvoiceMutation.mutate(data);
   };
 
-  if (!invoice) return null;
+  if (!invoice) {
+    return null;
+  }
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Edit Invoice - {invoice.invoiceNumber}</DialogTitle>
-          <DialogDescription>
-            Edit the details of this invoice.
-          </DialogDescription>
-        </DialogHeader>
+  const body = (
+    <>
+      <DialogHeader>
+        <DialogTitle>Edit Invoice - {invoice.invoiceNumber}</DialogTitle>
+        <DialogDescription>
+          Edit the details of this invoice.
+        </DialogDescription>
+      </DialogHeader>
 
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6 pt-4">
+      <Form {...form}>
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6 pt-4">
             <FormField
               control={form.control}
               name="invoiceNumber"
@@ -114,23 +120,44 @@ export default function EditInvoiceModal({ open, onOpenChange, invoice }: EditIn
               )}
             />
 
-            <div className="flex items-center justify-end space-x-3 pt-4 border-t">
+            <div className="sticky bottom-0 bg-background pt-4 -mx-6 px-6 border-t border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-end gap-3 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
               <Button
                 type="button"
                 variant="outline"
                 onClick={() => onOpenChange(false)}
+                className="w-full sm:w-auto"
               >
                 Cancel
               </Button>
               <Button
                 type="submit"
                 disabled={updateInvoiceMutation.isPending}
+                className="w-full sm:w-auto"
               >
                 {updateInvoiceMutation.isPending ? "Updating..." : "Update Invoice"}
               </Button>
             </div>
           </form>
         </Form>
+    </>
+  );
+
+  if (isMobile) {
+    return (
+      <Drawer open={open} onOpenChange={onOpenChange}>
+        <DrawerContent>
+          <div className="p-6 max-h-[90vh] overflow-y-auto">
+            {body}
+          </div>
+        </DrawerContent>
+      </Drawer>
+    );
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        {body}
       </DialogContent>
     </Dialog>
   );

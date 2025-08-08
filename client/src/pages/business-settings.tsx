@@ -18,9 +18,10 @@ import { useToast } from "@/hooks/use-toast";
 import type { BusinessSettings, InsertBusinessSettings } from "@shared/schema";
 import { insertBusinessSettingsSchema } from "@shared/schema";
 import { generateInvoicePDF } from "@/lib/pdf";
+import type { InvoiceWithSale } from "@/pages/invoices";
 
-// Mock invoice data for preview
-const mockInvoiceData = {
+// Mock invoice data for preview (matches InvoiceWithSale shape)
+const mockInvoiceData: InvoiceWithSale = {
   id: "preview",
   invoiceNumber: "INV-2024-001",
   invoiceDate: new Date(),
@@ -34,15 +35,21 @@ const mockInvoiceData = {
     clientId: "mock",
     projectId: "mock",
     lpoNumber: "LPO-2024-001",
+    lpoReceivedDate: new Date(),
+    lpoDueDate: new Date(),
     saleDate: new Date(),
+    invoiceDate: new Date(),
     quantityGallons: "500.00",
     salePricePerGallon: "2.50",
     purchasePricePerGallon: "2.00",
     vatPercentage: "5.00",
     vatAmount: "62.50",
+    subtotal: "1187.50",
     totalAmount: "1250.00",
+    cogs: "1000.00",
+    grossProfit: "187.50",
     pendingAmount: "625.00",
-    saleStatus: "Pending" as const,
+    saleStatus: "LPO Received" as const,
     createdAt: new Date(),
     client: {
       id: "mock",
@@ -58,6 +65,7 @@ const mockInvoiceData = {
       clientId: "mock",
       name: "Construction Project Alpha",
       description: "Major construction project",
+      location: "",
       status: "Active" as const,
       createdAt: new Date()
     }
@@ -152,7 +160,7 @@ export default function BusinessSettings() {
     <div className="p-6 max-w-6xl mx-auto">
       <Header
         title="Business Settings"
-        subtitle="Configure your company information and invoice templates"
+        description="Configure your company information and invoice templates"
       />
 
       <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-6">

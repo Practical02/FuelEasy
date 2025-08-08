@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Drawer, DrawerContent } from "@/components/ui/drawer";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -44,6 +46,7 @@ export function PaymentAllocationModal({
   accountHeadId,
   onSuccess
 }: PaymentAllocationModalProps) {
+  const isMobile = useIsMobile();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -90,7 +93,9 @@ export function PaymentAllocationModal({
   // Check for over-allocations (only if amount exceeds pending amount)
   const hasOverAllocations = form.watch("allocations").some(allocation => {
     const selectedInvoice = pendingInvoices.find(inv => inv.id === allocation.invoiceId);
-    if (!selectedInvoice) return false;
+    if (!selectedInvoice) {
+      return false;
+    }
     
     const pendingAmount = (selectedInvoice.pendingAmount || parseFloat(selectedInvoice.totalAmount)) || 0;
     const allocatedAmount = parseFloat(allocation.amountAllocated) || 0;
@@ -153,7 +158,9 @@ export function PaymentAllocationModal({
     // Check if any allocation exceeds the pending amount for that invoice
     const overAllocatedInvoices = data.allocations.filter(allocation => {
       const selectedInvoice = pendingInvoices.find(inv => inv.id === allocation.invoiceId);
-      if (!selectedInvoice) return false;
+      if (!selectedInvoice) {
+        return false;
+      }
       
       const pendingAmount = (selectedInvoice.pendingAmount || parseFloat(selectedInvoice.totalAmount)) || 0;
       const allocatedAmount = parseFloat(allocation.amountAllocated) || 0;
@@ -213,14 +220,13 @@ export function PaymentAllocationModal({
     }
   }, [cashbookEntryId, form]);
 
-  return (
-    <Dialog open={isOpen} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-screen overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Allocate Payment to Invoices</DialogTitle>
-        </DialogHeader>
+  const body = (
+    <>
+      <DialogHeader>
+        <DialogTitle>Allocate Payment to Invoices</DialogTitle>
+      </DialogHeader>
 
-        <div className="space-y-4">
+      <div className="space-y-4">
           <Card>
             <CardHeader>
               <CardTitle className="text-sm">Payment Summary</CardTitle>
@@ -397,24 +403,45 @@ export function PaymentAllocationModal({
                 Add Another Invoice
               </Button>
 
-              <div className="flex justify-end space-x-2">
+              <div className="sticky bottom-0 bg-background pt-4 -mx-6 px-6 border-t flex flex-col sm:flex-row sm:items-center sm:justify-end gap-3 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
                 <Button
                   type="button"
                   variant="outline"
                   onClick={() => onOpenChange(false)}
+                  className="w-full sm:w-auto"
                 >
                   Cancel
                 </Button>
-                                                                                <Button
-                type="submit"
-                disabled={createAllocationMutation.isPending || isOverAllocated || hasOverAllocations}
-              >
-                {createAllocationMutation.isPending ? "Creating..." : "Create Allocations"}
-              </Button>
+                <Button
+                  type="submit"
+                  disabled={createAllocationMutation.isPending || isOverAllocated || hasOverAllocations}
+                  className="w-full sm:w-auto"
+                >
+                  {createAllocationMutation.isPending ? "Creating..." : "Create Allocations"}
+                </Button>
               </div>
             </form>
           </Form>
         </div>
+    </>
+  );
+
+  if (isMobile) {
+    return (
+      <Drawer open={isOpen} onOpenChange={onOpenChange}>
+        <DrawerContent>
+          <div className="p-6 max-h-[90vh] overflow-y-auto">
+            {body}
+          </div>
+        </DrawerContent>
+      </Drawer>
+    );
+  }
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        {body}
       </DialogContent>
     </Dialog>
   );

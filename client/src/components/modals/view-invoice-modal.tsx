@@ -1,4 +1,6 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Drawer, DrawerContent } from "@/components/ui/drawer";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -17,19 +19,21 @@ interface ViewInvoiceModalProps {
 }
 
 export default function ViewInvoiceModal({ open, onOpenChange, invoice }: ViewInvoiceModalProps) {
-  if (!invoice) return null;
+  const isMobile = useIsMobile();
+  if (!invoice) {
+    return null;
+  }
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
-          <DialogTitle className="text-2xl">Invoice Details</DialogTitle>
-          <DialogDescription>
-            Viewing invoice {invoice.invoiceNumber}
-          </DialogDescription>
-        </DialogHeader>
+  const body = (
+    <>
+      <DialogHeader>
+        <DialogTitle className="text-2xl">Invoice Details</DialogTitle>
+        <DialogDescription>
+          Viewing invoice {invoice.invoiceNumber}
+        </DialogDescription>
+      </DialogHeader>
 
-        <div className="space-y-6 py-4">
+      <div className="space-y-6 py-4">
           <Card>
             <CardContent className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="flex items-center space-x-3">
@@ -100,9 +104,28 @@ export default function ViewInvoiceModal({ open, onOpenChange, invoice }: ViewIn
           </div>
         </div>
 
-        <div className="flex justify-end pt-4 border-t">
-          <Button onClick={() => onOpenChange(false)}>Close</Button>
-        </div>
+      <div className="sticky bottom-0 bg-background pt-4 -mx-6 px-6 border-t flex">
+        <Button onClick={() => onOpenChange(false)} className="w-full sm:w-auto ml-auto">Close</Button>
+      </div>
+    </>
+  );
+
+  if (isMobile) {
+    return (
+      <Drawer open={open} onOpenChange={onOpenChange}>
+        <DrawerContent>
+          <div className="p-6 max-h-[90vh] overflow-y-auto">
+            {body}
+          </div>
+        </DrawerContent>
+      </Drawer>
+    );
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        {body}
       </DialogContent>
     </Dialog>
   );

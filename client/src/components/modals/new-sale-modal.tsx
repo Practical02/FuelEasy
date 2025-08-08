@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Drawer, DrawerContent } from "@/components/ui/drawer";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -28,6 +30,7 @@ interface NewSaleModalProps {
 }
 
 export default function NewSaleModal({ open, onOpenChange }: NewSaleModalProps) {
+  const isMobile = useIsMobile();
   const [subtotal, setSubtotal] = useState(0);
   const [vatAmount, setVatAmount] = useState(0);
   const [totalAmount, setTotalAmount] = useState(0);
@@ -119,18 +122,17 @@ export default function NewSaleModal({ open, onOpenChange }: NewSaleModalProps) 
     createSaleMutation.mutate(data);
   };
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-screen overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Record New Sale</DialogTitle>
-          <DialogDescription>
-            Record a new fuel sale transaction with a client.
-          </DialogDescription>
-        </DialogHeader>
+  const body = (
+    <>
+      <DialogHeader>
+        <DialogTitle>Record New Sale</DialogTitle>
+        <DialogDescription>
+          Record a new fuel sale transaction with a client.
+        </DialogDescription>
+      </DialogHeader>
 
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+      <Form {...form}>
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <FormField
                 control={form.control}
@@ -273,24 +275,44 @@ export default function NewSaleModal({ open, onOpenChange }: NewSaleModalProps) 
               </div>
             </div>
 
-            <div className="flex items-center justify-end space-x-3 pt-6 border-t border-gray-200">
+            <div className="sticky bottom-0 bg-background pt-4 -mx-6 px-6 border-t border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-end gap-3 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
               <Button 
                 type="button" 
                 variant="outline" 
                 onClick={() => onOpenChange(false)}
+                className="w-full sm:w-auto"
               >
                 Cancel
               </Button>
               <Button 
                 type="submit" 
                 disabled={createSaleMutation.isPending}
-                className="bg-blue-600 text-white hover:bg-blue-700"
+                className="w-full sm:w-auto bg-blue-600 text-white hover:bg-blue-700"
               >
                 {createSaleMutation.isPending ? "Recording..." : "Record Sale"}
               </Button>
             </div>
           </form>
         </Form>
+    </>
+  );
+
+  if (isMobile) {
+    return (
+      <Drawer open={open} onOpenChange={onOpenChange}>
+        <DrawerContent>
+          <div className="p-6 max-h-[90vh] overflow-y-auto">
+            {body}
+          </div>
+        </DrawerContent>
+      </Drawer>
+    );
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        {body}
       </DialogContent>
     </Dialog>
   );

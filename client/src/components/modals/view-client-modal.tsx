@@ -1,5 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Drawer, DrawerContent } from "@/components/ui/drawer";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -14,6 +16,7 @@ interface ViewClientModalProps {
 }
 
 export default function ViewClientModal({ open, onOpenChange, client }: ViewClientModalProps) {
+  const isMobile = useIsMobile();
   const { data: salesResponse } = useQuery<any>({
     queryKey: ["/api/sales"],
     enabled: !!client,
@@ -31,17 +34,16 @@ export default function ViewClientModal({ open, onOpenChange, client }: ViewClie
   const pendingSales = clientSales.filter(sale => sale.saleStatus !== "Paid");
   const pendingAmount = pendingSales.reduce((sum, sale) => sum + parseFloat(sale.totalAmount), 0);
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-screen overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="text-2xl">{client.name}</DialogTitle>
-          <DialogDescription>
-            Complete client profile and transaction history
-          </DialogDescription>
-        </DialogHeader>
+  const body = (
+    <>
+      <DialogHeader>
+        <DialogTitle className="text-2xl">{client.name}</DialogTitle>
+        <DialogDescription>
+          Complete client profile and transaction history
+        </DialogDescription>
+      </DialogHeader>
 
-        <div className="space-y-6">
+      <div className="space-y-6">
           {/* Client Information */}
           <Card>
             <CardContent className="p-6">
@@ -188,11 +190,30 @@ export default function ViewClientModal({ open, onOpenChange, client }: ViewClie
           </Card>
         </div>
 
-        <div className="flex justify-end pt-6 border-t border-gray-200">
-          <Button onClick={() => onOpenChange(false)}>
-            Close
-          </Button>
-        </div>
+      <div className="sticky bottom-0 bg-background pt-4 -mx-6 px-6 border-t border-gray-200 flex">
+        <Button onClick={() => onOpenChange(false)} className="w-full sm:w-auto ml-auto">
+          Close
+        </Button>
+      </div>
+    </>
+  );
+
+  if (isMobile) {
+    return (
+      <Drawer open={open} onOpenChange={onOpenChange}>
+        <DrawerContent>
+          <div className="p-6 max-h-[90vh] overflow-y-auto">
+            {body}
+          </div>
+        </DrawerContent>
+      </Drawer>
+    );
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        {body}
       </DialogContent>
     </Dialog>
   );

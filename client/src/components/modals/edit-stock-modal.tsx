@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Drawer, DrawerContent } from "@/components/ui/drawer";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useForm } from "react-hook-form";
@@ -28,6 +30,7 @@ interface EditStockModalProps {
 }
 
 export default function EditStockModal({ open, onOpenChange, stock }: EditStockModalProps) {
+  const isMobile = useIsMobile();
   const [subtotal, setSubtotal] = useState(0);
   const [vatAmount, setVatAmount] = useState(0);
   const [totalCost, setTotalCost] = useState(0);
@@ -57,7 +60,9 @@ export default function EditStockModal({ open, onOpenChange, stock }: EditStockM
 
   const updateStockMutation = useMutation({
     mutationFn: async (data: z.infer<typeof stockFormSchema>) => {
-      if (!stock) throw new Error("No stock to update");
+      if (!stock) {
+        throw new Error("No stock to update");
+      }
       
       // Calculate VAT and total cost
       const quantity = parseFloat(data.quantityGallons);
@@ -122,20 +127,21 @@ export default function EditStockModal({ open, onOpenChange, stock }: EditStockM
     updateStockMutation.mutate(data);
   };
 
-  if (!stock) return null;
+  if (!stock) {
+    return null;
+  }
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Edit Stock Entry</DialogTitle>
-          <DialogDescription>
-            Update the details of this diesel fuel stock purchase.
-          </DialogDescription>
-        </DialogHeader>
+  const body = (
+    <>
+      <DialogHeader>
+        <DialogTitle>Edit Stock Entry</DialogTitle>
+        <DialogDescription>
+          Update the details of this diesel fuel stock purchase.
+        </DialogDescription>
+      </DialogHeader>
 
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+      <Form {...form}>
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
             <FormField
               control={form.control}
               name="purchaseDate"
@@ -219,24 +225,44 @@ export default function EditStockModal({ open, onOpenChange, stock }: EditStockM
               </div>
             </div>
 
-            <div className="flex items-center justify-end space-x-3 pt-6 border-t border-gray-200">
+            <div className="sticky bottom-0 bg-background pt-4 -mx-6 px-6 border-t border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-end gap-3 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
               <Button 
                 type="button" 
                 variant="outline" 
                 onClick={() => onOpenChange(false)}
+                className="w-full sm:w-auto"
               >
                 Cancel
               </Button>
               <Button 
                 type="submit" 
                 disabled={updateStockMutation.isPending}
-                className="bg-blue-600 text-white hover:bg-blue-700"
+                className="w-full sm:w-auto bg-blue-600 text-white hover:bg-blue-700"
               >
                 {updateStockMutation.isPending ? "Updating..." : "Update Stock"}
               </Button>
             </div>
           </form>
         </Form>
+    </>
+  );
+
+  if (isMobile) {
+    return (
+      <Drawer open={open} onOpenChange={onOpenChange}>
+        <DrawerContent>
+          <div className="p-6 max-h-[90vh] overflow-y-auto">
+            {body}
+          </div>
+        </DrawerContent>
+      </Drawer>
+    );
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        {body}
       </DialogContent>
     </Dialog>
   );
