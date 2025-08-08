@@ -24,9 +24,12 @@ interface NewInvoiceModalProps {
 export default function NewInvoiceModal({ open, onOpenChange }: NewInvoiceModalProps) {
   const { toast } = useToast();
 
-  const { data: sales } = useQuery<SaleWithClient[]>({
+  const { data: salesResponse } = useQuery<any>({
     queryKey: ["/api/sales"],
   });
+  const sales: SaleWithClient[] = Array.isArray(salesResponse)
+    ? (salesResponse as SaleWithClient[])
+    : (salesResponse?.data ?? []);
 
   const form = useForm<z.infer<typeof invoiceFormSchema>>({
     resolver: zodResolver(invoiceFormSchema),

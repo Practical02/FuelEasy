@@ -13,7 +13,7 @@ import type { Invoice, SaleWithClient } from "@shared/schema";
 import NewInvoiceModal from "@/components/modals/new-invoice-modal";
 import EditInvoiceModal from "@/components/modals/edit-invoice-modal";
 import ViewInvoiceModal from "@/components/modals/view-invoice-modal";
-import { generateInvoicePDF } from "@/lib/pdf";
+import { generateInvoicePDFWithSettings } from "@/lib/pdf";
 
 export type InvoiceWithSale = Invoice & {
   sale: SaleWithClient;
@@ -34,9 +34,12 @@ export default function Invoices() {
   // Use all invoices since we're not using soft delete anymore
   const invoices = allInvoices || [];
 
-  const { data: sales } = useQuery<SaleWithClient[]>({
+  const { data: salesResponse } = useQuery<any>({
     queryKey: ["/api/sales"],
   });
+  const sales: SaleWithClient[] = Array.isArray(salesResponse)
+    ? (salesResponse as SaleWithClient[])
+    : (salesResponse?.data ?? []);
 
   const deleteInvoiceMutation = useMutation({
     mutationFn: async (invoiceId: string) => {
@@ -232,7 +235,7 @@ export default function Invoices() {
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => generateInvoicePDF(invoice)}
+                              onClick={() => generateInvoicePDFWithSettings(invoice)}
                               className="text-blue-600 hover:text-blue-800 hover:bg-blue-50"
                             >
                               <Download className="w-4 h-4" />

@@ -105,6 +105,48 @@ export const accountHeads = pgTable("account_heads", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const businessSettings = pgTable("business_settings", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  // Company Information
+  companyName: text("company_name").notNull().default("FuelFlow Trading"),
+  companyAddress: text("company_address").notNull().default(""),
+  companyCity: text("company_city").notNull().default(""),
+  companyState: text("company_state").notNull().default(""),
+  companyZip: text("company_zip").notNull().default(""),
+  companyCountry: text("company_country").notNull().default(""),
+  companyPhone: text("company_phone").notNull().default(""),
+  companyEmail: text("company_email").notNull().default(""),
+  companyWebsite: text("company_website").notNull().default(""),
+  
+  // Tax Information
+  taxNumber: text("tax_number").notNull().default(""),
+  vatNumber: text("vat_number").notNull().default(""),
+  
+  // Invoice Settings
+  invoicePrefix: text("invoice_prefix").notNull().default("INV"),
+  invoiceNumberStart: integer("invoice_number_start").notNull().default(1000),
+  
+  // Invoice Template Settings
+  primaryColor: text("primary_color").notNull().default("#1976D2"),
+  secondaryColor: text("secondary_color").notNull().default("#666666"),
+  logoUrl: text("logo_url").notNull().default(""),
+  
+  // Payment Terms
+  defaultPaymentTerms: text("default_payment_terms").notNull().default("Net 30"),
+  bankName: text("bank_name").notNull().default(""),
+  bankAccount: text("bank_account").notNull().default(""),
+  bankRoutingNumber: text("bank_routing_number").notNull().default(""),
+  
+  // Footer Information
+  invoiceFooter: text("invoice_footer").notNull().default("Thank you for your business!"),
+  
+  // Template Selection
+  templateStyle: text("template_style").notNull().default("modern"), // 'modern', 'classic', 'minimal'
+  
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 export const cashbook = pgTable("cashbook", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   transactionDate: timestamp("transaction_date").notNull(),
@@ -179,6 +221,12 @@ export const insertCashbookPaymentAllocationSchema = createInsertSchema(cashbook
   createdAt: true,
 });
 
+export const insertBusinessSettingsSchema = createInsertSchema(businessSettings).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 // Types
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
@@ -233,6 +281,9 @@ export type CashbookEntryWithAccountHead = CashbookEntry & {
   allocationStatus?: string;
   allocatedAmount?: number;
 };
+
+export type InsertBusinessSettings = z.infer<typeof insertBusinessSettingsSchema>;
+export type BusinessSettings = typeof businessSettings.$inferSelect;
 
 export type CashbookPaymentAllocationWithInvoice = CashbookPaymentAllocation & {
   invoice: Invoice & {

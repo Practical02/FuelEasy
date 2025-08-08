@@ -43,9 +43,12 @@ export default function Payments() {
   });
 
 // type SaleWithClient = any;
-const { data: sales } = useQuery<SaleWithClient[]>({
+const { data: salesResponse } = useQuery<any>({
     queryKey: ["/api/sales"],
   });
+const sales: SaleWithClient[] = Array.isArray(salesResponse)
+  ? (salesResponse as SaleWithClient[])
+  : (salesResponse?.data ?? []);
 
   const deletePaymentMutation = useMutation({
     mutationFn: async (paymentId: string) => {

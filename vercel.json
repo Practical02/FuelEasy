@@ -1,20 +1,26 @@
 {
   "version": 2,
   "buildCommand": "npm run build",
-  "outputDirectory": "dist",
+  "outputDirectory": "dist/public",
   "functions": {
     "api/vercel.ts": {
       "runtime": "@vercel/node@5.3.10",
-      "maxDuration": 30
+      "maxDuration": 30,
+      "includeFiles": "dist/**"
     }
   },
   "rewrites": [
     {
-      "source": "/(.*)",
+      "source": "/api/(.*)",
       "destination": "/api/vercel.ts"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
   ],
   "env": {
     "NODE_ENV": "production"
-  }
+  },
+  "regions": ["iad1"]
 } 

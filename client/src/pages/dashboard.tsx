@@ -47,9 +47,12 @@ export default function Dashboard() {
     queryKey: ["/api/reports/overview"],
   });
 
-  const { data: recentSales, isLoading: salesLoading } = useQuery<SaleWithClient[]>({
+  const { data: recentSalesResponse, isLoading: salesLoading } = useQuery<any>({
     queryKey: ["/api/sales"],
   });
+  const recentSales: SaleWithClient[] = Array.isArray(recentSalesResponse)
+    ? (recentSalesResponse as SaleWithClient[])
+    : (recentSalesResponse?.data ?? []);
 
   const { data: clients, isLoading: clientsLoading } = useQuery({
     queryKey: ["/api/clients"],

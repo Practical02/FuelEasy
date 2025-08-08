@@ -34,6 +34,11 @@ describe('API Routes', () => {
   beforeEach(async () => {
     app = express();
     app.use(express.json());
+    // Stub a session so requireAuth passes in tests
+    app.use((req, _res, next) => {
+      (req as any).session = { userId: 'test-user', username: 'tester' };
+      next();
+    });
     await registerRoutes(app);
 
     // Reset mocks before each test

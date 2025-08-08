@@ -43,9 +43,13 @@ export default function Sales() {
   const [minQuantity, setMinQuantity] = useState("");
   const [maxQuantity, setMaxQuantity] = useState("");
 
-  const { data: sales, isLoading } = useQuery<SaleWithClient[]>({
+  const { data: salesResponse, isLoading } = useQuery<any>({
     queryKey: ["/api/sales"],
   });
+
+  const sales: SaleWithClient[] = Array.isArray(salesResponse)
+    ? salesResponse
+    : (salesResponse?.data ?? []);
 
   const { data: clients } = useQuery<Client[]>({
     queryKey: ["/api/clients"],

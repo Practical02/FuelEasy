@@ -9,9 +9,9 @@
     <meta name="msapplication-TileColor" content="#1976D2" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <meta name="apple-mobile-web-app-title" content="DieselTrack" />
+    <meta name="apple-mobile-web-app-title" content="FuelFlow" />
     <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="application-name" content="DieselTrack" />
+    <meta name="application-name" content="FuelFlow" />
     
     <!-- Android-specific -->
     <meta name="format-detection" content="telephone=no" />
@@ -24,8 +24,8 @@
     <meta name="author" content="DieselTrack" />
     
     <!-- Open Graph -->
-    <meta property="og:title" content="DieselTrack - Trading Management" />
-    <meta property="og:description" content="Diesel fuel trading business management system" />
+    <meta property="og:title" content="FuelFlow - Trading Management" />
+    <meta property="og:description" content="Fuel trading business management system" />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="/" />
     
@@ -40,18 +40,18 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     
-    <!-- Preload critical resources -->
-    <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
-    <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" /></noscript>
+    <!-- Load fonts stylesheet -->
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" />
     
-    <title>DieselTrack - Trading Management</title>
+    <title>FuelFlow - Trading Management</title>
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    <script src="/pwa-install.js" defer></script>
     
-    <!-- PWA Installation Prompt -->
-    <div id="pwa-install-prompt" class="hidden fixed bottom-4 left-4 right-4 bg-white border border-gray-200 rounded-lg shadow-lg p-4 z-50">
+    <!-- PWA Installation Prompt - Mobile Only -->
+    <div id="pwa-install-prompt" class="hidden fixed bottom-4 left-4 right-4 max-w-sm mx-auto bg-white border border-gray-200 rounded-lg shadow-lg p-4 z-50 md:left-auto md:right-4 md:max-w-xs">
       <div class="flex items-center justify-between">
         <div class="flex items-center space-x-3">
           <div class="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
@@ -60,7 +60,7 @@
             </svg>
           </div>
           <div>
-            <h3 class="text-sm font-semibold text-gray-900">Install DieselTrack</h3>
+            <h3 class="text-sm font-semibold text-gray-900">Install FuelFlow</h3>
             <p class="text-xs text-gray-500">Add to home screen for quick access</p>
           </div>
         </div>
@@ -69,61 +69,12 @@
             Install
           </button>
           <button id="pwa-dismiss-btn" class="px-3 py-1.5 text-gray-500 text-xs font-medium hover:text-gray-700">
-            Dismiss
+            ×
           </button>
         </div>
       </div>
     </div>
     
-    <!-- PWA Installation Script -->
-    <script>
-      let deferredPrompt;
-      
-      window.addEventListener('beforeinstallprompt', (e) => {
-        e.preventDefault();
-        deferredPrompt = e;
-        
-        // Show install prompt after 3 seconds
-        setTimeout(() => {
-          const prompt = document.getElementById('pwa-install-prompt');
-          if (prompt && !localStorage.getItem('pwa-install-dismissed')) {
-            prompt.classList.remove('hidden');
-          }
-        }, 3000);
-      });
-      
-      document.getElementById('pwa-install-btn')?.addEventListener('click', async () => {
-        if (deferredPrompt) {
-          deferredPrompt.prompt();
-          const { outcome } = await deferredPrompt.userChoice;
-          if (outcome === 'accepted') {
-            console.log('PWA installed successfully');
-          }
-          deferredPrompt = null;
-          document.getElementById('pwa-install-prompt').classList.add('hidden');
-        }
-      });
-      
-      document.getElementById('pwa-dismiss-btn')?.addEventListener('click', () => {
-        document.getElementById('pwa-install-prompt').classList.add('hidden');
-        localStorage.setItem('pwa-install-dismissed', 'true');
-      });
-      
-      // Register service worker
-      if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js')
-            .then((registration) => {
-              console.log('SW registered: ', registration);
-            })
-            .catch((registrationError) => {
-              console.log('SW registration failed: ', registrationError);
-            });
-        });
-      }
-    </script>
     
-    <!-- This is a replit script which adds a banner on the top of the page when opened in development mode outside the replit environment -->
-    <script type="text/javascript" src="https://replit.com/public/js/replit-dev-banner.js"></script>
   </body>
 </html>

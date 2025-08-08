@@ -14,10 +14,13 @@ interface ViewClientModalProps {
 }
 
 export default function ViewClientModal({ open, onOpenChange, client }: ViewClientModalProps) {
-  const { data: sales } = useQuery<SaleWithClient[]>({
+  const { data: salesResponse } = useQuery<any>({
     queryKey: ["/api/sales"],
     enabled: !!client,
   });
+  const sales: SaleWithClient[] = Array.isArray(salesResponse)
+    ? (salesResponse as SaleWithClient[])
+    : (salesResponse?.data ?? []);
 
   if (!client) return null;
 

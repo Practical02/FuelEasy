@@ -35,10 +35,13 @@ export default function PaymentModal({ open, onOpenChange, saleId }: PaymentModa
   const [selectedClientId, setSelectedClientId] = useState<string>("");
 
   // Fetch data
-  const { data: sales } = useQuery<any[]>({
+  const { data: salesResponse } = useQuery<any>({
     queryKey: ["/api/sales"],
     enabled: open,
   });
+  const sales: any[] = Array.isArray(salesResponse)
+    ? (salesResponse as any[])
+    : (salesResponse?.data ?? []);
 
   const { data: clients } = useQuery<any[]>({
     queryKey: ["/api/clients"],

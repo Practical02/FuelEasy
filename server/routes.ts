@@ -2,6 +2,8 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { z } from "zod";
+import rateLimit from "express-rate-limit";
+import bcrypt from "bcryptjs";
 import { 
   insertStockSchema, 
   insertClientSchema, 
@@ -12,8 +14,78 @@ import {
   insertProjectSchema,
   insertCashbookSchema,
   insertAccountHeadSchema,
-  insertCashbookPaymentAllocationSchema
+  insertCashbookPaymentAllocationSchema,
+  insertBusinessSettingsSchema
 } from "@shared/schema";
+import "./types/session";
+
+// Simple in-memory cache for read operations
+const cache = new Map<string, { data: any; timestamp: number; ttl: number }>();
+
+function getCacheKey(req: any): string {
+  return `${req.method}:${req.path}:${JSON.stringify(req.query)}:${req.session?.userId || 'anonymous'}`;
+}
+
+function getFromCache(key: string): any | null {
+  const cached = cache.get(key);
+  if (!cached) return null;
+  
+  if (Date.now() - cached.timestamp > cached.ttl) {
+    cache.delete(key);
+    return null;
+  }
+  
+  return cached.data;
+}
+
+function setCache(key: string, data: any, ttlMs: number = 60000): void {
+  // Limit cache size to prevent memory issues
+  if (cache.size > 1000) {
+    const oldestKey = cache.keys().next().value;
+    if (oldestKey) {
+      cache.delete(oldestKey);
+    }
+  }
+  
+  cache.set(key, {
+    data,
+    timestamp: Date.now(),
+    ttl: ttlMs
+  });
+}
+
+function clearCachePattern(pattern: string): void {
+  Array.from(cache.keys()).forEach((key) => {
+    if (key.includes(pattern)) cache.delete(key);
+  });
+}
+
+// Cache middleware for GET requests
+function cacheMiddleware(ttlMs: number = 60000) {
+  return (req: any, res: any, next: any) => {
+    if (req.method !== 'GET') {
+      return next();
+    }
+    
+    const cacheKey = getCacheKey(req);
+    const cachedData = getFromCache(cacheKey);
+    
+    if (cachedData) {
+      res.set('X-Cache', 'HIT');
+      return res.json(cachedData);
+    }
+    
+    // Override res.json to cache the response
+    const originalJson = res.json;
+    res.json = function(data: any) {
+      setCache(cacheKey, data, ttlMs);
+      res.set('X-Cache', 'MISS');
+      return originalJson.call(this, data);
+    };
+    
+    next();
+  };
+}
 
 const apiInsertSaleSchema = insertSaleSchema.extend({
   quantityGallons: z.number(),
@@ -25,7 +97,37 @@ const apiInsertPaymentSchema = insertPaymentSchema.extend({
   amountReceived: z.number(),
 });
 
+// Authentication middleware
+function requireAuth(req: any, res: any, next: any) {
+  if (!req.session.userId) {
+    return res.status(401).json({ message: "Authentication required" });
+  }
+  next();
+}
+
+// Login schema
+const loginSchema = z.object({
+  username: z.string().min(1, "Username is required"),
+  password: z.string().min(1, "Password is required"),
+  rememberMe: z.boolean().optional().default(false),
+});
+
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Rate limiters
+  const loginLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    limit: 50,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { message: "Too many login attempts, please try again later." },
+  });
+  const writeLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    limit: 100,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { message: "Too many requests, please slow down." },
+  });
   
   // Health check endpoints
   app.get("/health", (req, res) => {
@@ -37,17 +139,131 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
-  app.get("/api/health", (req, res) => {
-    res.json({ 
-      status: "ok", 
-      timestamp: new Date().toISOString(),
-      environment: process.env.NODE_ENV,
-      version: "1.0.0"
+  app.get("/api/health", async (req, res) => {
+    try {
+      // Test database connection
+      const settings = await storage.getBusinessSettings();
+      res.json({ 
+        status: "ok", 
+        timestamp: new Date().toISOString(),
+        environment: process.env.NODE_ENV,
+        version: "1.0.0",
+        database: "connected",
+        hasSession: !!req.session,
+        vercel: process.env.VERCEL
+      });
+    } catch (error) {
+      console.error("Health check error:", error);
+      res.status(500).json({ 
+        status: "error", 
+        timestamp: new Date().toISOString(),
+        environment: process.env.NODE_ENV,
+        version: "1.0.0",
+        database: "failed",
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  // Authentication routes
+  app.post("/api/auth/login", loginLimiter, async (req, res) => {
+    try {
+      const { username, password, rememberMe } = loginSchema.parse(req.body);
+
+      // Find user by username
+      const user = await storage.getUserByUsername(username);
+      
+      if (!user) {
+        return res.status(401).json({ message: "Invalid credentials" });
+      }
+
+      // Verify password
+      const isValidPassword = await bcrypt.compare(password, user.password);
+      
+      if (!isValidPassword) {
+        return res.status(401).json({ message: "Invalid credentials" });
+      }
+
+      // Check if session exists
+      if (!req.session) {
+        console.error("No session available");
+        return res.status(500).json({ message: "Session initialization failed" });
+      }
+
+      // Set session with extended duration if rememberMe is true
+      req.session.userId = user.id;
+      req.session.username = user.username;
+      
+      // Extend session duration for remember me (supports both express-session and cookie-session)
+      const thirtyDays = 30 * 24 * 60 * 60 * 1000;
+      const oneDay = 24 * 60 * 60 * 1000;
+      const desiredMaxAge = rememberMe ? thirtyDays : oneDay;
+      if ((req as any).sessionOptions) {
+        (req as any).sessionOptions.maxAge = desiredMaxAge;
+      } else if ((req.session as any)?.cookie) {
+        (req.session as any).cookie.maxAge = desiredMaxAge;
+      }
+
+      // Set explicit cookie attributes for cross-site in production
+      if (process.env.NODE_ENV === 'production') {
+        try {
+          const setCookieHeader = res.getHeader('Set-Cookie');
+          if (!setCookieHeader) {
+            // force a re-set by touching session
+            req.session.userId = user.id;
+          }
+        } catch {}
+      }
+
+      res.json({ 
+        message: "Login successful", 
+        user: { id: user.id, username: user.username },
+        expiresIn: rememberMe ? '30 days' : '1 day'
+      });
+    } catch (error) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.error("Login error:", error);
+        console.error("Error stack:", error instanceof Error ? error.stack : 'No stack');
+      }
+      res.status(500).json({ 
+        message: "Login failed", 
+        error: error instanceof Error ? error.message : String(error),
+        details: process.env.NODE_ENV === 'development' ? (error instanceof Error ? error.stack : String(error)) : undefined
+      });
+    }
+  });
+
+  app.post("/api/auth/logout", (req, res) => {
+    const sess: any = req.session as any;
+    if (typeof sess?.destroy === 'function') {
+      sess.destroy((err: any) => {
+        if (err) {
+          return res.status(500).json({ message: "Failed to logout" });
+        }
+        res.json({ message: "Logout successful" });
+      });
+    } else {
+      // cookie-session path
+      (req as any).session = null;
+      res.json({ message: "Logout successful" });
+    }
+  });
+
+  app.get("/api/auth/me", (req, res) => {
+    if (!req.session.userId) {
+      return res.status(401).json({ message: "Not authenticated" });
+    }
+    
+    res.json({
+      user: {
+        id: req.session.userId,
+        username: req.session.username
+      }
     });
   });
   
   // Stock routes
-  app.get("/api/stock", async (req, res) => {
+  app.get("/api/stock", requireAuth, cacheMiddleware(2 * 60 * 1000), async (req, res) => {
     try {
       const stock = await storage.getStock();
       res.json(stock);
@@ -56,7 +272,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/stock", async (req, res) => {
+  app.post("/api/stock", requireAuth, writeLimiter, async (req, res) => {
+    // Clear stock-related cache on write operations
+    clearCachePattern('/api/stock');
     try {
       console.log("Received stock data:", JSON.stringify(req.body, null, 2));
       
@@ -76,7 +294,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/stock/current-level", async (req, res) => {
+  app.get("/api/stock/current-level", requireAuth, async (req, res) => {
     try {
       const level = await storage.getCurrentStockLevel();
       res.json({ currentLevel: level });
@@ -85,7 +303,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/stock/:id", async (req, res) => {
+  app.put("/api/stock/:id", requireAuth, writeLimiter, async (req, res) => {
     try {
       const requestData = {
         ...req.body,
@@ -102,7 +320,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/stock/:id", async (req, res) => {
+  app.delete("/api/stock/:id", requireAuth, writeLimiter, async (req, res) => {
     try {
       const success = await storage.deleteStock(req.params.id);
       if (!success) {
@@ -115,7 +333,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Client routes
-  app.get("/api/clients", async (req, res) => {
+  app.get("/api/clients", requireAuth, cacheMiddleware(5 * 60 * 1000), async (req, res) => {
     try {
       const clients = await storage.getClients();
       res.json(clients);
@@ -125,7 +343,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/clients", async (req, res) => {
+  app.post("/api/clients", requireAuth, writeLimiter, async (req, res) => {
     try {
       const clientData = insertClientSchema.parse(req.body);
       const client = await storage.createClient(clientData);
@@ -135,7 +353,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/clients/:id", async (req, res) => {
+  app.get("/api/clients/:id", requireAuth, async (req, res) => {
     try {
       const client = await storage.getClient(req.params.id);
       if (!client) {
@@ -147,7 +365,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/clients/:id", async (req, res) => {
+  app.put("/api/clients/:id", requireAuth, writeLimiter, async (req, res) => {
     try {
       const clientData = insertClientSchema.parse(req.body);
       const client = await storage.updateClient(req.params.id, clientData);
@@ -160,7 +378,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/clients/:id", async (req, res) => {
+  app.delete("/api/clients/:id", requireAuth, writeLimiter, async (req, res) => {
     try {
       const success = await storage.deleteClient(req.params.id);
       if (!success) {
@@ -173,7 +391,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Account Head routes
-  app.get("/api/account-heads", async (req, res) => {
+  app.get("/api/account-heads", requireAuth, async (req, res) => {
     try {
       const accountHeads = await storage.getAccountHeads();
       res.json(accountHeads);
@@ -183,7 +401,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/account-heads", async (req, res) => {
+  app.post("/api/account-heads", requireAuth, writeLimiter, async (req, res) => {
     try {
       const accountHeadData = insertAccountHeadSchema.parse(req.body);
       const accountHead = await storage.createAccountHead(accountHeadData);
@@ -194,19 +412,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Sale routes
-  app.get("/api/sales", async (req, res) => {
+  app.get("/api/sales", requireAuth, cacheMiddleware(2 * 60 * 1000), async (req, res) => {
     try {
-      const { status } = req.query;
+      const { status, page = '1', limit = '50' } = req.query;
+      const pageNum = Math.max(1, parseInt(page as string) || 1);
+      const limitNum = Math.min(100, Math.max(1, parseInt(limit as string) || 50));
+      
       const sales = status 
         ? await storage.getSalesByStatus(status as string)
         : await storage.getSales();
-      res.json(sales);
+      
+      // Simple pagination
+      const startIndex = (pageNum - 1) * limitNum;
+      const endIndex = startIndex + limitNum;
+      const paginatedSales = sales.slice(startIndex, endIndex);
+      
+      res.json({
+        data: paginatedSales,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total: sales.length,
+          totalPages: Math.ceil(sales.length / limitNum)
+        }
+      });
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch sales", error: error instanceof Error ? error.message : String(error) });
     }
   });
 
-  app.post("/api/sales", async (req, res) => {
+  app.post("/api/sales", requireAuth, writeLimiter, async (req, res) => {
     try {
       const requestData = {
         ...req.body,
@@ -227,7 +462,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/sales/:id/status", async (req, res) => {
+  app.patch("/api/sales/:id/status", requireAuth, writeLimiter, async (req, res) => {
     try {
       const { status } = req.body;
       const sale = await storage.updateSaleStatus(req.params.id, status);
@@ -240,7 +475,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/sales/by-client/:clientId", async (req, res) => {
+  app.get("/api/sales/by-client/:clientId", requireAuth, async (req, res) => {
     try {
       const sales = await storage.getSalesByClient(req.params.clientId);
       res.json(sales);
@@ -249,7 +484,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/sales/:id", async (req, res) => {
+  app.get("/api/sales/:id", requireAuth, async (req, res) => {
     try {
       const sale = await storage.getSale(req.params.id);
       if (!sale) {
@@ -261,7 +496,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/sales/:id", async (req, res) => {
+  app.patch("/api/sales/:id", requireAuth, writeLimiter, async (req, res) => {
     try {
       const requestData = {
         ...req.body,
@@ -286,7 +521,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/sales/:id", async (req, res) => {
+  app.delete("/api/sales/:id", requireAuth, writeLimiter, async (req, res) => {
     try {
       const success = await storage.deleteSale(req.params.id);
       if (!success) {
@@ -299,7 +534,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Payment routes
-  app.get("/api/payments", async (req, res) => {
+  app.get("/api/payments", requireAuth, async (req, res) => {
     try {
       const payments = await storage.getPayments();
       res.json(payments);
@@ -308,7 +543,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/payments", async (req, res) => {
+  app.post("/api/payments", requireAuth, writeLimiter, async (req, res) => {
     try {
       const requestData = {
         ...req.body,
@@ -336,7 +571,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/payments/sale/:saleId", async (req, res) => {
+  app.get("/api/payments/sale/:saleId", requireAuth, async (req, res) => {
     try {
       const payments = await storage.getPaymentsBySale(req.params.saleId);
       res.json(payments);
@@ -345,7 +580,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/payments/:id", async (req, res) => {
+  app.delete("/api/payments/:id", requireAuth, writeLimiter, async (req, res) => {
     try {
       const success = await storage.deletePayment(req.params.id);
       if (!success) {
@@ -357,7 +592,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/payments/migrate-to-cashbook", async (req, res) => {
+  app.post("/api/payments/migrate-to-cashbook", requireAuth, writeLimiter, async (req, res) => {
     try {
       const migratedCount = await storage.migratePaymentsToCashbook();
       res.json({ 
@@ -373,7 +608,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Invoice routes
-  app.get("/api/invoices", async (req, res) => {
+  app.get("/api/invoices", requireAuth, async (req, res) => {
     try {
       const invoices = await storage.getInvoices();
       res.json(invoices);
@@ -382,7 +617,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/invoices", async (req, res) => {
+  app.post("/api/invoices", requireAuth, writeLimiter, async (req, res) => {
     try {
       const requestData = {
         ...req.body,
@@ -396,12 +631,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(invoice);
     } catch (error) {
-      console.error("Invoice validation error:", error);
+      if (process.env.NODE_ENV !== 'production') {
+        console.error("Invoice validation error:", error);
+      }
       res.status(400).json({ message: "Invalid invoice data", error: error instanceof Error ? error.message : String(error) });
     }
   });
 
-  app.get("/api/invoices/:id", async (req, res) => {
+  app.get("/api/invoices/:id", requireAuth, async (req, res) => {
     try {
       const invoice = await storage.getInvoice(req.params.id);
       if (!invoice) {
@@ -413,7 +650,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/invoices/:id", async (req, res) => {
+  app.patch("/api/invoices/:id", requireAuth, writeLimiter, async (req, res) => {
     try {
       const requestData = {
         ...req.body,
@@ -426,12 +663,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json(invoice);
     } catch (error) {
-      console.error("Invoice update error:", error);
+      if (process.env.NODE_ENV !== 'production') {
+        console.error("Invoice update error:", error);
+      }
       res.status(400).json({ message: "Invalid invoice data", error: error instanceof Error ? error.message : String(error) });
     }
   });
 
-  app.delete("/api/invoices/:id", async (req, res) => {
+  app.delete("/api/invoices/:id", requireAuth, writeLimiter, async (req, res) => {
     try {
       const success = await storage.deleteInvoice(req.params.id);
       if (!success) {
@@ -446,7 +685,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
 
   // Reports routes
-  app.get("/api/reports/overview", async (req, res) => {
+  app.get("/api/reports/overview", requireAuth, async (req, res) => {
     try {
       const [
         totalRevenue, 
@@ -478,7 +717,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/reports/pending-business", async (req, res) => {
+  app.get("/api/reports/pending-business", requireAuth, async (req, res) => {
     try {
       const { clientId, dateFrom, dateTo } = req.query;
       const pendingBusiness = await storage.getPendingBusinessReport(
@@ -492,7 +731,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/reports/vat", async (req, res) => {
+  app.get("/api/reports/vat", requireAuth, async (req, res) => {
     try {
       const { clientId, dateFrom, dateTo } = req.query;
       const vatReport = await storage.getVATReport(
@@ -507,7 +746,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Project routes
-  app.get("/api/projects", async (req, res) => {
+  app.get("/api/projects", requireAuth, async (req, res) => {
     try {
       const projects = await storage.getProjects();
       res.json(projects);
@@ -516,7 +755,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/projects/by-client/:clientId", async (req, res) => {
+  app.get("/api/projects/by-client/:clientId", requireAuth, async (req, res) => {
     try {
       const projects = await storage.getProjectsByClient(req.params.clientId);
       res.json(projects);
@@ -525,7 +764,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/projects", async (req, res) => {
+  app.post("/api/projects", requireAuth, async (req, res) => {
     try {
       const projectData = insertProjectSchema.parse(req.body);
       const project = await storage.createProject(projectData);
@@ -535,7 +774,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/projects/:id", async (req, res) => {
+  app.put("/api/projects/:id", requireAuth, async (req, res) => {
     try {
       const projectData = insertProjectSchema.parse(req.body);
       const project = await storage.updateProject(req.params.id, projectData);
@@ -548,7 +787,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/projects/:id", async (req, res) => {
+  app.delete("/api/projects/:id", requireAuth, async (req, res) => {
     try {
       const success = await storage.deleteProject(req.params.id);
       if (!success) {
@@ -561,7 +800,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Cashbook routes
-  app.get("/api/cashbook", async (req, res) => {
+  app.get("/api/cashbook", requireAuth, async (req, res) => {
     try {
       const entries = await storage.getCashbookEntries();
       res.json(entries);
@@ -570,7 +809,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/cashbook/balance", async (req, res) => {
+  app.get("/api/cashbook/balance", requireAuth, async (req, res) => {
     try {
       const balance = await storage.getCashBalance();
       res.json({ balance });
@@ -579,7 +818,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/cashbook/summary", async (req, res) => {
+  app.get("/api/cashbook/summary", requireAuth, async (req, res) => {
     try {
       const summary = await storage.getTransactionSummary();
       res.json(summary);
@@ -588,7 +827,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/cashbook/pending-debts", async (req, res) => {
+  app.get("/api/cashbook/pending-debts", requireAuth, async (req, res) => {
     try {
       const debts = await storage.getPendingDebts();
       res.json(debts);
@@ -597,7 +836,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/cashbook/pay-debt/:id", async (req, res) => {
+  app.post("/api/cashbook/pay-debt/:id", requireAuth, writeLimiter, async (req, res) => {
     try {
       const { paidAmount, paymentMethod } = req.body;
       const paymentDate = new Date(req.body.paymentDate || new Date());
@@ -613,7 +852,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/cashbook", async (req, res) => {
+  app.post("/api/cashbook", requireAuth, writeLimiter, async (req, res) => {
     try {
       const requestData = {
         ...req.body,
@@ -627,7 +866,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/cashbook/:id", async (req, res) => {
+  app.put("/api/cashbook/:id", requireAuth, writeLimiter, async (req, res) => {
     try {
       const requestData = {
         ...req.body,
@@ -644,7 +883,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/cashbook/:id", async (req, res) => {
+  app.delete("/api/cashbook/:id", requireAuth, writeLimiter, async (req, res) => {
     try {
       const success = await storage.deleteCashbookEntry(req.params.id);
       if (!success) {
@@ -657,7 +896,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Cashbook Payment Allocation routes
-  app.get("/api/cashbook/payment-allocations", async (req, res) => {
+  app.get("/api/cashbook/payment-allocations", requireAuth, async (req, res) => {
     try {
       const allocations = await storage.getCashbookPaymentAllocations();
       res.json(allocations);
@@ -666,7 +905,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/cashbook/payment-allocations", async (req, res) => {
+  app.post("/api/cashbook/payment-allocations", requireAuth, writeLimiter, async (req, res) => {
     try {
       const allocationData = insertCashbookPaymentAllocationSchema.parse(req.body);
       const allocation = await storage.createCashbookPaymentAllocation(allocationData);
@@ -676,7 +915,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/cashbook/payment-allocations/:entryId", async (req, res) => {
+  app.get("/api/cashbook/payment-allocations/:entryId", requireAuth, async (req, res) => {
     try {
       const allocations = await storage.getCashbookPaymentAllocationsByEntry(req.params.entryId);
       res.json(allocations);
@@ -685,7 +924,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/cashbook/pending-invoices", async (req, res) => {
+  app.get("/api/cashbook/pending-invoices", requireAuth, async (req, res) => {
     try {
       const accountHeadId = req.query.accountHeadId as string;
       const pendingInvoices = await storage.getPendingInvoicesForAllocation(accountHeadId);
@@ -696,7 +935,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Supplier Debt Tracking routes
-  app.get("/api/cashbook/supplier-debts", async (req, res) => {
+  app.get("/api/cashbook/supplier-debts", requireAuth, async (req, res) => {
     try {
       const debts = await storage.getSupplierDebts();
       res.json(debts);
@@ -705,7 +944,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/cashbook/supplier-debts/:supplierId/balance", async (req, res) => {
+  app.get("/api/cashbook/supplier-debts/:supplierId/balance", requireAuth, async (req, res) => {
     try {
       const balance = await storage.getSupplierOutstandingBalance(req.params.supplierId);
       res.json({ balance });
@@ -714,7 +953,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/cashbook/supplier-debts/:supplierId/history", async (req, res) => {
+  app.get("/api/cashbook/supplier-debts/:supplierId/history", requireAuth, async (req, res) => {
     try {
       const history = await storage.getSupplierPaymentHistory(req.params.supplierId);
       res.json(history);
@@ -724,7 +963,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Client Payment Tracking routes
-  app.get("/api/cashbook/client-payments", async (req, res) => {
+  app.get("/api/cashbook/client-payments", requireAuth, async (req, res) => {
     try {
       const payments = await storage.getClientPayments();
       res.json(payments);
@@ -733,7 +972,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/cashbook/client-payments/:clientId/balance", async (req, res) => {
+  app.get("/api/cashbook/client-payments/:clientId/balance", requireAuth, async (req, res) => {
     try {
       const balance = await storage.getClientOutstandingBalance(req.params.clientId);
       res.json({ balance });
@@ -742,7 +981,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/cashbook/client-payments/:clientId/history", async (req, res) => {
+  app.get("/api/cashbook/client-payments/:clientId/history", requireAuth, async (req, res) => {
     try {
       const history = await storage.getClientPaymentHistory(req.params.clientId);
       res.json(history);
@@ -752,12 +991,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Enhanced sales routes for delay tracking
-  app.get("/api/sales/with-delays", async (req, res) => {
+  app.get("/api/sales/with-delays", requireAuth, async (req, res) => {
     try {
       const salesWithDelays = await storage.getSalesWithDelays();
       res.json(salesWithDelays);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch sales with delays", error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  // Business Settings routes
+  app.get("/api/business-settings", requireAuth, cacheMiddleware(10 * 60 * 1000), async (req, res) => {
+    try {
+      const settings = await storage.getBusinessSettings();
+      res.json(settings);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch business settings", error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.put("/api/business-settings", requireAuth, writeLimiter, async (req, res) => {
+    // Clear cache when settings are updated
+    clearCachePattern('/api/business-settings');
+    try {
+      const settingsData = insertBusinessSettingsSchema.parse(req.body);
+      const settings = await storage.updateBusinessSettings(settingsData);
+      res.json(settings);
+    } catch (error) {
+      res.status(400).json({ message: "Invalid business settings data", error: error instanceof Error ? error.message : String(error) });
     }
   });
 

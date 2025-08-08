@@ -24,6 +24,8 @@ import {
   type CashbookPaymentAllocation,
   type InsertCashbookPaymentAllocation,
   type CashbookPaymentAllocationWithInvoice,
+  type BusinessSettings,
+  type InsertBusinessSettings,
   users,
   stock,
   clients,
@@ -33,7 +35,8 @@ import {
   payments,
   cashbook,
   accountHeads,
-  cashbookPaymentAllocations
+  cashbookPaymentAllocations,
+  businessSettings
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { drizzle } from "drizzle-orm/neon-http";
@@ -43,7 +46,7 @@ import { eq, desc, sql, and } from "drizzle-orm";
 // Initialize database connection
 const connectionString = process.env.DATABASE_URL || "";
 const sql_conn = neon(connectionString);
-const db = drizzle(sql_conn, { schema: { users, stock, clients, projects, sales, invoices, payments, cashbook, accountHeads, cashbookPaymentAllocations } });
+const db = drizzle(sql_conn, { schema: { users, stock, clients, projects, sales, invoices, payments, cashbook, accountHeads, cashbookPaymentAllocations, businessSettings } });
 
 export interface IStorage {
   // User methods
@@ -144,6 +147,10 @@ export interface IStorage {
   getPendingLPOValue(): Promise<number>;
   getPendingBusinessReport(clientId?: string, dateFrom?: string, dateTo?: string): Promise<SaleWithClient[]>;
   getVATReport(clientId?: string, dateFrom?: string, dateTo?: string): Promise<SaleWithClient[]>;
+  
+  // Business Settings methods
+  getBusinessSettings(): Promise<BusinessSettings>;
+  updateBusinessSettings(settings: Partial<InsertBusinessSettings>): Promise<BusinessSettings>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2049,7 +2056,32 @@ export class DatabaseStorage implements IStorage {
     return migratedCount;
   }
 
+  async getBusinessSettings(): Promise<BusinessSettings> {
+    const result = await db.select().from(businessSettings).limit(1);
+    
+    if (result.length === 0) {
+      // Create default settings if none exist
+      const defaultSettings = await db.insert(businessSettings).values({}).returning();
+      return defaultSettings[0];
+    }
+    
+    return result[0];
+  }
 
+  async updateBusinessSettings(settings: Partial<InsertBusinessSettings>): Promise<BusinessSettings> {
+    const existing = await this.getBusinessSettings();
+    
+    const updated = await db
+      .update(businessSettings)
+      .set({
+        ...settings,
+        updatedAt: new Date()
+      })
+      .where(eq(businessSettings.id, existing.id))
+      .returning();
+    
+    return updated[0];
+  }
 }
 
 export const storage = new DatabaseStorage();

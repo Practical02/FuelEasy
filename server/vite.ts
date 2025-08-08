@@ -1,12 +1,15 @@
 import express, { type Express } from "express";
 import fs from "fs";
 import path from "path";
-import { createServer as createViteServer, createLogger } from "vite";
 import { type Server } from "http";
-import viteConfig from "../vite.config";
 import { nanoid } from "nanoid";
 
-const viteLogger = createLogger();
+// Create a very small logger to avoid importing Vite in production bundles
+const viteLogger = {
+  info: (...args: any[]) => console.log(...args),
+  warn: (...args: any[]) => console.warn(...args),
+  error: (...args: any[]) => console.error(...args),
+};
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
@@ -20,15 +23,23 @@ export function log(message: string, source = "express") {
 }
 
 export async function setupVite(app: Express, server: Server) {
+  // Lazy-load Vite only when actually running in dev server mode
+  const { createServer: createViteServer, createLogger } = await import("vite");
+  const realLogger = createLogger();
+  (viteLogger as any).info = realLogger.info.bind(realLogger);
+  (viteLogger as any).warn = realLogger.warn.bind(realLogger);
+  (viteLogger as any).error = realLogger.error.bind(realLogger);
+
   const serverOptions = {
     middlewareMode: true,
     hmr: { server },
     allowedHosts: true as const,
   };
 
+  const configFilePath = path.resolve(import.meta.dirname, "..", "vite.config.ts");
+
   const vite = await createViteServer({
-    ...viteConfig,
-    configFile: false,
+    configFile: configFilePath,
     customLogger: {
       ...viteLogger,
       error: (msg, options) => {

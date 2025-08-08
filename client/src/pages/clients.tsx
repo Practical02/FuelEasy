@@ -34,9 +34,12 @@ export default function Clients() {
     queryKey: ["/api/clients"],
   });
 
-  const { data: sales } = useQuery<SaleWithClient[]>({
+  const { data: salesResponse } = useQuery<any>({
     queryKey: ["/api/sales"],
   });
+  const sales: SaleWithClient[] = Array.isArray(salesResponse)
+    ? (salesResponse as SaleWithClient[])
+    : (salesResponse?.data ?? []);
 
   const deleteClientMutation = useMutation({
     mutationFn: async (clientId: string) => {

@@ -1,89 +1,58 @@
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
 import type { InvoiceWithSale } from "@/pages/invoices";
-import { CURRENCY } from "./constants";
+import type { BusinessSettings } from "@shared/schema";
+import { generateProfessionalInvoice } from "./invoice-templates";
 
-export function generateInvoicePDF(invoice: InvoiceWithSale) {
-  const doc = new jsPDF();
+// Default business settings for fallback
+const defaultBusinessSettings: BusinessSettings = {
+  id: '',
+  companyName: 'FuelFlow Trading',
+  companyAddress: '',
+  companyCity: '',
+  companyState: '',
+  companyZip: '',
+  companyCountry: '',
+  companyPhone: '',
+  companyEmail: '',
+  companyWebsite: '',
+  taxNumber: '',
+  vatNumber: '',
+  invoicePrefix: 'INV',
+  invoiceNumberStart: 1000,
+  primaryColor: '#1976D2',
+  secondaryColor: '#666666',
+  logoUrl: '',
+  defaultPaymentTerms: 'Net 30',
+  bankName: '',
+  bankAccount: '',
+  bankRoutingNumber: '',
+  invoiceFooter: 'Thank you for your business!',
+  templateStyle: 'modern',
+  createdAt: new Date(),
+  updatedAt: new Date()
+};
 
-  // Add header
-  doc.setFontSize(20);
-  doc.text("Invoice", 14, 22);
+// Legacy function for backward compatibility
+export function generateInvoicePDF(invoice: InvoiceWithSale, businessSettings?: BusinessSettings) {
+  const settings = businessSettings || defaultBusinessSettings;
+  generateProfessionalInvoice(invoice, settings);
+}
 
-  // Add invoice details
-  autoTable(doc, {
-    startY: 30,
-    head: [["Invoice Number", "Invoice Date", "LPO Number"]],
-    body: [
-      [
-        invoice.invoiceNumber,
-        new Date(invoice.invoiceDate).toLocaleDateString(),
-        invoice.sale.lpoNumber,
-      ],
-    ],
-  });
-
-  // Add client details
-  autoTable(doc, {
-    startY: (doc as any).lastAutoTable.finalY + 10,
-    head: [["Client Name", "Client Address", "Client Contact"]],
-    body: [
-      [
-        invoice.sale.client.name,
-        invoice.sale.client.address,
-        invoice.sale.client.contactPerson,
-      ],
-    ],
-  });
-
-  // Add amount details
-  autoTable(doc, {
-    startY: (doc as any).lastAutoTable.finalY + 10,
-    head: [["Description", "Amount"]],
-    body: [
-      [
-        "Subtotal",
-        `${CURRENCY} ${(
-          parseFloat(invoice.totalAmount) - parseFloat(invoice.vatAmount)
-        ).toLocaleString()}`,
-      ],
-      [
-        `VAT (${invoice.sale.vatPercentage}%)`,
-        `${CURRENCY} ${parseFloat(invoice.vatAmount).toLocaleString()}`,
-      ],
-    ],
-  });
-
-  // Add total
-  autoTable(doc, {
-    startY: (doc as any).lastAutoTable.finalY,
-    body: [
-      [
-        {
-          content: "Total Amount",
-          styles: { fontStyle: "bold" },
-        },
-        {
-          content: `${CURRENCY} ${parseFloat(
-            invoice.totalAmount
-          ).toLocaleString()}`,
-          styles: { fontStyle: "bold" },
-        },
-      ],
-      [
-        {
-          content: "Pending Amount",
-          styles: { fontStyle: "bold", textColor: [255, 0, 0] },
-        },
-        {
-          content: `${CURRENCY} ${parseFloat(
-            invoice.sale.pendingAmount || "0"
-          ).toLocaleString()}`,
-          styles: { fontStyle: "bold", textColor: [255, 0, 0] },
-        },
-      ],
-    ],
-  });
-
-  doc.save(`Invoice-${invoice.invoiceNumber}.pdf`);
+// New function that fetches business settings
+export async function generateInvoicePDFWithSettings(invoice: InvoiceWithSale) {
+  try {
+    const response = await fetch('/api/business-settings', {
+      credentials: 'include'
+    });
+    
+    if (response.ok) {
+      const businessSettings: BusinessSettings = await response.json();
+      generateProfessionalInvoice(invoice, businessSettings);
+    } else {
+      // Fallback to default settings
+      generateProfessionalInvoice(invoice, defaultBusinessSettings);
+    }
+  } catch (error) {
+    console.error('Failed to fetch business settings, using defaults:', error);
+    generateProfessionalInvoice(invoice, defaultBusinessSettings);
+  }
 }

@@ -23,9 +23,12 @@ export default function Reports() {
     queryKey: ["/api/clients"],
   });
 
-  const { data: sales = [] } = useQuery<SaleWithClient[]>({
+  const { data: salesResponse } = useQuery<any>({
     queryKey: ["/api/sales"],
   });
+  const sales: SaleWithClient[] = Array.isArray(salesResponse)
+    ? (salesResponse as SaleWithClient[])
+    : (salesResponse?.data ?? []);
 
   // Filter sales based on selected criteria
   const filteredSales = sales.filter(sale => {

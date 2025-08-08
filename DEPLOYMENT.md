@@ -31,7 +31,8 @@ Set these environment variables in your Vercel project:
 ### Required Variables:
 ```env
 DATABASE_URL=postgresql://username:password@host/database
-JWT_SECRET=your-super-secret-jwt-key-32-chars-minimum
+SESSION_SECRET=your-super-secret-session-key-32-chars-minimum
+ADMIN_PASSWORD=your-secure-admin-password
 NODE_ENV=production
 ```
 

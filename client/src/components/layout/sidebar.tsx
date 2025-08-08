@@ -1,19 +1,21 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { cn } from "@/lib/utils";
-import { 
-  BarChart3, 
-  Boxes, 
-  Users, 
-  Receipt, 
+import { useAuth } from "@/lib/auth";
+import {
+  BarChart3,
+  Boxes,
+  Users,
+  Receipt,
   CreditCard,
-  FileText, 
-  ChartBar, 
+  FileText,
+  ChartBar,
   Fuel,
   DollarSign,
   LogOut,
   Menu,
-  X
+  X,
+  Settings
 } from "lucide-react";
 
 const navigation = [
@@ -25,13 +27,23 @@ const navigation = [
   { name: "Invoices", href: "/invoices", icon: FileText },
   { name: "Cashbook", href: "/cashbook", icon: DollarSign },
   { name: "Reports", href: "/reports", icon: ChartBar },
+  { name: "Settings", href: "/settings", icon: Settings },
 ];
 
 export default function Sidebar() {
   const [location] = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const { user, logout } = useAuth();
 
   const closeMobileMenu = () => setIsMobileMenuOpen(false);
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } catch (error) {
+      console.error("Logout failed:", error);
+    }
+  };
 
   return (
     <>
@@ -42,7 +54,7 @@ export default function Sidebar() {
             <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
               <Fuel className="text-white w-4 h-4" />
             </div>
-            <h1 className="text-lg font-semibold text-gray-900">DieselTrack</h1>
+            <h1 className="text-lg font-semibold text-gray-900">FuelFlow</h1>
           </div>
           <button
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
@@ -69,7 +81,7 @@ export default function Sidebar() {
               <Fuel className="text-white w-5 h-5" />
             </div>
             <div>
-              <h1 className="text-xl font-semibold text-gray-900">DieselTrack</h1>
+              <h1 className="text-xl font-semibold text-gray-900">FuelFlow</h1>
               <p className="text-sm text-gray-500">Trading Management</p>
             </div>
           </div>
@@ -152,14 +164,18 @@ export default function Sidebar() {
           
           <div className="p-4 border-t border-gray-200">
             <div className="flex items-center space-x-3 px-4 py-3">
-              <div className="w-10 h-10 bg-gray-300 rounded-full flex items-center justify-center">
-                <Users className="text-gray-600 w-5 h-5" />
+              <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center">
+                <Users className="text-white w-5 h-5" />
               </div>
               <div className="flex-1">
-                <p className="text-base font-medium text-gray-900">Trading Manager</p>
-                <p className="text-sm text-gray-500">Diesel Operations</p>
+                <p className="text-base font-medium text-gray-900">{user?.username || "Admin"}</p>
+                <p className="text-sm text-gray-500">System Administrator</p>
               </div>
-              <button className="text-gray-400 hover:text-gray-600 p-2">
+              <button 
+                onClick={handleLogout}
+                className="text-gray-400 hover:text-gray-600 p-2 rounded-lg hover:bg-gray-100"
+                title="Logout"
+              >
                 <LogOut className="w-5 h-5" />
               </button>
             </div>
