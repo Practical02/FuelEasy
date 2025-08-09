@@ -12,66 +12,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { Building2, Palette, FileText, CreditCard, Save, Eye } from "lucide-react";
+import { Building2, Palette, FileText, CreditCard, Save } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { BusinessSettings, InsertBusinessSettings } from "@shared/schema";
 import { insertBusinessSettingsSchema } from "@shared/schema";
-import { generateInvoicePDF } from "@/lib/pdf";
-import type { InvoiceWithSale } from "@/pages/invoices";
 
-// Mock invoice data for preview (matches InvoiceWithSale shape)
-const mockInvoiceData: InvoiceWithSale = {
-  id: "preview",
-  invoiceNumber: "INV-2024-001",
-  invoiceDate: new Date(),
-  totalAmount: "1250.00",
-  vatAmount: "62.50",
-  status: "Generated" as const,
-  saleId: "mock",
-  lpoNumber: "LPO-2024-001",
-  createdAt: new Date(),
-  sale: {
-    id: "mock",
-    clientId: "mock",
-    projectId: "mock",
-    lpoNumber: "LPO-2024-001",
-    lpoReceivedDate: new Date(),
-    lpoDueDate: new Date(),
-    saleDate: new Date(),
-    invoiceDate: new Date(),
-    quantityGallons: "500.00",
-    salePricePerGallon: "2.50",
-    purchasePricePerGallon: "2.00",
-    vatPercentage: "5.00",
-    vatAmount: "62.50",
-    subtotal: "1187.50",
-    totalAmount: "1250.00",
-    cogs: "1000.00",
-    grossProfit: "187.50",
-    pendingAmount: "625.00",
-    saleStatus: "LPO Received" as const,
-    createdAt: new Date(),
-    client: {
-      id: "mock",
-      name: "Sample Client Ltd",
-      contactPerson: "John Doe",
-      phoneNumber: "+1-234-567-8900",
-      email: "john@sampleclient.com",
-      address: "123 Business Street, Commercial District, City 12345",
-      createdAt: new Date()
-    },
-    project: {
-      id: "mock",
-      clientId: "mock",
-      name: "Construction Project Alpha",
-      description: "Major construction project",
-      location: "",
-      status: "Active" as const,
-      createdAt: new Date()
-    }
-  }
-};
 
 export default function BusinessSettings() {
   const { toast } = useToast();
@@ -138,11 +84,7 @@ export default function BusinessSettings() {
     updateMutation.mutate(data);
   };
 
-  const handlePreviewInvoice = () => {
-    if (settings) {
-      generateInvoicePDF(mockInvoiceData, { ...settings, ...form.getValues() });
-    }
-  };
+  // PDF preview removed
 
   if (isLoading) {
     return (
@@ -493,15 +435,7 @@ export default function BusinessSettings() {
         </Tabs>
 
         <div className="flex items-center justify-between pt-6 border-t">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={handlePreviewInvoice}
-            className="flex items-center gap-2"
-          >
-            <Eye className="w-4 h-4" />
-            Preview Invoice
-          </Button>
+          {/* PDF preview removed */}
 
           <Button
             type="submit"

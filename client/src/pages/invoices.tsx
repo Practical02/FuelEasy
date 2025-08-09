@@ -5,7 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
-import { FileText, Download, Trash2, Eye, PlusCircle, Pencil } from "lucide-react";
+import { FileText, Trash2, Eye, PlusCircle, Pencil } from "lucide-react";
 import { CURRENCY } from "@/lib/constants";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -13,7 +13,6 @@ import type { Invoice, SaleWithClient } from "@shared/schema";
 import NewInvoiceModal from "@/components/modals/new-invoice-modal";
 import EditInvoiceModal from "@/components/modals/edit-invoice-modal";
 import ViewInvoiceModal from "@/components/modals/view-invoice-modal";
-import { generateInvoicePDFWithSettings } from "@/lib/pdf";
 
 export type InvoiceWithSale = Invoice & {
   sale: SaleWithClient;
@@ -232,14 +231,7 @@ export default function Invoices() {
                             >
                               <Eye className="w-4 h-4" />
                             </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => generateInvoicePDFWithSettings(invoice)}
-                              className="text-blue-600 hover:text-blue-800 hover:bg-blue-50"
-                            >
-                              <Download className="w-4 h-4" />
-                            </Button>
+                            {/* PDF download removed as per requirements */}
                             <Button
                               variant="ghost"
                               size="sm"

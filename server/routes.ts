@@ -444,6 +444,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/sales", requireAuth, writeLimiter, async (req, res) => {
     try {
+      // Invalidate GET caches for sales and reports
+      clearCachePattern('/api/sales');
+      clearCachePattern('/api/reports/overview');
       const requestData = {
         ...req.body,
         saleDate: new Date(req.body.saleDate),
@@ -499,6 +502,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/sales/:id", requireAuth, writeLimiter, async (req, res) => {
     try {
+      clearCachePattern('/api/sales');
+      clearCachePattern('/api/reports/overview');
       const requestData = {
         ...req.body,
         saleDate: new Date(req.body.saleDate),
@@ -525,6 +530,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/sales/:id", requireAuth, writeLimiter, async (req, res) => {
     try {
+      clearCachePattern('/api/sales');
+      clearCachePattern('/api/reports/overview');
       const success = await storage.deleteSale(req.params.id);
       if (!success) {
         return res.status(404).json({ message: "Sale not found" });
