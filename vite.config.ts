@@ -33,7 +33,7 @@ export default defineConfig(async ({ mode }) => {
           'query-vendor': ['@tanstack/react-query'],
           'ui-vendor': ['@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu', '@radix-ui/react-select'],
           'chart-vendor': ['recharts'],
-          'pdf-vendor': ['jspdf', 'html2canvas'],
+          // Removed PDF-related vendor chunking as PDF generation is not used
         },
         chunkFileNames: 'assets/[name]-[hash].js',
         entryFileNames: 'assets/[name]-[hash].js',
