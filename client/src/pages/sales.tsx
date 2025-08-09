@@ -45,6 +45,7 @@ export default function Sales() {
 
   const { data: salesResponse, isLoading } = useQuery<any>({
     queryKey: ["/api/sales"],
+    queryFn: async () => (await apiRequest("GET", "/api/sales")).json(),
   });
 
   const sales: SaleWithClient[] = Array.isArray(salesResponse)
@@ -53,6 +54,7 @@ export default function Sales() {
 
   const { data: clients } = useQuery<Client[]>({
     queryKey: ["/api/clients"],
+    queryFn: async () => (await apiRequest("GET", "/api/clients")).json(),
   });
 
   const updateStatusMutation = useMutation({

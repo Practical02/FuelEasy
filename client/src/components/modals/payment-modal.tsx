@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Drawer, DrawerContent } from "@/components/ui/drawer";
@@ -41,6 +41,7 @@ export default function PaymentModal({ open, onOpenChange, saleId }: PaymentModa
   const { data: salesResponse } = useQuery<any>({
     queryKey: ["/api/sales"],
     enabled: open,
+    queryFn: async () => (await apiRequest("GET", "/api/sales")).json(),
   });
   const sales: any[] = Array.isArray(salesResponse)
     ? (salesResponse as any[])
@@ -49,6 +50,20 @@ export default function PaymentModal({ open, onOpenChange, saleId }: PaymentModa
   const { data: clients } = useQuery<any[]>({
     queryKey: ["/api/clients"],
     enabled: open,
+    queryFn: async () => (await apiRequest("GET", "/api/clients")).json(),
+  });
+
+  // If a specific sale is provided, fetch its details and payments
+  const { data: selectedSale } = useQuery<any>({
+    queryKey: [`/api/sales/${saleId}`],
+    enabled: open && !!saleId,
+    queryFn: async () => (await apiRequest("GET", `/api/sales/${saleId}`)).json(),
+  });
+
+  const { data: salePayments } = useQuery<any[]>({
+    queryKey: [`/api/payments/sale/${saleId}`],
+    enabled: open && !!saleId,
+    queryFn: async () => (await apiRequest("GET", `/api/payments/sale/${saleId}`)).json(),
   });
 
   // Get unpaid sales for selected client
@@ -69,6 +84,22 @@ export default function PaymentModal({ open, onOpenChange, saleId }: PaymentModa
       notes: "",
     },
   });
+
+  // When sale is provided, prefill client, sale and amount with remaining
+  const totalPaid = (salePayments || []).reduce((sum, p) => sum + parseFloat(p.amountReceived), 0);
+  const saleTotal = selectedSale ? parseFloat(selectedSale.totalAmount) : 0;
+  const remainingAmount = Math.max(0, saleTotal - totalPaid);
+
+  // Prefill once when selected sale loads
+  useEffect(() => {
+    if (open && saleId && selectedSale && form.getValues("saleId") !== selectedSale.id) {
+      setSelectedClientId(selectedSale.clientId);
+      form.setValue("clientId", selectedSale.clientId);
+      form.setValue("saleId", selectedSale.id);
+      form.setValue("amountReceived", remainingAmount);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, saleId, selectedSale?.id]);
 
   const createPaymentMutation = useMutation({
     mutationFn: async (data: z.infer<typeof paymentFormSchema>) => {
@@ -133,6 +164,24 @@ export default function PaymentModal({ open, onOpenChange, saleId }: PaymentModa
         </DialogDescription>
       </DialogHeader>
 
+      {selectedSale && (
+        <div className="space-y-2 mb-4">
+          <h3 className="text-base font-semibold">Sale Details</h3>
+          <div className="grid grid-cols-2 gap-2 text-sm">
+            <div className="text-gray-600">Client:</div>
+            <div className="font-medium">{selectedSale.client?.name || clients?.find(c => c.id === selectedSale.clientId)?.name || "N/A"}</div>
+            <div className="text-gray-600">LPO Number:</div>
+            <div className="font-medium">{selectedSale.lpoNumber || "N/A"}</div>
+            <div className="text-gray-600">Total Amount:</div>
+            <div className="font-medium">{CURRENCY} {saleTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+            <div className="text-gray-600">Already Paid:</div>
+            <div className="font-medium">{CURRENCY} {totalPaid.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+            <div className="text-gray-600">Remaining:</div>
+            <div className="font-medium">{CURRENCY} {remainingAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+          </div>
+        </div>
+      )}
+
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             <FormField
@@ -175,9 +224,7 @@ export default function PaymentModal({ open, onOpenChange, saleId }: PaymentModa
                       </FormControl>
                       <SelectContent>
                         {clientUnpaidSales.length === 0 ? (
-                          <SelectItem value="" disabled>
-                            No unpaid sales found
-                          </SelectItem>
+                          <div className="px-2 py-1 text-sm text-gray-500">No unpaid sales found</div>
                         ) : (
                           clientUnpaidSales.map((sale) => (
                             <SelectItem key={sale.id} value={sale.id}>

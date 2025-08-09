@@ -398,6 +398,8 @@ export class MemStorage implements IStorage {
     const subtotal = quantity * pricePerGallon;
     const vatAmount = subtotal * (vatPercentage / 100);
     const totalAmount = subtotal + vatAmount;
+    const cogs = quantity * parseFloat(insertSale.purchasePricePerGallon);
+    const grossProfit = subtotal - cogs; // exclude VAT
     
     const sale: Sale = { 
       ...insertSale, 
@@ -411,8 +413,8 @@ export class MemStorage implements IStorage {
       subtotal: subtotal.toFixed(2),
       vatAmount: vatAmount.toFixed(2),
       totalAmount: totalAmount.toFixed(2),
-      cogs: "0.00", // Placeholder, calculate actual COGS if needed
-      grossProfit: "0.00", // Placeholder, calculate actual gross profit if needed
+      cogs: cogs.toFixed(2),
+      grossProfit: grossProfit.toFixed(2),
       createdAt: new Date() 
     };
     
@@ -427,11 +429,14 @@ export class MemStorage implements IStorage {
     // Calculate totals
     const quantity = parseFloat(saleData.quantityGallons);
     const pricePerGallon = parseFloat(saleData.salePricePerGallon);
+    const purchasePricePerGallon = parseFloat(saleData.purchasePricePerGallon);
     const vatPercentage = parseFloat(saleData.vatPercentage || "5.00");
     
     const subtotal = quantity * pricePerGallon;
     const vatAmount = subtotal * (vatPercentage / 100);
     const totalAmount = subtotal + vatAmount;
+    const cogs = quantity * purchasePricePerGallon;
+    const grossProfit = subtotal - cogs; // exclude VAT
     
     const updatedSale: Sale = {
       ...existingSale,
@@ -439,6 +444,8 @@ export class MemStorage implements IStorage {
       subtotal: subtotal.toFixed(2),
       vatAmount: vatAmount.toFixed(2),
       totalAmount: totalAmount.toFixed(2),
+      cogs: cogs.toFixed(2),
+      grossProfit: grossProfit.toFixed(2),
       invoiceDate: saleData.saleStatus === "Invoiced" || saleData.saleStatus === "Paid" 
         ? (existingSale.invoiceDate || new Date()) 
         : existingSale.invoiceDate,
@@ -536,28 +543,14 @@ export class MemStorage implements IStorage {
 
   async getTotalRevenue(): Promise<number> {
     const salesArray = Array.from(this.sales.values());
-    return salesArray.reduce((sum, sale) => sum + parseFloat(sale.totalAmount), 0);
+    // Revenue excludes VAT
+    return salesArray.reduce((sum, sale) => sum + parseFloat(sale.subtotal), 0);
   }
 
   async getTotalCOGS(): Promise<number> {
     const salesArray = Array.from(this.sales.values());
-    const stockArray = Array.from(this.stock.values());
-    
-    if (stockArray.length === 0) { return 0; }
-    
-    // Calculate weighted average cost per gallon
-    const totalCost = stockArray.reduce((sum, stock) => 
-      sum + (parseFloat(stock.quantityGallons) * parseFloat(stock.purchasePricePerGallon)), 0);
-    const totalQuantity = stockArray.reduce((sum, stock) => 
-      sum + parseFloat(stock.quantityGallons), 0);
-    
-    const avgCostPerGallon = totalQuantity > 0 ? totalCost / totalQuantity : 0;
-    
-    // Calculate COGS based on sold quantities
-    const totalSoldQuantity = salesArray.reduce((sum, sale) => 
-      sum + parseFloat(sale.quantityGallons), 0);
-    
-    return totalSoldQuantity * avgCostPerGallon;
+    // COGS from sales only: quantity * purchase price per sale
+    return salesArray.reduce((sum, sale) => sum + (parseFloat(sale.quantityGallons) * parseFloat(sale.purchasePricePerGallon)), 0);
   }
 
   async getGrossProfit(): Promise<number> {

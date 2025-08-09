@@ -604,7 +604,7 @@ export class DatabaseStorage implements IStorage {
     const vatAmount = subtotal * (vatPercentage / 100);
     const totalAmount = subtotal + vatAmount;
     const cogs = quantity * purchasePrice;
-    const grossProfit = totalAmount - cogs;
+    const grossProfit = subtotal - cogs; // Exclude VAT for GP
     
     const saleData = {
       ...insertSale,
@@ -1184,31 +1184,19 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getTotalRevenue(): Promise<number> {
+    // Revenue should exclude VAT
     const result = await db.select({ 
-      total: sql<number>`COALESCE(SUM(${sales.totalAmount}::numeric), 0)` 
+      total: sql<number>`COALESCE(SUM(${sales.subtotal}::numeric), 0)` 
     }).from(sales);
     return result[0]?.total || 0;
   }
 
   async getTotalCOGS(): Promise<number> {
-    const [stockResult, salesResult] = await Promise.all([
-      db.select({
-        totalCost: sql<number>`COALESCE(SUM(${stock.quantityGallons}::numeric * ${stock.purchasePricePerGallon}::numeric), 0)`,
-        totalQuantity: sql<number>`COALESCE(SUM(${stock.quantityGallons}::numeric), 0)`
-      }).from(stock),
-      db.select({
-        totalSold: sql<number>`COALESCE(SUM(${sales.quantityGallons}::numeric), 0)`
-      }).from(sales)
-    ]);
-    
-    const totalCost = stockResult[0]?.totalCost || 0;
-    const totalQuantity = stockResult[0]?.totalQuantity || 0;
-    const totalSold = salesResult[0]?.totalSold || 0;
-    
-    if (totalQuantity === 0) return 0;
-    
-    const avgCostPerGallon = totalCost / totalQuantity;
-    return totalSold * avgCostPerGallon;
+    // COGS should be computed from sales only (quantity * purchase price per sale)
+    const result = await db.select({
+      total: sql<number>`COALESCE(SUM(${sales.quantityGallons}::numeric * ${sales.purchasePricePerGallon}::numeric), 0)`
+    }).from(sales);
+    return result[0]?.total || 0;
   }
 
   async getGrossProfit(): Promise<number> {
@@ -1227,8 +1215,9 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getPendingLPOValue(): Promise<number> {
+    // Use subtotal (exclude VAT) for pending value
     const result = await db.select({ 
-      total: sql<number>`COALESCE(SUM(${sales.totalAmount}::numeric), 0)` 
+      total: sql<number>`COALESCE(SUM(${sales.subtotal}::numeric), 0)` 
     }).from(sales).where(
       sql`${sales.saleStatus} IN ('Pending LPO', 'LPO Received')`
     );
@@ -1239,11 +1228,14 @@ export class DatabaseStorage implements IStorage {
     // Calculate VAT and totals
     const quantity = parseFloat(saleData.quantityGallons);
     const pricePerGallon = parseFloat(saleData.salePricePerGallon);
+    const purchasePricePerGallon = parseFloat(saleData.purchasePricePerGallon);
     const vatPercentage = parseFloat(saleData.vatPercentage || "5.00");
     
     const subtotal = quantity * pricePerGallon;
     const vatAmount = subtotal * (vatPercentage / 100);
     const totalAmount = subtotal + vatAmount;
+    const cogs = quantity * purchasePricePerGallon;
+    const grossProfit = subtotal - cogs; // Exclude VAT for GP
 
     // Auto-set invoice date when status changes to "Invoiced"
     let invoiceDate = null;
@@ -1258,6 +1250,8 @@ export class DatabaseStorage implements IStorage {
       subtotal: subtotal.toFixed(2),
       vatAmount: vatAmount.toFixed(2),
       totalAmount: totalAmount.toFixed(2),
+      cogs: cogs.toFixed(2),
+      grossProfit: grossProfit.toFixed(2),
     };
 
     const result = await db

@@ -713,12 +713,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       ]);
 
       res.json({
-        totalRevenue,
+        totalRevenue, // excludes VAT
         totalCOGS,
-        grossProfit,
+        grossProfit, // equals subtotal - COGS across sales
         currentStock,
         pendingLPOCount,
-        pendingLPOValue,
+        pendingLPOValue, // excludes VAT
         grossMargin: totalRevenue > 0 ? (grossProfit / totalRevenue) * 100 : 0
       });
     } catch (error) {
