@@ -1394,15 +1394,30 @@ export class DatabaseStorage implements IStorage {
     const cogs = quantity * purchasePricePerGallon;
     const grossProfit = subtotal - cogs; // Exclude VAT for GP
 
-    // Auto-set invoice date when status changes to "Invoiced"
+    // Auto-set invoice date when status changes to "Invoiced"/"Paid"
     let invoiceDate = null;
     if (saleData.saleStatus === "Invoiced" || saleData.saleStatus === "Paid") {
       invoiceDate = new Date();
     }
 
+    // Derive LPO status if LPO number is provided
+    let derivedStatus = saleData.saleStatus;
+    const hasLpo = !!(saleData.lpoNumber && saleData.lpoNumber.toString().trim().length > 0);
+    if (derivedStatus === "Pending LPO" && hasLpo) {
+      derivedStatus = "LPO Received";
+    }
+
+    // Derive LPO received date if moving to LPO Received and not provided
+    let lpoReceivedDate: Date | null = (saleData as any).lpoReceivedDate || null;
+    if (derivedStatus === "LPO Received" && !lpoReceivedDate) {
+      lpoReceivedDate = new Date();
+    }
+
     const updatedSaleData = {
       ...saleData,
+      saleStatus: derivedStatus,
       invoiceDate,
+      lpoReceivedDate,
       vatPercentage: vatPercentage.toFixed(2),
       subtotal: subtotal.toFixed(2),
       vatAmount: vatAmount.toFixed(2),

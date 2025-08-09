@@ -503,6 +503,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...req.body,
         saleDate: new Date(req.body.saleDate),
         ...(req.body.lpoDueDate && { lpoDueDate: new Date(req.body.lpoDueDate) }),
+        ...(req.body.lpoReceivedDate && { lpoReceivedDate: new Date(req.body.lpoReceivedDate) }),
       };
       const validatedData = apiInsertSaleSchema.parse(requestData);
       const saleDataForStorage: InsertSale = {
