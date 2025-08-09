@@ -61,7 +61,7 @@ export default function ViewInvoiceModal({ open, onOpenChange, invoice }: ViewIn
                 <Hash className="w-5 h-5 text-gray-500" />
                 <div>
                   <p className="text-sm text-gray-500">LPO Number</p>
-                  <p className="font-medium">{invoice.sale.lpoNumber}</p>
+                  <p className="font-medium">{(invoice as any).lpoNumber || invoice.sale.lpoNumber}</p>
                 </div>
               </div>
             </CardContent>
@@ -85,7 +85,7 @@ export default function ViewInvoiceModal({ open, onOpenChange, invoice }: ViewIn
                 </div>
                 <div className="flex justify-between text-red-600">
                   <span>Pending Amount</span>
-                  <span className="font-medium">{CURRENCY} {parseFloat(invoice.sale.pendingAmount || "0").toLocaleString()}</span>
+                  <span className="font-medium">{CURRENCY} {parseFloat((invoice as any).pendingAmount || invoice.sale.pendingAmount || "0").toLocaleString()}</span>
                 </div>
               </div>
             </CardContent>

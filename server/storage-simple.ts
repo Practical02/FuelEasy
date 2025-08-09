@@ -156,7 +156,8 @@ export class MemStorage implements IStorage {
       vatPercentage: "5.00",
       vatAmount: "712.50",
       totalCost: "14962.50",
-      createdAt: new Date("2025-01-15T08:30:00Z")
+      createdAt: new Date("2025-01-15T08:30:00Z"),
+      supplierAccountHeadId: null,
     };
     
     const stock2: Stock = {
@@ -167,7 +168,8 @@ export class MemStorage implements IStorage {
       vatPercentage: "5.00",
       vatAmount: "493.50",
       totalCost: "10363.50",
-      createdAt: new Date("2025-01-20T10:00:00Z")
+      createdAt: new Date("2025-01-20T10:00:00Z"),
+      supplierAccountHeadId: null,
     };
     
     const stock3: Stock = {
@@ -178,7 +180,8 @@ export class MemStorage implements IStorage {
       vatPercentage: "5.00",
       vatAmount: "287.50",
       totalCost: "6037.50",
-      createdAt: new Date("2025-01-28T08:15:00Z")
+      createdAt: new Date("2025-01-28T08:15:00Z"),
+      supplierAccountHeadId: null,
     };
     
     this.stock.set(stock1.id, stock1);
@@ -314,7 +317,8 @@ export class MemStorage implements IStorage {
       vatPercentage: vatPercentage.toString(),
       vatAmount: vatAmount.toString(),
       totalCost: totalCost.toString(),
-      createdAt: new Date() 
+      createdAt: new Date(),
+      supplierAccountHeadId: (insertStock as any).supplierAccountHeadId ?? null,
     };
     this.stock.set(id, stock);
     return stock;
@@ -480,7 +484,8 @@ export class MemStorage implements IStorage {
       ...insertInvoice, 
       id,
       status: insertInvoice.status || "Generated",
-      createdAt: new Date() 
+      createdAt: new Date(),
+      lpoNumber: (insertInvoice as any).lpoNumber ?? null,
     };
     this.invoices.set(id, invoice);
     return invoice;

@@ -29,6 +29,7 @@ const mockInvoiceData: InvoiceWithSale = {
   vatAmount: "62.50",
   status: "Generated" as const,
   saleId: "mock",
+  lpoNumber: "LPO-2024-001",
   createdAt: new Date(),
   sale: {
     id: "mock",

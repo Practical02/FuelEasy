@@ -17,12 +17,15 @@ import { z } from "zod";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { PaymentAllocationModal } from "@/components/modals/payment-allocation-modal";
+import SupplierAdvanceAllocationModal from "@/components/modals/supplier-advance-allocation-modal";
 
 export default function CashbookPage() {
   const [isTransactionModalOpen, setIsTransactionModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isPayDebtModalOpen, setIsPayDebtModalOpen] = useState(false);
   const [isAllocationModalOpen, setIsAllocationModalOpen] = useState(false);
+  const [isSupplierAllocationOpen, setIsSupplierAllocationOpen] = useState(false);
+  const { data: supplierAdvances = [] } = useQuery<any[]>({ queryKey: ["/api/cashbook/supplier-advances"] });
   const [isAccountHeadModalOpen, setIsAccountHeadModalOpen] = useState(false);
   const [selectedDebt, setSelectedDebt] = useState<CashbookEntry | null>(null);
   const [selectedPaymentForAllocation, setSelectedPaymentForAllocation] = useState<CashbookEntryWithAccountHead | null>(null);
@@ -387,7 +390,7 @@ export default function CashbookPage() {
     <div className="p-6 space-y-6">
       <div className="flex justify-between items-center">
          <h1 className="text-3xl font-bold">Company Cashbook</h1>
-         <div className="flex gap-2">
+          <div className="flex gap-2">
            <Dialog open={isAccountHeadModalOpen} onOpenChange={setIsAccountHeadModalOpen}>
              <DialogTrigger asChild>
                <Button variant="outline">
@@ -431,7 +434,7 @@ export default function CashbookPage() {
              </DialogContent>
            </Dialog>
            
-           <Dialog open={isTransactionModalOpen} onOpenChange={setIsTransactionModalOpen}>
+            <Dialog open={isTransactionModalOpen} onOpenChange={setIsTransactionModalOpen}>
           <DialogTrigger asChild>
             <Button>
               <Plus className="h-4 w-4 mr-2" />
@@ -646,6 +649,9 @@ export default function CashbookPage() {
             </Form>
           </DialogContent>
         </Dialog>
+          <Button variant="outline" onClick={() => setIsSupplierAllocationOpen(true)}>
+            Allocate Supplier Advance
+          </Button>
          </div>
       </div>
 
@@ -802,6 +808,46 @@ export default function CashbookPage() {
               ))}
             </TableBody>
           </Table>
+        </CardContent>
+      </Card>
+
+      {/* Supplier Advances Overview */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle>Supplier Advances</CardTitle>
+          <Button variant="outline" onClick={() => setIsSupplierAllocationOpen(true)}>Allocate Supplier Advance</Button>
+        </CardHeader>
+        <CardContent>
+          {supplierAdvances.length === 0 ? (
+            <div className="text-sm text-gray-500">No supplier advances found.</div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Supplier</TableHead>
+                  <TableHead>Original Amount</TableHead>
+                  <TableHead>Allocated</TableHead>
+                  <TableHead>Remaining</TableHead>
+                  <TableHead></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {supplierAdvances.map((a: any) => (
+                  <TableRow key={a.entry.id}>
+                    <TableCell>{formatDate(a.entry.transactionDate)}</TableCell>
+                    <TableCell>{a.entry.counterparty || a.entry.accountHead?.name || "—"}</TableCell>
+                    <TableCell>{formatCurrency(a.entry.amount)}</TableCell>
+                    <TableCell>{formatCurrency(a.allocatedAmount || 0)}</TableCell>
+                    <TableCell>{formatCurrency(a.remainingAmount || 0)}</TableCell>
+                    <TableCell>
+                      <Button size="sm" variant="outline" onClick={() => setIsSupplierAllocationOpen(true)}>Allocate</Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
 
@@ -1109,6 +1155,19 @@ export default function CashbookPage() {
         onSuccess={() => {
           queryClient.invalidateQueries({ queryKey: ["/api/cashbook"] });
           queryClient.invalidateQueries({ queryKey: ["/api/cashbook/payment-allocations"] });
+        }}
+      />
+
+      <SupplierAdvanceAllocationModal
+        open={isSupplierAllocationOpen}
+        onOpenChange={(open) => {
+          setIsSupplierAllocationOpen(open);
+          if (!open) {
+            queryClient.invalidateQueries({ queryKey: ["/api/cashbook/supplier-advances"] });
+          }
+        }}
+        onSuccess={() => {
+          queryClient.invalidateQueries({ queryKey: ["/api/cashbook/supplier-advances"] });
         }}
       />
     </div>

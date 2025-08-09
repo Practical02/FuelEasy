@@ -15,6 +15,7 @@ import {
   insertCashbookSchema,
   insertAccountHeadSchema,
   insertCashbookPaymentAllocationSchema,
+  insertSupplierAdvanceAllocationSchema,
   insertBusinessSettingsSchema
 } from "@shared/schema";
 import "./types/session";
@@ -638,6 +639,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // New route: create invoice by LPO number for multiple sales
+  app.post("/api/invoices/by-lpo", requireAuth, writeLimiter, async (req, res) => {
+    try {
+      const { lpoNumber, invoiceNumber, invoiceDate } = req.body || {};
+      if (!lpoNumber || !invoiceNumber || !invoiceDate) {
+        return res.status(400).json({ message: "lpoNumber, invoiceNumber and invoiceDate are required" });
+      }
+      const invoice = await storage.createInvoiceForLPO({
+        lpoNumber,
+        invoiceNumber,
+        invoiceDate: new Date(invoiceDate),
+      });
+      res.json(invoice);
+    } catch (error) {
+      res.status(400).json({ message: "Failed to create invoice by LPO", error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
   app.get("/api/invoices/:id", requireAuth, async (req, res) => {
     try {
       const invoice = await storage.getInvoice(req.params.id);
@@ -815,6 +834,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(entries);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch cashbook entries", error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  // Supplier advance allocation listing
+  app.get("/api/cashbook/supplier-advances", requireAuth, async (req, res) => {
+    try {
+      const advances = await storage.getSupplierAdvances();
+      res.json(advances);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch supplier advances", error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post("/api/cashbook/supplier-advance-allocations", requireAuth, writeLimiter, async (req, res) => {
+    try {
+      const allocationData = insertSupplierAdvanceAllocationSchema.parse(req.body);
+      const allocation = await storage.createSupplierAdvanceAllocation(allocationData);
+      res.json(allocation);
+    } catch (error) {
+      res.status(400).json({ message: "Invalid supplier advance allocation data", error: error instanceof Error ? error.message : String(error) });
     }
   });
 

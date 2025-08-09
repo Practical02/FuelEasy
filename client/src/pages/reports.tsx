@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Calendar, Download, Filter, FileText, FileSpreadsheet } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { CURRENCY, STATUS_COLORS } from "@/lib/constants";
-import type { Sale, Client } from "@shared/schema";
+import type { Sale, Client, Invoice } from "@shared/schema";
 import ExcelJS from 'exceljs';
 
 type SaleWithClient = Sale & { client: Client };
@@ -29,6 +29,10 @@ export default function Reports() {
   const sales: SaleWithClient[] = Array.isArray(salesResponse)
     ? (salesResponse as SaleWithClient[])
     : (salesResponse?.data ?? []);
+
+  const { data: invoices = [] } = useQuery<any[]>({
+    queryKey: ["/api/invoices"],
+  });
 
   // Filter sales based on selected criteria
   const filteredSales = sales.filter(sale => {
@@ -56,6 +60,23 @@ export default function Reports() {
     return true;
   });
 
+  const pendingInvoices = useMemo(() => {
+    if (reportType !== "pending-invoices") return [] as any[];
+    // Pending invoices = not Paid
+    const invs = (invoices || []) as any[];
+    return invs.filter(inv => inv.status !== "Paid").filter(inv => {
+      if (selectedClient === "all") return true;
+      const s = inv.sales && inv.sales[0];
+      return s && s.clientId === selectedClient;
+    }).filter(inv => {
+      if (!dateFrom && !dateTo) return true;
+      const d = new Date(inv.invoiceDate);
+      if (dateFrom && d < new Date(dateFrom)) return false;
+      if (dateTo && d > new Date(dateTo)) return false;
+      return true;
+    });
+  }, [reportType, invoices, selectedClient, dateFrom, dateTo]);
+
   // Calculate totals
   const totals = filteredSales.reduce(
     (acc, sale) => ({
@@ -66,6 +87,17 @@ export default function Reports() {
     }),
     { subtotal: 0, vatAmount: 0, totalAmount: 0, quantity: 0 }
   );
+
+  const invoiceTotals = useMemo(() => {
+    if (reportType !== "pending-invoices") return { count: 0, totalAmount: 0, pendingAmount: 0 };
+    const sum = pendingInvoices.reduce((acc, inv: any) => {
+      acc.count += 1;
+      acc.totalAmount += parseFloat(inv.totalAmount);
+      acc.pendingAmount += parseFloat(inv.pendingAmount || 0);
+      return acc;
+    }, { count: 0, totalAmount: 0, pendingAmount: 0 });
+    return sum;
+  }, [pendingInvoices, reportType]);
 
   const exportToExcel = async () => {
     // Create client details section for the selected client
@@ -257,10 +289,11 @@ export default function Reports() {
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="pending">Pending Business</SelectItem>
-                  <SelectItem value="vat">VAT Report</SelectItem>
-                </SelectContent>
+                 <SelectContent>
+                   <SelectItem value="pending">Pending LPO (Sales)</SelectItem>
+                   <SelectItem value="pending-invoices">Pending Invoices</SelectItem>
+                   <SelectItem value="vat">VAT Report</SelectItem>
+                 </SelectContent>
               </Select>
             </div>
 
@@ -320,13 +353,14 @@ export default function Reports() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-600">Total Records</p>
-                <p className="text-2xl font-bold text-gray-900">{filteredSales.length}</p>
+                <p className="text-2xl font-bold text-gray-900">{reportType === 'pending-invoices' ? invoiceTotals.count : filteredSales.length}</p>
               </div>
               <FileText className="h-8 w-8 text-blue-600" />
             </div>
           </CardContent>
         </Card>
 
+        {reportType !== 'pending-invoices' && (
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
@@ -338,14 +372,14 @@ export default function Reports() {
               <Calendar className="h-8 w-8 text-green-600" />
             </div>
           </CardContent>
-        </Card>
+        </Card>) }
 
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600">VAT Amount</p>
-                <p className="text-2xl font-bold text-gray-900">{CURRENCY} {totals.vatAmount.toFixed(2)}</p>
+                <p className="text-sm font-medium text-gray-600">{reportType === 'pending-invoices' ? 'Pending Amount' : 'VAT Amount'}</p>
+                <p className="text-2xl font-bold text-gray-900">{reportType === 'pending-invoices' ? `${CURRENCY} ${invoiceTotals.pendingAmount.toFixed(2)}` : `${CURRENCY} ${totals.vatAmount.toFixed(2)}`}</p>
               </div>
               <div className="h-8 w-8 bg-orange-100 rounded-full flex items-center justify-center">
                 <span className="text-sm font-bold text-orange-600">VAT</span>
@@ -359,7 +393,7 @@ export default function Reports() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-600">Total Amount</p>
-                <p className="text-2xl font-bold text-gray-900">{CURRENCY} {totals.totalAmount.toFixed(2)}</p>
+                <p className="text-2xl font-bold text-gray-900">{CURRENCY} {(reportType === 'pending-invoices' ? invoiceTotals.totalAmount : totals.totalAmount).toFixed(2)}</p>
               </div>
               <div className="h-8 w-8 bg-primary-100 rounded-full flex items-center justify-center">
                 <span className="text-sm font-bold text-primary-600">₹</span>
@@ -373,11 +407,42 @@ export default function Reports() {
       <Card>
         <CardHeader>
           <CardTitle>
-            {reportType === "pending" ? "Pending Business Report" : "VAT Report"}
+            {reportType === "pending" ? "Pending Business Report" : reportType === 'pending-invoices' ? 'Pending Invoices Report' : "VAT Report"}
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {filteredSales.length === 0 ? (
+          {reportType === 'pending-invoices' ? (
+            pendingInvoices.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-gray-500">No pending invoices found for the selected criteria</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="text-left p-3 text-sm font-medium text-gray-600">Invoice No.</th>
+                      <th className="text-left p-3 text-sm font-medium text-gray-600">Invoice Date</th>
+                      <th className="text-left p-3 text-sm font-medium text-gray-600">LPO No.</th>
+                      <th className="text-right p-3 text-sm font-medium text-gray-600">Total Amount (incl. VAT)</th>
+                      <th className="text-right p-3 text-sm font-medium text-gray-600">Pending Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pendingInvoices.map((inv: any) => (
+                      <tr key={inv.id} className="border-b hover:bg-gray-50">
+                        <td className="p-3 text-sm">{inv.invoiceNumber}</td>
+                        <td className="p-3 text-sm">{new Date(inv.invoiceDate).toLocaleDateString()}</td>
+                        <td className="p-3 text-sm">{inv.lpoNumber || (inv.sale?.lpoNumber ?? 'N/A')}</td>
+                        <td className="p-3 text-sm text-right">{CURRENCY} {parseFloat(inv.totalAmount).toFixed(2)}</td>
+                        <td className="p-3 text-sm text-right font-medium">{CURRENCY} {parseFloat(inv.pendingAmount || 0).toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          ) : filteredSales.length === 0 ? (
             <div className="text-center py-8">
               <p className="text-gray-500">No records found for the selected criteria</p>
             </div>

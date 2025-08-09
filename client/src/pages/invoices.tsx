@@ -175,7 +175,7 @@ export default function Invoices() {
                   <tr className="border-b border-gray-200">
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Invoice Number</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Client</th>
-                    <th className="text-left py-3 px-4 font-medium text-gray-900">LPO Number</th>
+                     <th className="text-left py-3 px-4 font-medium text-gray-900">LPO Number</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Invoice Date</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Amount</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Pending Amount</th>
@@ -200,7 +200,7 @@ export default function Invoices() {
                           {invoice.sale?.client?.name || "N/A"}
                         </td>
                         <td className="py-3 px-4 text-sm text-gray-900">
-                          {invoice.sale?.lpoNumber || "N/A"}
+                          {(invoice as any).lpoNumber || invoice.sale?.lpoNumber || "N/A"}
                         </td>
                         <td className="py-3 px-4 text-sm text-gray-900">
                           {new Date(invoice.invoiceDate).toLocaleDateString()}
@@ -209,7 +209,7 @@ export default function Invoices() {
                           {CURRENCY} {parseFloat(invoice.totalAmount).toLocaleString()}
                         </td>
                         <td className="py-3 px-4 text-sm font-medium text-red-600">
-                          {CURRENCY} {parseFloat(invoice.sale.pendingAmount || "0").toLocaleString()}
+                          {CURRENCY} {parseFloat((invoice as any).pendingAmount || "0").toLocaleString()}
                         </td>
                         <td className="py-3 px-4">
                           <Badge

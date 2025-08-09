@@ -29,6 +29,9 @@ export const stock = pgTable("stock", {
   purchaseDate: timestamp("purchase_date").notNull(),
   quantityGallons: decimal("quantity_gallons", { precision: 10, scale: 2 }).notNull(),
   purchasePricePerGallon: decimal("purchase_price_per_gallon", { precision: 8, scale: 3 }).notNull(),
+  // Optional supplier account head to track which supplier provided this stock
+  // This enables allocating supplier advances against stock purchases
+  supplierAccountHeadId: uuid("supplier_account_head_id").references(() => accountHeads.id),
   vatPercentage: decimal("vat_percentage", { precision: 5, scale: 2 }).notNull().default("5.00"),
   vatAmount: decimal("vat_amount", { precision: 12, scale: 2 }).notNull(),
   totalCost: decimal("total_cost", { precision: 12, scale: 2 }).notNull(),
@@ -82,9 +85,19 @@ export const invoices = pgTable("invoices", {
   saleId: uuid("sale_id").references(() => sales.id).notNull(),
   invoiceNumber: text("invoice_number").notNull().unique(),
   invoiceDate: timestamp("invoice_date").notNull(),
+  // For multi-sale invoices issued per LPO
+  lpoNumber: text("lpo_number"),
   totalAmount: decimal("total_amount", { precision: 12, scale: 2 }).notNull(),
   vatAmount: decimal("vat_amount", { precision: 12, scale: 2 }).notNull(),
   status: text("status").notNull().default("Generated"), // "Generated", "Sent", "Paid"
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Join table to link invoices to multiple sales (e.g., one LPO spanning multiple sales)
+export const invoiceSales = pgTable("invoice_sales", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  invoiceId: uuid("invoice_id").references(() => invoices.id).notNull(),
+  saleId: uuid("sale_id").references(() => sales.id).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -165,6 +178,15 @@ export const cashbook = pgTable("cashbook", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// Allocations from supplier advance cashbook entries to stock purchases
+export const supplierAdvanceAllocations = pgTable("supplier_advance_allocations", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  cashbookEntryId: uuid("cashbook_entry_id").references(() => cashbook.id).notNull(), // Outflow advance entry
+  stockId: uuid("stock_id").references(() => stock.id).notNull(),
+  amountAllocated: decimal("amount_allocated", { precision: 12, scale: 2 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
@@ -210,6 +232,11 @@ export const insertInvoiceSchema = createInsertSchema(invoices).omit({
   createdAt: true,
 });
 
+export const insertInvoiceSalesSchema = createInsertSchema(invoiceSales).omit({
+  id: true,
+  createdAt: true,
+});
+
 export const insertPaymentSchema = createInsertSchema(payments).omit({
   id: true,
   createdAt: true,
@@ -217,6 +244,11 @@ export const insertPaymentSchema = createInsertSchema(payments).omit({
 
 // Add schema for cashbook payment allocations
 export const insertCashbookPaymentAllocationSchema = createInsertSchema(cashbookPaymentAllocations).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertSupplierAdvanceAllocationSchema = createInsertSchema(supplierAdvanceAllocations).omit({
   id: true,
   createdAt: true,
 });
@@ -249,6 +281,9 @@ export type CashbookEntry = typeof cashbook.$inferSelect;
 export type InsertInvoice = z.infer<typeof insertInvoiceSchema>;
 export type Invoice = typeof invoices.$inferSelect;
 
+export type InsertInvoiceSale = z.infer<typeof insertInvoiceSalesSchema>;
+export type InvoiceSale = typeof invoiceSales.$inferSelect;
+
 export type InsertPayment = z.infer<typeof insertPaymentSchema>;
 export type Payment = typeof payments.$inferSelect;
 
@@ -257,6 +292,9 @@ export type AccountHead = typeof accountHeads.$inferSelect;
 
 export type InsertCashbookPaymentAllocation = z.infer<typeof insertCashbookPaymentAllocationSchema>;
 export type CashbookPaymentAllocation = typeof cashbookPaymentAllocations.$inferSelect;
+
+export type InsertSupplierAdvanceAllocation = z.infer<typeof insertSupplierAdvanceAllocationSchema>;
+export type SupplierAdvanceAllocation = typeof supplierAdvanceAllocations.$inferSelect;
 
 // Additional types for joined data
 export type SaleWithClient = Sale & {

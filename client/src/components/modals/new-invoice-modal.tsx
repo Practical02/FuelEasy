@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Drawer, DrawerContent } from "@/components/ui/drawer";
@@ -14,8 +14,12 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { z } from "zod";
 
-const invoiceFormSchema = insertInvoiceSchema.extend({
-  saleId: z.string().min(1, "Sale is required"),
+const invoiceFormSchema = z.object({
+  mode: z.enum(["single", "lpo"]).default("lpo"),
+  saleId: z.string().optional(),
+  lpoNumber: z.string().optional(),
+  invoiceNumber: z.string().min(1, "Invoice number is required"),
+  invoiceDate: z.date(),
 });
 
 interface NewInvoiceModalProps {
@@ -37,31 +41,48 @@ export default function NewInvoiceModal({ open, onOpenChange }: NewInvoiceModalP
   const form = useForm<z.infer<typeof invoiceFormSchema>>({
     resolver: zodResolver(invoiceFormSchema),
     defaultValues: {
+      mode: "lpo",
       saleId: "",
+      lpoNumber: "",
       invoiceNumber: "",
       invoiceDate: new Date(),
-      totalAmount: "0",
-      vatAmount: "0",
-      status: "Generated",
     },
   });
 
+  const mode = form.watch("mode");
   const selectedSaleId = form.watch("saleId");
+  const selectedLpo = form.watch("lpoNumber");
 
   useEffect(() => {
-    if (selectedSaleId) {
+    if (mode === "single" && selectedSaleId) {
       const sale = sales?.find(s => s.id === selectedSaleId);
       if (sale) {
-        form.setValue("totalAmount", sale.totalAmount);
-        form.setValue("vatAmount", sale.vatAmount);
-        form.setValue("invoiceNumber", `INV-${sale.lpoNumber}`);
+        form.setValue("invoiceNumber", `INV-${sale.lpoNumber || ""}`);
       }
+    } else if (mode === "lpo" && selectedLpo) {
+      form.setValue("invoiceNumber", `INV-${selectedLpo}`);
     }
-  }, [selectedSaleId, sales, form]);
+  }, [mode, selectedSaleId, selectedLpo, sales, form]);
 
   const createInvoiceMutation = useMutation({
     mutationFn: async (data: z.infer<typeof invoiceFormSchema>) => {
-      const response = await apiRequest("POST", "/api/invoices", data);
+      const payload: any = {
+        invoiceNumber: data.invoiceNumber,
+        invoiceDate: data.invoiceDate,
+      };
+      let url = "/api/invoices";
+      if (data.mode === "single") {
+        payload.saleId = data.saleId;
+        const sale = sales.find(s => s.id === data.saleId);
+        if (!sale) throw new Error("Selected sale not found");
+        payload.totalAmount = sale.totalAmount;
+        payload.vatAmount = sale.vatAmount;
+        payload.status = "Generated";
+      } else {
+        url = "/api/invoices/by-lpo";
+        payload.lpoNumber = data.lpoNumber;
+      }
+      const response = await apiRequest("POST", url, payload);
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.message || "Failed to create invoice");
@@ -91,16 +112,19 @@ export default function NewInvoiceModal({ open, onOpenChange }: NewInvoiceModalP
     createInvoiceMutation.mutate(data);
   };
 
-  const invoiceableSales = sales?.filter(sale =>
-    sale.saleStatus === "LPO Received"
-  ) || [];
+  const invoiceableSales = useMemo(() => (sales?.filter(sale => sale.saleStatus === "LPO Received") || []), [sales]);
+  const lpoOptions = useMemo(() => {
+    const set = new Set<string>();
+    invoiceableSales.forEach(s => s.lpoNumber && set.add(s.lpoNumber));
+    return Array.from(set);
+  }, [invoiceableSales]);
 
   const body = (
     <>
       <DialogHeader>
         <DialogTitle>Create New Invoice</DialogTitle>
         <DialogDescription>
-          Manually create a new invoice for a sale.
+          Create an invoice for a single sale or for all sales under an LPO.
         </DialogDescription>
       </DialogHeader>
 
@@ -108,28 +132,77 @@ export default function NewInvoiceModal({ open, onOpenChange }: NewInvoiceModalP
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6 pt-4">
             <FormField
               control={form.control}
-              name="saleId"
+              name="mode"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Sale (LPO Received)</FormLabel>
+                  <FormLabel>Invoice Mode</FormLabel>
                   <Select onValueChange={field.onChange} defaultValue={field.value}>
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder="Select a sale..." />
+                        <SelectValue placeholder="Select mode..." />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {invoiceableSales.map((sale) => (
-                        <SelectItem key={sale.id} value={sale.id}>
-                          {sale.client.name} - LPO: {sale.lpoNumber}
-                        </SelectItem>
-                      ))}
+                      <SelectItem value="lpo">By LPO (multiple sales)</SelectItem>
+                      <SelectItem value="single">Single Sale</SelectItem>
                     </SelectContent>
                   </Select>
                   <FormMessage />
                 </FormItem>
               )}
             />
+
+            {mode === "single" ? (
+              <FormField
+                control={form.control}
+                name="saleId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Sale (LPO Received)</FormLabel>
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select a sale..." />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {invoiceableSales.map((sale) => (
+                          <SelectItem key={sale.id} value={sale.id}>
+                            {sale.client.name} - LPO: {sale.lpoNumber}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            ) : (
+              <FormField
+                control={form.control}
+                name="lpoNumber"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>LPO Number</FormLabel>
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select an LPO..." />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {lpoOptions.map((lpo) => (
+                          <SelectItem key={lpo} value={lpo}>
+                            {lpo}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
 
             <FormField
               control={form.control}

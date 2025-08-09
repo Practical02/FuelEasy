@@ -26,6 +26,10 @@ import {
   type CashbookPaymentAllocationWithInvoice,
   type BusinessSettings,
   type InsertBusinessSettings,
+  type InsertInvoiceSale,
+  type InvoiceSale,
+  type InsertSupplierAdvanceAllocation,
+  type SupplierAdvanceAllocation,
   users,
   stock,
   clients,
@@ -36,17 +40,19 @@ import {
   cashbook,
   accountHeads,
   cashbookPaymentAllocations,
-  businessSettings
+  businessSettings,
+  invoiceSales,
+  supplierAdvanceAllocations
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
-import { eq, desc, sql, and } from "drizzle-orm";
+import { eq, desc, sql, and, inArray } from "drizzle-orm";
 
 // Initialize database connection
 const connectionString = process.env.DATABASE_URL || "";
 const sql_conn = neon(connectionString);
-const db = drizzle(sql_conn, { schema: { users, stock, clients, projects, sales, invoices, payments, cashbook, accountHeads, cashbookPaymentAllocations, businessSettings } });
+const db = drizzle(sql_conn, { schema: { users, stock, clients, projects, sales, invoices, payments, cashbook, accountHeads, cashbookPaymentAllocations, businessSettings, invoiceSales, supplierAdvanceAllocations } });
 
 export interface IStorage {
   // User methods
@@ -96,6 +102,7 @@ export interface IStorage {
   createInvoice(invoice: InsertInvoice): Promise<Invoice>;
   updateInvoice(id: string, invoice: InsertInvoice): Promise<Invoice | undefined>;
   deleteInvoice(id: string): Promise<boolean>;
+  createInvoiceForLPO(params: { lpoNumber: string; invoiceNumber: string; invoiceDate: Date }): Promise<Invoice>;
   
   // Payment methods
   getPayments(): Promise<PaymentWithSaleAndClient[]>;
@@ -127,6 +134,11 @@ export interface IStorage {
   getPendingInvoicesForAllocation(accountHeadId?: string): Promise<any[]>;
   getInvoiceAllocatedAmount(invoiceId: string): Promise<number>;
   updateInvoiceStatusIfPaid(invoiceId: string): Promise<void>;
+
+  // Supplier advance allocation methods
+  getSupplierAdvances(): Promise<Array<{ entry: CashbookEntryWithAccountHead; allocatedAmount: number; remainingAmount: number }>>;
+  getSupplierAdvanceAllocatedAmount(cashbookEntryId: string): Promise<number>;
+  createSupplierAdvanceAllocation(allocation: InsertSupplierAdvanceAllocation): Promise<SupplierAdvanceAllocation>;
   
   // Supplier Debt Tracking methods
   getSupplierDebts(): Promise<CashbookEntryWithAccountHead[]>;
@@ -200,8 +212,56 @@ export class DatabaseStorage implements IStorage {
     };
     
     const result = await db.insert(stock).values(stockData).returning();
-    
-    return result[0];
+
+    const created = result[0];
+
+    // If a supplier is specified, allocate from supplier advances to cover this stock purchase
+    if ((insertStock as any).supplierAccountHeadId) {
+      const supplierId = (insertStock as any).supplierAccountHeadId as string;
+      let remaining = totalCost;
+
+      // Fetch supplier advance entries (outflows with no pending) for this supplier ordered by date (FIFO)
+      const advanceEntries = await db
+        .select()
+        .from(cashbook)
+        .where(and(eq(cashbook.accountHeadId, supplierId), eq(cashbook.isInflow, 0), eq(cashbook.isPending, 0)))
+        .orderBy(cashbook.transactionDate);
+
+      for (const adv of advanceEntries) {
+        if (remaining <= 0) break;
+        const allocatedSoFar = await this.getSupplierAdvanceAllocatedAmount(adv.id);
+        const available = parseFloat(adv.amount) - allocatedSoFar;
+        if (available <= 0) continue;
+        const allocate = Math.min(remaining, available);
+        await db.insert(supplierAdvanceAllocations).values({
+          cashbookEntryId: adv.id,
+          stockId: created.id,
+          amountAllocated: allocate.toFixed(2),
+        });
+        remaining -= allocate;
+      }
+
+      // If any remainder exists, record as pending debt to supplier
+      if (remaining > 0.001) {
+        await this.createCashbookEntry({
+          transactionDate: (insertStock as any).purchaseDate || new Date(),
+          transactionType: "Supplier Payment",
+          category: "Stock Purchase Unsettled",
+          accountHeadId: supplierId,
+          amount: remaining.toFixed(2),
+          isInflow: 0,
+          description: `Unsettled amount for stock ${created.id}`,
+          counterparty: "Supplier",
+          paymentMethod: "Credit",
+          referenceType: "stock",
+          referenceId: created.id,
+          isPending: 1,
+          notes: `Auto-created from stock purchase; total ${totalCost.toFixed(2)}`,
+        });
+      }
+    }
+
+    return created;
   }
 
   async getCurrentStockLevel(): Promise<number> {
@@ -651,48 +711,64 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getInvoices(): Promise<any[]> {
-    const results = await db
-      .select()
+    // Fetch invoices with primary sale join for backward-compat display
+    const invRows = await db
+      .select({ inv: invoices, s: sales, c: clients, p: projects })
       .from(invoices)
       .leftJoin(sales, eq(invoices.saleId, sales.id))
       .leftJoin(clients, eq(sales.clientId, clients.id))
       .leftJoin(projects, eq(sales.projectId, projects.id))
       .orderBy(desc(invoices.createdAt));
 
-    const allPayments = await db.select().from(payments);
-    const paymentsBySaleId = allPayments.reduce((acc, p) => {
-        if (!acc[p.saleId]) {
-            acc[p.saleId] = [];
-        }
-        acc[p.saleId].push(p);
-        return acc;
-    }, {} as Record<string, Payment[]>);
+    const allInvoiceIds = invRows.map(r => r.inv.id);
+    // Compute allocated amounts per invoice
+    const allocations = allInvoiceIds.length
+      ? await db
+          .select({ invoiceId: cashbookPaymentAllocations.invoiceId, amountAllocated: sql<number>`COALESCE(SUM(${cashbookPaymentAllocations.amountAllocated})::numeric, 0)` })
+          .from(cashbookPaymentAllocations)
+          .where(inArray(cashbookPaymentAllocations.invoiceId, allInvoiceIds))
+          .groupBy(cashbookPaymentAllocations.invoiceId)
+      : [] as Array<{ invoiceId: string; amountAllocated: number }>;
+    const allocatedMap: Record<string, number> = {};
+    for (const a of allocations) allocatedMap[a.invoiceId] = a.amountAllocated;
 
-    return results.map(r => {
-      if (!r.sales || !r.clients) {
-        return { ...r.invoices, sale: null };
+    // Build list of all LPO numbers to fetch their sales
+    const lpoSet = new Set(invRows.map(r => r.inv.lpoNumber).filter(Boolean) as string[]);
+    const lpoList = Array.from(lpoSet);
+    const salesByLpo: Record<string, any[]> = {};
+    if (lpoList.length) {
+      const lpoSales = await db
+        .select({ s: sales, c: clients, p: projects })
+        .from(sales)
+        .leftJoin(clients, eq(sales.clientId, clients.id))
+        .leftJoin(projects, eq(sales.projectId, projects.id))
+        .where(inArray(sales.lpoNumber, lpoList));
+      for (const row of lpoSales) {
+        const lpo = row.s.lpoNumber || '';
+        if (!salesByLpo[lpo]) salesByLpo[lpo] = [];
+        salesByLpo[lpo].push({ ...row.s, client: row.c, project: row.p });
       }
-      
-      const salePayments = paymentsBySaleId[r.sales.id] || [];
-      const totalPaid = salePayments.reduce((sum, p) => sum + parseFloat(p.amountReceived), 0);
-      const pendingAmount = parseFloat(r.sales.totalAmount) - totalPaid;
+    }
 
-      const sale = {
-        ...r.sales,
-        client: r.clients,
-        project: r.projects || null,
-        pendingAmount: pendingAmount.toFixed(2)
-      };
-      
-      return { ...r.invoices, sale };
+    return invRows.map(r => {
+      const inv = r.inv;
+      const allocated = allocatedMap[inv.id] || 0;
+      const pendingAmount = parseFloat(inv.totalAmount) - allocated;
+      const primarySale = r.s ? { ...r.s, client: r.c, project: r.p } : null;
+      const linkedSales = inv.lpoNumber ? (salesByLpo[inv.lpoNumber] || []) : (primarySale ? [primarySale] : []);
+      return { ...inv, sale: primarySale, sales: linkedSales, pendingAmount: pendingAmount.toFixed(2) };
     });
   }
 
   async createInvoice(insertInvoice: InsertInvoice): Promise<Invoice> {
+    // Backward-compatible single-sale invoice creation
     const result = await db.insert(invoices).values(insertInvoice).returning();
+    const inv = result[0];
+    // Link the single sale in invoice_sales for consistency
+    await db.insert(invoiceSales).values({ invoiceId: inv.id, saleId: insertInvoice.saleId });
     // Update sale status to "Invoiced"
     await this.updateSaleStatus(insertInvoice.saleId, "Invoiced");
-    return result[0];
+    return inv;
   }
 
   async updateInvoice(id: string, insertInvoice: InsertInvoice): Promise<Invoice | undefined> {
@@ -702,6 +778,45 @@ export class DatabaseStorage implements IStorage {
       .where(eq(invoices.id, id))
       .returning();
     return result[0];
+  }
+
+  async createInvoiceForLPO(params: { lpoNumber: string; invoiceNumber: string; invoiceDate: Date }): Promise<Invoice> {
+    const { lpoNumber, invoiceNumber, invoiceDate } = params;
+
+    // Find all sales with this LPO that are not yet invoiced or paid
+    const candidateSales = await db
+      .select()
+      .from(sales)
+      .where(and(eq(sales.lpoNumber, lpoNumber), sql`${sales.saleStatus} IN ('LPO Received', 'Pending LPO')` as any));
+
+    if (candidateSales.length === 0) {
+      throw new Error(`No eligible sales found for LPO ${lpoNumber}`);
+    }
+
+    // Sum totals across sales
+    const totalAmount = candidateSales.reduce((sum, s) => sum + parseFloat(s.totalAmount), 0);
+    const vatAmount = candidateSales.reduce((sum, s) => sum + parseFloat(s.vatAmount), 0);
+
+    // Create invoice row (pick first sale's id for legacy column, but will link all via invoice_sales)
+    const baseSaleId = candidateSales[0].id;
+    const invRows = await db.insert(invoices).values({
+      saleId: baseSaleId,
+      invoiceNumber,
+      invoiceDate,
+      lpoNumber,
+      totalAmount: totalAmount.toFixed(2),
+      vatAmount: vatAmount.toFixed(2),
+      status: "Generated",
+    }).returning();
+    const invoice = invRows[0];
+
+    // Link all sales to this invoice and mark status as Invoiced
+    for (const s of candidateSales) {
+      await db.insert(invoiceSales).values({ invoiceId: invoice.id, saleId: s.id });
+      await this.updateSaleStatus(s.id, "Invoiced");
+    }
+
+    return invoice;
   }
 
   async getPayments(): Promise<PaymentWithSaleAndClient[]> {
@@ -778,17 +893,24 @@ export class DatabaseStorage implements IStorage {
     });
 
     // Find the invoice for this sale and automatically allocate the payment
-    const invoice = await db
-      .select()
-      .from(invoices)
-      .where(eq(invoices.saleId, insertPayment.saleId))
-      .limit(1);
+    // 1) Try via invoice_sales link (multi-sale invoices)
+    let invoiceRow = null as Invoice | null;
+    const link = await db.select().from(invoiceSales).where(eq(invoiceSales.saleId, insertPayment.saleId)).limit(1);
+    if (link[0]) {
+      const inv = await db.select().from(invoices).where(eq(invoices.id, link[0].invoiceId)).limit(1);
+      if (inv[0]) invoiceRow = inv[0];
+    }
+    // 2) Fallback to legacy single-sale invoice
+    if (!invoiceRow) {
+      const inv = await db.select().from(invoices).where(eq(invoices.saleId, insertPayment.saleId)).limit(1);
+      if (inv[0]) invoiceRow = inv[0];
+    }
 
-    if (invoice[0]) {
+    if (invoiceRow) {
       // Automatically allocate the full payment amount to the invoice
       await this.createCashbookPaymentAllocation({
         cashbookEntryId: cashbookEntry.id,
-        invoiceId: invoice[0].id,
+        invoiceId: invoiceRow.id,
         amountAllocated: insertPayment.amountReceived,
       });
     }
@@ -809,6 +931,41 @@ export class DatabaseStorage implements IStorage {
       await this.updateSaleStatus(insertPayment.saleId, newStatus);
     }
     
+    // Auto-settle supplier pending debts using the received amount (FIFO, full-settlement only)
+    try {
+      let remainingToSettle = parseFloat(insertPayment.amountReceived);
+      if (remainingToSettle > 0) {
+        const supplierDebts = await db
+          .select({
+            id: cashbook.id,
+            amount: cashbook.amount,
+            transactionDate: cashbook.transactionDate,
+            accountHead: accountHeads,
+          })
+          .from(cashbook)
+          .leftJoin(accountHeads, eq(cashbook.accountHeadId, accountHeads.id))
+          .where(and(eq(cashbook.isPending, 1), eq(accountHeads.type, "Supplier")))
+          .orderBy(cashbook.transactionDate);
+
+        for (const debt of supplierDebts) {
+          if (remainingToSettle <= 0) break;
+          const debtAmount = parseFloat(debt.amount);
+          // Only settle if we can fully pay this debt
+          if (remainingToSettle + 1e-6 >= debtAmount) {
+            await this.markDebtAsPaid(
+              debt.id,
+              debtAmount,
+              insertPayment.paymentMethod,
+              insertPayment.paymentDate instanceof Date ? insertPayment.paymentDate : new Date(insertPayment.paymentDate as any)
+            );
+            remainingToSettle -= debtAmount;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("Auto-settle supplier debts failed:", e);
+    }
+
     return payment;
   }
 
@@ -1583,6 +1740,62 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
+  async getSupplierAdvanceAllocatedAmount(cashbookEntryId: string): Promise<number> {
+    const result = await db
+      .select({
+        allocatedAmount: sql<number>`COALESCE(SUM(${supplierAdvanceAllocations.amountAllocated})::numeric, 0)`,
+      })
+      .from(supplierAdvanceAllocations)
+      .where(eq(supplierAdvanceAllocations.cashbookEntryId, cashbookEntryId));
+    return result[0]?.allocatedAmount || 0;
+  }
+
+  async getSupplierAdvances(): Promise<Array<{ entry: CashbookEntryWithAccountHead; allocatedAmount: number; remainingAmount: number }>> {
+    // Supplier advances are outflow entries with category 'Advance' or transactionType 'Supplier Payment' and isPending = 0
+    const entries = await db
+      .select({
+        id: cashbook.id,
+        transactionDate: cashbook.transactionDate,
+        transactionType: cashbook.transactionType,
+        category: cashbook.category,
+        accountHeadId: cashbook.accountHeadId,
+        amount: cashbook.amount,
+        isInflow: cashbook.isInflow,
+        description: cashbook.description,
+        counterparty: cashbook.counterparty,
+        paymentMethod: cashbook.paymentMethod,
+        referenceType: cashbook.referenceType,
+        referenceId: cashbook.referenceId,
+        isPending: cashbook.isPending,
+        notes: cashbook.notes,
+        createdAt: cashbook.createdAt,
+        accountHead: accountHeads,
+      })
+      .from(cashbook)
+      .leftJoin(accountHeads, eq(cashbook.accountHeadId, accountHeads.id))
+      .where(and(eq(cashbook.isInflow, 0), eq(cashbook.isPending, 0)));
+
+    const result: Array<{ entry: CashbookEntryWithAccountHead; allocatedAmount: number; remainingAmount: number }> = [];
+    for (const r of entries) {
+      const entryWithHead: CashbookEntryWithAccountHead = { ...r, accountHead: r.accountHead! };
+      const allocated = await this.getSupplierAdvanceAllocatedAmount(r.id);
+      const total = parseFloat(r.amount);
+      result.push({ entry: entryWithHead, allocatedAmount: allocated, remainingAmount: total - allocated });
+    }
+    return result;
+  }
+
+  async createSupplierAdvanceAllocation(allocation: InsertSupplierAdvanceAllocation): Promise<SupplierAdvanceAllocation> {
+    // Validate remaining amount
+    const remaining = (await this.getSupplierAdvances()).find(a => a.entry.id === allocation.cashbookEntryId)?.remainingAmount || 0;
+    const toAllocate = parseFloat(allocation.amountAllocated);
+    if (toAllocate > remaining) {
+      throw new Error(`Cannot allocate AED ${toAllocate.toFixed(2)}. Only AED ${remaining.toFixed(2)} remains in this advance.`);
+    }
+    const result = await db.insert(supplierAdvanceAllocations).values(allocation).returning();
+    return result[0];
+  }
+
   // Supplier Debt Tracking methods
   async getSupplierDebts(): Promise<CashbookEntryWithAccountHead[]> {
     const result = await db
@@ -1899,7 +2112,6 @@ export class DatabaseStorage implements IStorage {
       .from(invoices)
       .where(eq(invoices.id, id))
       .limit(1);
-    
     return result[0];
   }
 
@@ -1916,24 +2128,26 @@ export class DatabaseStorage implements IStorage {
 
       console.log(`Found invoice: ${invoice.invoiceNumber} for sale: ${invoice.saleId}`);
 
-      // Check if there are any payments associated with this invoice's sale
-      const payments = await this.getPaymentsBySale(invoice.saleId);
-      if (payments.length > 0) {
-        console.log(`Cannot delete invoice: ${payments.length} payments found for sale ${invoice.saleId}`);
-        // If payments exist, we cannot delete the invoice
-        throw new Error("Cannot delete invoice: Payments have been made for this sale");
+      // Check if there are any allocations/payments associated with this invoice
+      const allocs = await db
+        .select()
+        .from(cashbookPaymentAllocations)
+        .where(eq(cashbookPaymentAllocations.invoiceId, id));
+      if (allocs.length > 0) {
+        console.log(`Cannot delete invoice: allocations exist`);
+        throw new Error("Cannot delete invoice: Allocations/payments have been made for this invoice");
       }
 
-      console.log(`No payments found, proceeding with deletion`);
+      // Find linked sales to revert their status
+      const links = await db.select().from(invoiceSales).where(eq(invoiceSales.invoiceId, id));
+      const saleIdsToRevert = links.map(l => l.saleId);
+      console.log(`No allocations found, proceeding with deletion`);
 
       // Delete operations without transaction (for Neon HTTP driver compatibility)
       console.log(`Starting invoice deletion process`);
       
-      // 1. Delete all cashbook payment allocations for this invoice
-      const allocationsDeleted = await db
-        .delete(cashbookPaymentAllocations)
-        .where(eq(cashbookPaymentAllocations.invoiceId, id));
-      console.log(`Deleted cashbook payment allocations`);
+      // 1. Delete invoice-sales links
+      await db.delete(invoiceSales).where(eq(invoiceSales.invoiceId, id));
 
       // 2. Delete the invoice from the database
       const deleteResult = await db
@@ -1942,13 +2156,11 @@ export class DatabaseStorage implements IStorage {
         .returning();
       console.log(`Deleted invoice: ${deleteResult.length > 0 ? 'SUCCESS' : 'FAILED'}`);
 
-      // 3. Revert the sale status back to "LPO Received" so it can be regenerated
-      if (deleteResult.length > 0) {
-        const saleUpdate = await db
-          .update(sales)
-          .set({ saleStatus: "LPO Received" })
-          .where(eq(sales.id, invoice.saleId));
-        console.log(`Updated sale status to LPO Received`);
+      // 3. Revert linked sales back to "LPO Received" so they can be re-invoiced
+      if (deleteResult.length > 0 && saleIdsToRevert.length) {
+        for (const sid of saleIdsToRevert) {
+          await db.update(sales).set({ saleStatus: "LPO Received" }).where(eq(sales.id, sid));
+        }
       }
 
       console.log(`Invoice deletion completed: ${deleteResult.length > 0 ? 'SUCCESS' : 'FAILED'}`);
