@@ -1,4 +1,4 @@
-const CACHE_NAME = 'dieseltrack-v2';
+const CACHE_NAME = 'fuelflow-v3';
 const STATIC_CACHE_URLS = [
   '/',
   '/manifest.json',
@@ -7,7 +7,7 @@ const STATIC_CACHE_URLS = [
 ];
 
 // Dynamic cache for API responses
-const DYNAMIC_CACHE = 'dieseltrack-dynamic-v2';
+const DYNAMIC_CACHE = 'fuelflow-dynamic-v3';
 
 // Install event - cache static resources
 self.addEventListener('install', (event) => {
@@ -94,7 +94,14 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // For static resources, use cache first, network as fallback
+  // Never cache /assets/* (Vite chunks) — hash changes every deploy; cache would break lazy loading
+  const url = new URL(event.request.url);
+  if (url.pathname.startsWith('/assets/')) {
+    event.respondWith(fetch(event.request));
+    return;
+  }
+
+  // For other static resources (HTML, manifest, fonts), use cache first, network as fallback
   event.respondWith(
     caches.match(event.request)
       .then((cachedResponse) => {
@@ -104,7 +111,7 @@ self.addEventListener('fetch', (event) => {
 
         return fetch(event.request)
           .then((response) => {
-            // Cache successful responses for static resources
+            // Cache successful responses for static resources (not assets)
             if (response.status === 200) {
               const responseClone = response.clone();
               caches.open(CACHE_NAME)

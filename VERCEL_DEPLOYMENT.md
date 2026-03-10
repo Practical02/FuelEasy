@@ -20,14 +20,16 @@ This guide covers deploying your mobile-optimized PWA to Vercel with all product
 
 ### 1. **Prepare Environment Variables**
 
-Create these environment variables in Vercel dashboard:
+Create these environment variables in Vercel dashboard (Project → Settings → Environment Variables). **Required for production:**
+
+- **`SESSION_SECRET`** — **Must be set and at least 32 characters**, or the server returns 500 "Server initialization failed". Use a long random string (e.g. `openssl rand -base64 32` or a password generator). Apply to **Production** (and Preview if you use it).
 
 ```bash
 # Database
 DATABASE_URL=your_production_database_url
 
-# Security
-SESSION_SECRET=your_strong_random_secret_here
+# Security (REQUIRED: min 32 characters)
+SESSION_SECRET=your_strong_random_secret_at_least_32_chars_long
 
 # API Configuration
 NODE_ENV=production
