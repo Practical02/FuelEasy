@@ -19,6 +19,7 @@ const Payments = lazy(() => import("@/pages/payments"));
 const Invoices = lazy(() => import("@/pages/invoices"));
 const Reports = lazy(() => import(/* webpackChunkName: "reports" */ "@/pages/reports"));
 const Cashbook = lazy(() => import("@/pages/cashbook"));
+const LPO = lazy(() => import("@/pages/lpo"));
 const ClientPage = lazy(() => import("@/pages/client"));
 const BusinessSettings = lazy(() => import("@/pages/business-settings"));
 const Login = lazy(() => import("@/pages/login"));
@@ -74,6 +75,7 @@ function Router() {
                   <Route path="/clients" component={Clients} />
                   <Route path="/clients/:id" component={ClientPage} />
                   <Route path="/sales" component={Sales} />
+                  <Route path="/lpo" component={LPO} />
                   <Route path="/payments" component={Payments} />
                   <Route path="/invoices" component={Invoices} />
                   <Route path="/reports" component={Reports} />

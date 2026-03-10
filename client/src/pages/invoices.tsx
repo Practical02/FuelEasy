@@ -99,8 +99,8 @@ export default function Invoices() {
   return (
     <>
       <Header
-        title="Invoice Management"
-        description="Generate and manage invoices for your sales"
+        title="Invoices"
+        description="Generate invoices from LPO(s). Set invoice number, date, and select LPO(s) for each invoice."
         primaryAction={{
           label: "Create Invoice",
           onClick: () => setIsNewInvoiceModalOpen(true),

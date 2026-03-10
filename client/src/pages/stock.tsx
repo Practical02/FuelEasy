@@ -166,9 +166,9 @@ export default function Stock() {
 
   return (
     <>
-      <Header 
-        title="Stock Management"
-        description="Track diesel fuel inventory and purchases"
+      <Header
+        title="Stock"
+        description="Stock management — track inventory and purchases"
         primaryAction={{
           label: "Add Stock",
           onClick: () => setShowNewStockModal(true)

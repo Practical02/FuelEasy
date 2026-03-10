@@ -1,27 +1,44 @@
-export const paymentProjects = pgTable("payment_projects", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  paymentId: uuid("payment_id").references(() => payments.id).notNull(),
-  projectId: uuid("project_id").references(() => projects.id).notNull(),
-  amountAllocated: decimal("amount_allocated", { precision: 12, scale: 2 }).notNull(),
-});
-
-// New table for cashbook payment allocations (to invoices)
-export const cashbookPaymentAllocations = pgTable("cashbook_payment_allocations", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  cashbookEntryId: uuid("cashbook_entry_id").references(() => cashbook.id).notNull(),
-  invoiceId: uuid("invoice_id").references(() => invoices.id).notNull(),
-  amountAllocated: decimal("amount_allocated", { precision: 12, scale: 2 }).notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
 import { sql } from "drizzle-orm";
 import { pgTable, text, varchar, integer, decimal, timestamp, uuid } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
+// ——— Tables (dependency order) ———
+
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   username: text("username").notNull().unique(),
   password: text("password").notNull(),
+});
+
+export const clients = pgTable("clients", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  contactPerson: text("contact_person").notNull(),
+  phoneNumber: text("phone_number").notNull(),
+  email: text("email").notNull(),
+  address: text("address").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const accountHeads = pgTable("account_heads", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull().unique(),
+  type: text("type").notNull(), // 'Client', 'Supplier', 'Expense', 'Revenue', 'Other'
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const businessSettings = pgTable("business_settings", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  // Minimal business info kept; remove heavy template fields
+  companyName: text("company_name").notNull().default("FuelFlow Trading"),
+  companyAddress: text("company_address").notNull().default(""),
+  companyPhone: text("company_phone").notNull().default(""),
+  companyEmail: text("company_email").notNull().default(""),
+  invoicePrefix: text("invoice_prefix").notNull().default("INV"),
+  defaultPaymentTerms: text("default_payment_terms").notNull().default("Net 30"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
 export const stock = pgTable("stock", {
@@ -35,16 +52,6 @@ export const stock = pgTable("stock", {
   vatPercentage: decimal("vat_percentage", { precision: 5, scale: 2 }).notNull().default("5.00"),
   vatAmount: decimal("vat_amount", { precision: 12, scale: 2 }).notNull(),
   totalCost: decimal("total_cost", { precision: 12, scale: 2 }).notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
-
-export const clients = pgTable("clients", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  name: text("name").notNull(),
-  contactPerson: text("contact_person").notNull(),
-  phoneNumber: text("phone_number").notNull(),
-  email: text("email").notNull(),
-  address: text("address").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -80,6 +87,16 @@ export const sales = pgTable("sales", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const payments = pgTable("payments", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  saleId: uuid("sale_id").references(() => sales.id).notNull(),
+  paymentDate: timestamp("payment_date").notNull(),
+  amountReceived: decimal("amount_received", { precision: 12, scale: 2 }).notNull(),
+  paymentMethod: text("payment_method").notNull(), // "Cheque", "Bank Transfer", "Cash"
+  chequeNumber: text("cheque_number"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const invoices = pgTable("invoices", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   saleId: uuid("sale_id").references(() => sales.id).notNull(),
@@ -91,44 +108,6 @@ export const invoices = pgTable("invoices", {
   vatAmount: decimal("vat_amount", { precision: 12, scale: 2 }).notNull(),
   status: text("status").notNull().default("Generated"), // "Generated", "Sent", "Paid"
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
-
-// Join table to link invoices to multiple sales (e.g., one LPO spanning multiple sales)
-export const invoiceSales = pgTable("invoice_sales", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  invoiceId: uuid("invoice_id").references(() => invoices.id).notNull(),
-  saleId: uuid("sale_id").references(() => sales.id).notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
-
-export const payments = pgTable("payments", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  saleId: uuid("sale_id").references(() => sales.id).notNull(),
-  paymentDate: timestamp("payment_date").notNull(),
-  amountReceived: decimal("amount_received", { precision: 12, scale: 2 }).notNull(),
-  paymentMethod: text("payment_method").notNull(), // "Cheque", "Bank Transfer", "Cash"
-  chequeNumber: text("cheque_number"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
-
-export const accountHeads = pgTable("account_heads", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  name: text("name").notNull().unique(),
-  type: text("type").notNull(), // 'Client', 'Supplier', 'Expense', 'Revenue', 'Other'
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
-
-export const businessSettings = pgTable("business_settings", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  // Minimal business info kept; remove heavy template fields
-  companyName: text("company_name").notNull().default("FuelFlow Trading"),
-  companyAddress: text("company_address").notNull().default(""),
-  companyPhone: text("company_phone").notNull().default(""),
-  companyEmail: text("company_email").notNull().default(""),
-  invoicePrefix: text("invoice_prefix").notNull().default("INV"),
-  defaultPaymentTerms: text("default_payment_terms").notNull().default("Net 30"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
 export const cashbook = pgTable("cashbook", {
@@ -149,6 +128,31 @@ export const cashbook = pgTable("cashbook", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// Join table to link invoices to multiple sales (e.g., one LPO spanning multiple sales)
+export const invoiceSales = pgTable("invoice_sales", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  invoiceId: uuid("invoice_id").references(() => invoices.id).notNull(),
+  saleId: uuid("sale_id").references(() => sales.id).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Join table to allocate payments to projects
+export const paymentProjects = pgTable("payment_projects", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  paymentId: uuid("payment_id").references(() => payments.id).notNull(),
+  projectId: uuid("project_id").references(() => projects.id).notNull(),
+  amountAllocated: decimal("amount_allocated", { precision: 12, scale: 2 }).notNull(),
+});
+
+// Cashbook payment allocations (to invoices)
+export const cashbookPaymentAllocations = pgTable("cashbook_payment_allocations", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  cashbookEntryId: uuid("cashbook_entry_id").references(() => cashbook.id).notNull(),
+  invoiceId: uuid("invoice_id").references(() => invoices.id).notNull(),
+  amountAllocated: decimal("amount_allocated", { precision: 12, scale: 2 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 // Allocations from supplier advance cashbook entries to stock purchases
 export const supplierAdvanceAllocations = pgTable("supplier_advance_allocations", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -158,7 +162,8 @@ export const supplierAdvanceAllocations = pgTable("supplier_advance_allocations"
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-// Insert schemas
+// ——— Insert schemas ———
+
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
 });
@@ -213,7 +218,11 @@ export const insertPaymentSchema = createInsertSchema(payments).omit({
   createdAt: true,
 });
 
-// Add schema for cashbook payment allocations
+export const insertPaymentProjectSchema = createInsertSchema(paymentProjects).omit({
+  id: true,
+});
+
+// Cashbook payment allocations
 export const insertCashbookPaymentAllocationSchema = createInsertSchema(cashbookPaymentAllocations).omit({
   id: true,
   createdAt: true,
@@ -230,7 +239,8 @@ export const insertBusinessSettingsSchema = createInsertSchema(businessSettings)
   updatedAt: true,
 });
 
-// Types
+// ——— Types ———
+
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 
@@ -258,6 +268,9 @@ export type InvoiceSale = typeof invoiceSales.$inferSelect;
 export type InsertPayment = z.infer<typeof insertPaymentSchema>;
 export type Payment = typeof payments.$inferSelect;
 
+export type InsertPaymentProject = z.infer<typeof insertPaymentProjectSchema>;
+export type PaymentProject = typeof paymentProjects.$inferSelect;
+
 export type InsertAccountHead = z.infer<typeof insertAccountHeadSchema>;
 export type AccountHead = typeof accountHeads.$inferSelect;
 
@@ -266,6 +279,9 @@ export type CashbookPaymentAllocation = typeof cashbookPaymentAllocations.$infer
 
 export type InsertSupplierAdvanceAllocation = z.infer<typeof insertSupplierAdvanceAllocationSchema>;
 export type SupplierAdvanceAllocation = typeof supplierAdvanceAllocations.$inferSelect;
+
+export type InsertBusinessSettings = z.infer<typeof insertBusinessSettingsSchema>;
+export type BusinessSettings = typeof businessSettings.$inferSelect;
 
 // Additional types for joined data
 export type SaleWithClient = Sale & {
@@ -290,9 +306,6 @@ export type CashbookEntryWithAccountHead = CashbookEntry & {
   allocationStatus?: string;
   allocatedAmount?: number;
 };
-
-export type InsertBusinessSettings = z.infer<typeof insertBusinessSettingsSchema>;
-export type BusinessSettings = typeof businessSettings.$inferSelect;
 
 export type CashbookPaymentAllocationWithInvoice = CashbookPaymentAllocation & {
   invoice: Invoice & {

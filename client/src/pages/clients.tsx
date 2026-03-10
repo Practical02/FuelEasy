@@ -146,9 +146,9 @@ export default function Clients() {
 
   return (
     <>
-      <Header 
-        title="Client Management"
-        description="Manage your diesel fuel customers and their information"
+      <Header
+        title="Clients"
+        description="Client management — manage customers and contacts"
         primaryAction={{
           label: "Add Client",
           onClick: () => setShowNewClientModal(true)

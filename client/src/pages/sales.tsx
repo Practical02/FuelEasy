@@ -272,8 +272,8 @@ export default function Sales() {
   return (
     <>
       <Header 
-        title="Sales Management"
-        description="Track and manage diesel fuel sales transactions"
+        title="Sales"
+        description="Record and manage sales"
         primaryAction={{
           label: "New Sale",
           onClick: () => setShowNewSaleModal(true)

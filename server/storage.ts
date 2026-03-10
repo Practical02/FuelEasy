@@ -42,7 +42,8 @@ import {
   cashbookPaymentAllocations,
   businessSettings,
   invoiceSales,
-  supplierAdvanceAllocations
+  supplierAdvanceAllocations,
+  paymentProjects
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { drizzle } from "drizzle-orm/neon-http";
@@ -52,7 +53,7 @@ import { eq, desc, sql, and, inArray } from "drizzle-orm";
 // Initialize database connection
 const connectionString = process.env.DATABASE_URL || "";
 const sql_conn = neon(connectionString);
-const db = drizzle(sql_conn, { schema: { users, stock, clients, projects, sales, invoices, payments, cashbook, accountHeads, cashbookPaymentAllocations, businessSettings, invoiceSales, supplierAdvanceAllocations } });
+const db = drizzle(sql_conn, { schema: { users, stock, clients, projects, sales, invoices, payments, cashbook, accountHeads, cashbookPaymentAllocations, businessSettings, invoiceSales, supplierAdvanceAllocations, paymentProjects } });
 
 export interface IStorage {
   // User methods

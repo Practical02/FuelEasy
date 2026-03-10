@@ -16,7 +16,8 @@ export const app = express();
 // Behind Vercel/Proxies ensure correct protocol detection for secure cookies
 app.set('trust proxy', 1);
 
-// Security middleware
+// Security middleware — relax CSP in development for Vite HMR and React Fast Refresh
+const isDev = process.env.NODE_ENV !== "production";
 app.use(helmet({
   contentSecurityPolicy: {
     useDefaults: true,
@@ -25,14 +26,18 @@ app.use(helmet({
       styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
       imgSrc: ["'self'", "data:", "https:"],
-      scriptSrc: ["'self'"],
-      connectSrc: ["'self'"],
+      scriptSrc: isDev
+        ? ["'self'", "'unsafe-inline'", "'unsafe-eval'"]  // Vite HMR + React Fast Refresh
+        : ["'self'"],
+      connectSrc: isDev
+        ? ["'self'", "ws:", "wss:"]  // Vite HMR WebSocket
+        : ["'self'"],
       manifestSrc: ["'self'"],
     },
   },
   crossOriginEmbedderPolicy: false,
-  hsts: process.env.NODE_ENV === 'production' ? undefined : false,
-  referrerPolicy: { policy: 'no-referrer' },
+  hsts: isDev ? false : undefined,
+  referrerPolicy: { policy: "no-referrer" },
 }));
 
 // CORS configuration
@@ -62,26 +67,22 @@ app.use(compression({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: false, limit: '10mb' }));
 
-// CSRF protection for non-API HTML forms (skipped for JSON APIs)
-const csrfProtection = csrf({ cookie: false });
-app.use((req, res, next) => {
-  // Only apply CSRF on non-JSON form submissions (e.g., text/html)
-  const contentType = (req.headers['content-type'] || '').toLowerCase();
-  if (req.path.startsWith('/api') || contentType.includes('application/json')) return next();
-  return csrfProtection(req, res, next);
-});
+// Session must be before CSRF — csurf with cookie: false stores the token in req.session
+const sessionSecret = process.env.SESSION_SECRET;
+if (process.env.NODE_ENV === 'production' && (!sessionSecret || sessionSecret.length < 32)) {
+  throw new Error('SESSION_SECRET must be set and at least 32 characters in production');
+}
+const resolvedSessionSecret = sessionSecret || 'dev-insecure-session-secret';
 
-// Session configuration
 const useCookieSession = process.env.VERCEL === '1' || process.env.USE_COOKIE_SESSION === '1';
 if (useCookieSession) {
   app.use(
     cookieSession({
       name: 'ff_sess',
-      keys: [process.env.SESSION_SECRET || 'dev-insecure-session-secret'],
+      keys: [resolvedSessionSecret],
       secure: process.env.NODE_ENV === 'production',
       httpOnly: true,
       sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-      // 30 days default; can be overridden per-request via req.sessionOptions.maxAge
       maxAge: 30 * 24 * 60 * 60 * 1000,
       path: '/',
     })
@@ -89,20 +90,28 @@ if (useCookieSession) {
 } else {
   app.use(
     session({
-      secret: process.env.SESSION_SECRET || 'your-super-secret-session-key-change-this-in-production',
+      secret: resolvedSessionSecret,
       resave: false,
       saveUninitialized: false,
-      rolling: true, // Extend session on activity
+      rolling: true,
       cookie: {
         secure: process.env.NODE_ENV === 'production',
         httpOnly: true,
-        maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days for PWA persistence
+        maxAge: 30 * 24 * 60 * 60 * 1000,
         sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
         path: '/',
       },
     })
   );
 }
+
+// CSRF protection for non-API HTML forms (skipped for JSON /api routes)
+const csrfProtection = csrf({ cookie: false });
+app.use((req, res, next) => {
+  const contentType = (req.headers['content-type'] || '').toLowerCase();
+  if (req.path.startsWith('/api') || contentType.includes('application/json')) return next();
+  return csrfProtection(req, res, next);
+});
 
 app.use((req, res, next) => {
   const start = Date.now();
@@ -161,12 +170,13 @@ if (process.env.VERCEL !== '1') {
       // this serves both the API and the client.
       // It is the only port that is not firewalled.
       const port = parseInt(process.env.PORT || '5000', 10);
+      const host = process.env.HOST || "127.0.0.1"; // 127.0.0.1 works on Windows; set HOST=0.0.0.0 for network access
       server.listen({
         port,
-        host: "0.0.0.0",
-        reusePort: true,
+        host,
+        ...(process.platform !== "win32" && { reusePort: true }),
       }, () => {
-        log(`serving on port ${port}`);
+        log(`serving on http://${host}:${port}`);
       });
     } catch (error) {
       console.error('Failed to start server:', error);

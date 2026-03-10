@@ -15,7 +15,8 @@ import {
   LogOut,
   Menu,
   X,
-  Settings
+  Settings,
+  ClipboardList,
 } from "lucide-react";
 
 const navigation = [
@@ -23,7 +24,7 @@ const navigation = [
   { name: "Stock", href: "/stock", icon: Boxes },
   { name: "Clients", href: "/clients", icon: Users },
   { name: "Sales", href: "/sales", icon: Receipt },
-  { name: "Payments", href: "/payments", icon: CreditCard },
+  { name: "LPO", href: "/lpo", icon: ClipboardList },
   { name: "Invoices", href: "/invoices", icon: FileText },
   { name: "Cashbook", href: "/cashbook", icon: DollarSign },
   { name: "Reports", href: "/reports", icon: ChartBar },

@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import Header from "@/components/layout/header";
 import { Calendar, Download, Filter, FileText, FileSpreadsheet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -101,13 +102,19 @@ export default function Reports() {
 
   const exportToExcel = async () => {
     // Create client details section for the selected client
-    const selectedClientData = selectedClient !== "all" 
+    const selectedClientData = selectedClient !== "all"
       ? clients.find(c => c.id === selectedClient)
       : null;
 
     // Create workbook and worksheet
+    const sheetName = selectedClientData
+      ? selectedClientData.name.substring(0, 30)
+      : reportType === "pending-invoices"
+        ? "Pending Invoices"
+        : reportType === "pending"
+          ? "Pending Business"
+          : "VAT Report";
     const workbook = new ExcelJS.Workbook();
-    const sheetName = selectedClientData ? selectedClientData.name.substring(0, 30) : reportType === 'pending' ? 'Pending Business' : 'VAT Report';
     const worksheet = workbook.addWorksheet(sheetName);
 
     let currentRow = 1;
@@ -117,7 +124,7 @@ export default function Reports() {
       worksheet.getCell(`A${currentRow}`).value = `Client Details for: ${selectedClientData.name}`;
       worksheet.getCell(`A${currentRow}`).font = { bold: true, size: 14 };
       currentRow++;
-      
+
       worksheet.getCell(`A${currentRow}`).value = `Contact Person: ${selectedClientData.contactPerson}`;
       currentRow++;
       worksheet.getCell(`A${currentRow}`).value = `Phone: ${selectedClientData.phoneNumber}`;
@@ -129,74 +136,124 @@ export default function Reports() {
     }
 
     // Add report type and date range
-    worksheet.getCell(`A${currentRow}`).value = `Report Type: ${reportType === 'pending' ? 'Pending Business Report' : 'VAT Report'}`;
+    const reportTypeLabel =
+      reportType === "pending-invoices"
+        ? "Pending Invoices Report"
+        : reportType === "pending"
+          ? "Pending Business Report"
+          : "VAT Report";
+    worksheet.getCell(`A${currentRow}`).value = `Report Type: ${reportTypeLabel}`;
     worksheet.getCell(`A${currentRow}`).font = { bold: true };
     currentRow++;
-    
+
     if (dateFrom || dateTo) {
-      worksheet.getCell(`A${currentRow}`).value = `Date Range: ${dateFrom || 'Start'} to ${dateTo || 'End'}`;
+      worksheet.getCell(`A${currentRow}`).value = `Date Range: ${dateFrom || "Start"} to ${dateTo || "End"}`;
       currentRow++;
     }
     currentRow++; // Empty row
 
-    // Headers
-    const headers = [
-      "Date of Sale",
-      "Date of Invoice", 
-      "Invoice Number",
-      "Client Name",
-      "LPO Number",
-      "Quantity (Gallons)",
-      "Unit Price (AED)",
-      "Subtotal (AED)",
-      "VAT Amount (AED)",
-      "Total Amount (AED)",
-      "Status"
-    ];
-    
-    // Add headers
-    headers.forEach((header, index) => {
-      const cell = worksheet.getCell(currentRow, index + 1);
-      cell.value = header;
-      cell.font = { bold: true };
-      cell.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: 'FFE0E0E0' }
-      };
-    });
-    currentRow++;
-
-    // Add sales data
-    filteredSales.forEach(sale => {
-      const rowData = [
-        new Date(sale.saleDate).toLocaleDateString(),
-        sale.saleStatus === "Invoiced" || sale.saleStatus === "Paid" ? new Date(sale.saleDate).toLocaleDateString() : "Not Invoiced",
-        sale.saleStatus === "Invoiced" || sale.saleStatus === "Paid" ? `INV-${sale.lpoNumber}` : "Not Generated",
-        sale.client.name,
-        sale.lpoNumber,
-        parseFloat(sale.quantityGallons),
-        parseFloat(sale.salePricePerGallon),
-        parseFloat(sale.subtotal),
-        parseFloat(sale.vatAmount),
-        parseFloat(sale.totalAmount),
-        sale.saleStatus
+    if (reportType === "pending-invoices") {
+      // Pending Invoices: invoice columns and data
+      const invHeaders = [
+        "Invoice No.",
+        "Invoice Date",
+        "LPO No.",
+        "Client Name",
+        "Total Amount (incl. VAT)",
+        "Pending Amount",
+        "Status",
       ];
-
-      rowData.forEach((value, index) => {
-        worksheet.getCell(currentRow, index + 1).value = value;
+      invHeaders.forEach((header, index) => {
+        const cell = worksheet.getCell(currentRow, index + 1);
+        cell.value = header;
+        cell.font = { bold: true };
+        cell.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: "FFE0E0E0" },
+        };
       });
       currentRow++;
-    });
 
-    // Add totals
-    currentRow++; // Empty row
-    worksheet.getCell(currentRow, 6).value = "TOTALS:";
-    worksheet.getCell(currentRow, 6).font = { bold: true };
-    worksheet.getCell(currentRow, 7).value = totals.quantity;
-    worksheet.getCell(currentRow, 8).value = totals.subtotal;
-    worksheet.getCell(currentRow, 9).value = totals.vatAmount;
-    worksheet.getCell(currentRow, 10).value = totals.totalAmount;
+      pendingInvoices.forEach((inv: any) => {
+        const clientName = inv.sale?.client?.name ?? inv.sales?.[0]?.client?.name ?? "—";
+        const rowData = [
+          inv.invoiceNumber ?? "",
+          new Date(inv.invoiceDate).toLocaleDateString(),
+          inv.lpoNumber ?? inv.sale?.lpoNumber ?? inv.sales?.[0]?.lpoNumber ?? "N/A",
+          clientName,
+          parseFloat(inv.totalAmount),
+          parseFloat(inv.pendingAmount || 0),
+          inv.status ?? "",
+        ];
+        rowData.forEach((value, index) => {
+          worksheet.getCell(currentRow, index + 1).value = value;
+        });
+        currentRow++;
+      });
+
+      // Totals row for pending invoices
+      currentRow++;
+      worksheet.getCell(currentRow, 1).value = "TOTALS:";
+      worksheet.getCell(currentRow, 1).font = { bold: true };
+      worksheet.getCell(currentRow, 5).value = invoiceTotals.totalAmount;
+      worksheet.getCell(currentRow, 6).value = invoiceTotals.pendingAmount;
+    } else {
+      // Pending LPO (Sales) or VAT: sales columns and data
+      const headers = [
+        "Date of Sale",
+        "Date of Invoice",
+        "Invoice Number",
+        "Client Name",
+        "LPO Number",
+        "Quantity (Gallons)",
+        "Unit Price (AED)",
+        "Subtotal (AED)",
+        "VAT Amount (AED)",
+        "Total Amount (AED)",
+        "Status",
+      ];
+
+      headers.forEach((header, index) => {
+        const cell = worksheet.getCell(currentRow, index + 1);
+        cell.value = header;
+        cell.font = { bold: true };
+        cell.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: "FFE0E0E0" },
+        };
+      });
+      currentRow++;
+
+      filteredSales.forEach(sale => {
+        const rowData = [
+          new Date(sale.saleDate).toLocaleDateString(),
+          sale.saleStatus === "Invoiced" || sale.saleStatus === "Paid" ? new Date(sale.saleDate).toLocaleDateString() : "Not Invoiced",
+          sale.saleStatus === "Invoiced" || sale.saleStatus === "Paid" ? `INV-${sale.lpoNumber}` : "Not Generated",
+          sale.client.name,
+          sale.lpoNumber,
+          parseFloat(sale.quantityGallons),
+          parseFloat(sale.salePricePerGallon),
+          parseFloat(sale.subtotal),
+          parseFloat(sale.vatAmount),
+          parseFloat(sale.totalAmount),
+          sale.saleStatus,
+        ];
+        rowData.forEach((value, index) => {
+          worksheet.getCell(currentRow, index + 1).value = value;
+        });
+        currentRow++;
+      });
+
+      currentRow++;
+      worksheet.getCell(currentRow, 6).value = "TOTALS:";
+      worksheet.getCell(currentRow, 6).font = { bold: true };
+      worksheet.getCell(currentRow, 7).value = totals.quantity;
+      worksheet.getCell(currentRow, 8).value = totals.subtotal;
+      worksheet.getCell(currentRow, 9).value = totals.vatAmount;
+      worksheet.getCell(currentRow, 10).value = totals.totalAmount;
+    }
 
     // Auto-size columns
     worksheet.columns.forEach(column => {
@@ -211,15 +268,14 @@ export default function Reports() {
     });
 
     // Generate filename and save
-    const dateStr = new Date().toISOString().split('T')[0];
-    const clientStr = selectedClientData ? `_${selectedClientData.name.replace(/[^a-zA-Z0-9]/g, '_')}` : '';
+    const dateStr = new Date().toISOString().split("T")[0];
+    const clientStr = selectedClientData ? `_${selectedClientData.name.replace(/[^a-zA-Z0-9]/g, "_")}` : "";
     const filename = `${reportType}_report${clientStr}_${dateStr}.xlsx`;
 
-    // Save file
     const buffer = await workbook.xlsx.writeBuffer();
-    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
     const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
+    const link = document.createElement("a");
     link.href = url;
     link.download = filename;
     link.click();
@@ -227,18 +283,54 @@ export default function Reports() {
   };
 
   const exportToCSV = () => {
+    const dateStr = new Date().toISOString().split("T")[0];
+
+    if (reportType === "pending-invoices") {
+      const headers = [
+        "Invoice No.",
+        "Invoice Date",
+        "LPO No.",
+        "Client Name",
+        "Total Amount",
+        "Pending Amount",
+        "Status",
+      ];
+      const csvData = pendingInvoices.map((inv: any) => {
+        const clientName = inv.sale?.client?.name ?? inv.sales?.[0]?.client?.name ?? "—";
+        return [
+          inv.invoiceNumber ?? "",
+          new Date(inv.invoiceDate).toLocaleDateString(),
+          inv.lpoNumber ?? inv.sale?.lpoNumber ?? inv.sales?.[0]?.lpoNumber ?? "N/A",
+          clientName,
+          parseFloat(inv.totalAmount),
+          parseFloat(inv.pendingAmount || 0),
+          inv.status ?? "",
+        ];
+      });
+      const csvContent = [headers, ...csvData]
+        .map(row => row.map(cell => `"${cell}"`).join(","))
+        .join("\n");
+      const blob = new Blob([csvContent], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${reportType}_report_${dateStr}.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+      return;
+    }
+
     const headers = [
       "Date of Sale",
-      "Client Name", 
+      "Client Name",
       "LPO Number",
       "Quantity (Gallons)",
       "Unit Price",
       "Subtotal",
       "VAT Amount",
       "Total Amount",
-      "Status"
+      "Status",
     ];
-
     const csvData = filteredSales.map(sale => [
       new Date(sale.saleDate).toLocaleDateString(),
       sale.client.name,
@@ -248,31 +340,27 @@ export default function Reports() {
       sale.subtotal,
       sale.vatAmount,
       sale.totalAmount,
-      sale.saleStatus
+      sale.saleStatus,
     ]);
-
     const csvContent = [headers, ...csvData]
       .map(row => row.map(cell => `"${cell}"`).join(","))
       .join("\n");
-
     const blob = new Blob([csvContent], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `${reportType}_report_${new Date().toISOString().split('T')[0]}.csv`;
+    link.download = `${reportType}_report_${dateStr}.csv`;
     link.click();
     URL.revokeObjectURL(url);
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Reports & Analytics</h1>
-          <p className="text-gray-600">Generate client and VAT reports for your business</p>
-        </div>
-      </div>
-
+    <>
+      <Header
+        title="Reports"
+        description="View and export reports"
+      />
+      <div className="p-4 lg:p-6 space-y-6">
       {/* Filters */}
       <Card>
         <CardHeader>
@@ -554,6 +642,7 @@ export default function Reports() {
           )}
         </CardContent>
       </Card>
-    </div>
+      </div>
+    </>
   );
 }

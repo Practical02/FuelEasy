@@ -113,9 +113,9 @@ export default function Dashboard() {
 
   return (
     <>
-      <Header 
+      <Header
         title="Dashboard"
-        description="Overview of your diesel trading operations"
+        description="Overall business data and quick actions"
         primaryAction={{
           label: "Quick Sale",
           onClick: () => setShowNewSaleModal(true)

@@ -102,8 +102,8 @@ export default function BusinessSettings() {
   return (
     <div className="p-6 max-w-6xl mx-auto">
       <Header
-        title="Business Settings"
-        description="Configure your company information and invoice templates"
+        title="Settings"
+        description="Company details, invoice templates, and preferences"
       />
 
       <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-6">
