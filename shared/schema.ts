@@ -74,6 +74,7 @@ export const sales = pgTable("sales", {
   salePricePerGallon: decimal("sale_price_per_gallon", { precision: 8, scale: 3 }).notNull(),
   purchasePricePerGallon: decimal("purchase_price_per_gallon", { precision: 8, scale: 3 }).notNull(),
   lpoNumber: text("lpo_number"),
+  deliveryNoteNumber: text("delivery_note_number"),
   lpoReceivedDate: timestamp("lpo_received_date"),
   lpoDueDate: timestamp("lpo_due_date"),
   invoiceDate: timestamp("invoice_date"),

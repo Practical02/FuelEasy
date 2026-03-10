@@ -49,6 +49,7 @@ export default function NewSaleModal({ open, onOpenChange }: NewSaleModalProps) 
       quantityGallons: undefined,
       salePricePerGallon: undefined,
       purchasePricePerGallon: undefined,
+      deliveryNoteNumber: "",
       saleStatus: "Pending LPO",
       vatPercentage: VAT_PERCENTAGE.toString(),
     },
@@ -202,6 +203,20 @@ export default function NewSaleModal({ open, onOpenChange }: NewSaleModalProps) 
                         value={field.value instanceof Date ? field.value.toISOString().split('T')[0] : ''}
                         onChange={(e) => field.onChange(new Date(e.target.value))}
                       />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="deliveryNoteNumber"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Delivery Note No.</FormLabel>
+                    <FormControl>
+                      <Input placeholder="e.g. DN-2025-001" {...field} value={field.value ?? ""} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

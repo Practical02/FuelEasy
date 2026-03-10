@@ -116,6 +116,7 @@ export default function LPO() {
                     <th className="text-right py-3 px-4 font-medium text-gray-900">Total</th>
                     <th className="text-center py-3 px-4 font-medium text-gray-900">Status</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">LPO Number</th>
+                    <th className="text-left py-3 px-4 font-medium text-gray-900">Delivery Note</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">LPO Received</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">LPO Due</th>
                     <th className="text-right py-3 px-4 font-medium text-gray-900">Action</th>
@@ -124,7 +125,7 @@ export default function LPO() {
                 <tbody>
                   {filteredSales.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="py-8 text-center text-gray-500">
+                      <td colSpan={10} className="py-8 text-center text-gray-500">
                         No sales match the filter. Record sales first, then record LPOs here.
                       </td>
                     </tr>
@@ -148,6 +149,9 @@ export default function LPO() {
                         </td>
                         <td className="py-3 px-4 text-sm text-gray-600">
                           {sale.lpoNumber || "—"}
+                        </td>
+                        <td className="py-3 px-4 text-sm text-gray-600">
+                          {(sale as any).deliveryNoteNumber || "—"}
                         </td>
                         <td className="py-3 px-4 text-sm text-gray-600">
                           {sale.lpoReceivedDate

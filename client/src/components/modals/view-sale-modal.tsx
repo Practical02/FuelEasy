@@ -96,9 +96,18 @@ export default function ViewSaleModal({ open, onOpenChange, sale }: ViewSaleModa
                   <FileText className="w-4 h-4 text-gray-500" />
                   <div>
                     <p className="text-sm text-gray-500">LPO Number</p>
-                    <p className="font-medium text-gray-900">{sale.lpoNumber}</p>
+                    <p className="font-medium text-gray-900">{sale.lpoNumber ?? "—"}</p>
                   </div>
                 </div>
+                {(sale as any).deliveryNoteNumber && (
+                  <div className="flex items-center space-x-3">
+                    <FileText className="w-4 h-4 text-gray-500" />
+                    <div>
+                      <p className="text-sm text-gray-500">Delivery Note No.</p>
+                      <p className="font-medium text-gray-900">{(sale as any).deliveryNoteNumber}</p>
+                    </div>
+                  </div>
+                )}
                 {sale.lpoDueDate && (
                   <div className="flex items-center space-x-3">
                     <Clock className="w-4 h-4 text-gray-500" />

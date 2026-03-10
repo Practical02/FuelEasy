@@ -74,6 +74,7 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
         salePricePerGallon: parseFloat(sale.salePricePerGallon),
         purchasePricePerGallon: sale.purchasePricePerGallon ? parseFloat(sale.purchasePricePerGallon) : undefined,
         lpoNumber: sale.lpoNumber || "",
+        deliveryNoteNumber: (sale as any).deliveryNoteNumber || "",
         lpoDueDate: sale.lpoDueDate ? new Date(sale.lpoDueDate) : new Date(),
         vatPercentage: sale.vatPercentage,
         saleStatus: sale.saleStatus,
@@ -259,6 +260,20 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
                           }
                         }}
                       />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="deliveryNoteNumber"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Delivery Note No.</FormLabel>
+                    <FormControl>
+                      <Input placeholder="e.g. DN-2025-001" {...field} value={field.value ?? ""} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

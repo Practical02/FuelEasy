@@ -373,6 +373,7 @@ export default function Sales() {
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Unit Price</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Total Amount</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">LPO Number</th>
+                    <th className="text-left py-3 px-4 font-medium text-gray-900">Delivery Note</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Due Date</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Status</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Actions</th>
@@ -381,7 +382,7 @@ export default function Sales() {
                 <tbody>
                   {isLoading ? (
                     <tr>
-                      <td colSpan={9} className="py-8 text-center text-gray-500">
+                      <td colSpan={10} className="py-8 text-center text-gray-500">
                         Loading sales...
                       </td>
                     </tr>
@@ -401,7 +402,8 @@ export default function Sales() {
                         <td className="py-3 px-4 text-sm font-medium text-gray-900">
                           {CURRENCY} {parseFloat(sale.totalAmount).toLocaleString()}
                         </td>
-                        <td className="py-3 px-4 text-sm text-gray-900">{sale.lpoNumber}</td>
+                        <td className="py-3 px-4 text-sm text-gray-900">{sale.lpoNumber ?? "—"}</td>
+                        <td className="py-3 px-4 text-sm text-gray-900">{(sale as any).deliveryNoteNumber ?? "—"}</td>
                         <td className="py-3 px-4 text-sm text-gray-900">
                           {sale.lpoDueDate ? new Date(sale.lpoDueDate).toLocaleDateString() : "N/A"}
                         </td>
@@ -450,7 +452,7 @@ export default function Sales() {
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={9} className="py-8 text-center text-gray-500">
+                      <td colSpan={10} className="py-8 text-center text-gray-500">
                         {hasActiveFilters 
                           ? "No sales match your current filters. Try adjusting the filters or clearing them."
                           : "No sales recorded yet. Click 'New Sale' to get started."
@@ -499,7 +501,11 @@ export default function Sales() {
                         </div>
                         <div>
                           <span className="text-gray-500">LPO:</span>
-                          <span className="ml-1 font-medium">{sale.lpoNumber}</span>
+                          <span className="ml-1 font-medium">{sale.lpoNumber ?? "—"}</span>
+                        </div>
+                        <div>
+                          <span className="text-gray-500">Delivery Note:</span>
+                          <span className="ml-1 font-medium">{(sale as any).deliveryNoteNumber ?? "—"}</span>
                         </div>
                       </div>
 
