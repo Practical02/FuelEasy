@@ -14,14 +14,27 @@ export default function LPO() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [selectedSaleId, setSelectedSaleId] = useState<string>("");
   const [searchTerm, setSearchTerm] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "received">("pending");
+  const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "received">("all");
 
-  const { data: salesResponse } = useQuery<any>({
-    queryKey: ["/api/sales"],
+  // Fetch Pending LPO and LPO Received separately so we get all relevant sales (no pagination cutoff)
+  const { data: pendingResponse } = useQuery<any>({
+    queryKey: ["/api/sales?status=Pending%20LPO"],
   });
-  const sales: SaleWithClient[] = Array.isArray(salesResponse)
-    ? salesResponse
-    : salesResponse?.data ?? [];
+  const { data: receivedResponse } = useQuery<any>({
+    queryKey: ["/api/sales?status=LPO%20Received"],
+  });
+  const pendingSales: SaleWithClient[] = Array.isArray(pendingResponse)
+    ? pendingResponse
+    : pendingResponse?.data ?? [];
+  const receivedSales: SaleWithClient[] = Array.isArray(receivedResponse)
+    ? receivedResponse
+    : receivedResponse?.data ?? [];
+  const sales: SaleWithClient[] = useMemo(() => {
+    const combined = [...pendingSales, ...receivedSales];
+    return combined.sort(
+      (a, b) => new Date(b.saleDate).getTime() - new Date(a.saleDate).getTime()
+    );
+  }, [pendingSales, receivedSales]);
 
   const filteredSales = useMemo(() => {
     return sales.filter((sale) => {

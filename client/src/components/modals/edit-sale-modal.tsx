@@ -55,6 +55,8 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
   });
 
   const selectedClientId = form.watch("clientId");
+  const lpoNumber = form.watch("lpoNumber");
+  const saleStatus = form.watch("saleStatus");
   const { data: projects = [] } = useQuery<Project[]>({
     queryKey: ["projects", "by-client", selectedClientId],
     queryFn: () => apiRequest("GET", `/api/projects/by-client/${selectedClientId}`).then(res => res.json()),
@@ -79,15 +81,12 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
     }
   }, [sale, form]);
 
-  // Automatically update saleStatus to "LPO Received" if LPO Number is entered
+  // When LPO number is entered, auto-select "LPO Received" so it's saved correctly
   useEffect(() => {
-    const currentLpoNumber = form.watch("lpoNumber");
-    const currentSaleStatus = form.watch("saleStatus");
-
-    if (currentLpoNumber && currentLpoNumber.trim() !== "" && currentSaleStatus === "Pending LPO") {
+    if (lpoNumber && String(lpoNumber).trim() !== "" && saleStatus === "Pending LPO") {
       form.setValue("saleStatus", "LPO Received");
     }
-  }, [form.watch("lpoNumber"), form.watch("saleStatus"), form]);
+  }, [lpoNumber, saleStatus, form]);
 
   const updateSaleMutation = useMutation({
     mutationFn: async (data: z.infer<typeof editSaleFormSchema>) => {
@@ -113,6 +112,8 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/sales"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sales?status=Pending%20LPO"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sales?status=LPO%20Received"] });
       queryClient.invalidateQueries({ queryKey: ["/api/reports/overview"] });
       toast({
         title: "Sale Updated",
@@ -247,7 +248,17 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
                   <FormItem>
                     <FormLabel>LPO Number</FormLabel>
                     <FormControl>
-                      <Input placeholder="LPO-ABC-2025-001" {...field} value={field.value || ''} />
+                      <Input
+                        placeholder="LPO-ABC-2025-001"
+                        {...field}
+                        value={field.value || ""}
+                        onChange={(e) => {
+                          field.onChange(e);
+                          if (e.target.value.trim() && saleStatus === "Pending LPO") {
+                            form.setValue("saleStatus", "LPO Received");
+                          }
+                        }}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
