@@ -196,7 +196,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getStock(): Promise<Stock[]> {
-    return await db.select().from(stock).orderBy(desc(stock.createdAt));
+    return await db.select().from(stock).orderBy(asc(stock.purchaseDate), asc(stock.createdAt));
   }
 
   async createStock(insertStock: InsertStock): Promise<Stock> {
@@ -330,7 +330,7 @@ export class DatabaseStorage implements IStorage {
     const batches = await db
       .select({ id: stock.id, quantityGallons: stock.quantityGallons, purchasePricePerGallon: stock.purchasePricePerGallon })
       .from(stock)
-      .orderBy(asc(stock.purchaseDate), asc(stock.id));
+      .orderBy(asc(stock.purchaseDate), asc(stock.createdAt));
     const salesList = await db
       .select({ quantityGallons: sales.quantityGallons })
       .from(sales)
@@ -378,7 +378,7 @@ export class DatabaseStorage implements IStorage {
 
   /** Return all stock entries with remaining gallons per batch (FIFO). */
   async getStockWithBalance(): Promise<(Stock & { remainingGallons: number })[]> {
-    const batches = await db.select().from(stock).orderBy(asc(stock.purchaseDate), asc(stock.id));
+    const batches = await db.select().from(stock).orderBy(asc(stock.purchaseDate), asc(stock.createdAt));
     const salesList = await db
       .select({ quantityGallons: sales.quantityGallons })
       .from(sales)

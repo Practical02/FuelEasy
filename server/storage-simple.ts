@@ -292,9 +292,11 @@ export class MemStorage implements IStorage {
   }
 
   async getStock(): Promise<Stock[]> {
-    return Array.from(this.stock.values()).sort((a, b) => 
-      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    );
+    return Array.from(this.stock.values()).sort((a, b) => {
+      const d = new Date(a.purchaseDate).getTime() - new Date(b.purchaseDate).getTime();
+      if (d !== 0) return d;
+      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    });
   }
 
   async createStock(insertStock: InsertStock): Promise<Stock> {
@@ -337,7 +339,11 @@ export class MemStorage implements IStorage {
 
   async getFIFOPurchaseCostForQuantity(quantityGallons: number): Promise<{ pricePerGallon: number; totalCost: number; breakdown?: Array<{ gallons: number; pricePerGallon: number; cost: number }> } | null> {
     const batches = Array.from(this.stock.values())
-      .sort((a, b) => new Date(a.purchaseDate).getTime() - new Date(b.purchaseDate).getTime() || a.id.localeCompare(b.id));
+      .sort((a, b) => {
+        const d = new Date(a.purchaseDate).getTime() - new Date(b.purchaseDate).getTime();
+        if (d !== 0) return d;
+        return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      });
     const salesList = Array.from(this.sales.values())
       .sort((a, b) => new Date(a.saleDate).getTime() - new Date(b.saleDate).getTime() || a.id.localeCompare(b.id));
     const remaining = new Map<string, number>();
