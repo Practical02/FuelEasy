@@ -83,8 +83,11 @@ export default function EditStockModal({ open, onOpenChange, stock }: EditStockM
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/stock"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stock/with-balance"] });
       queryClient.invalidateQueries({ queryKey: ["/api/stock/current-level"] });
       queryClient.invalidateQueries({ queryKey: ["/api/reports/overview"] });
+      queryClient.refetchQueries({ queryKey: ["/api/stock/with-balance"] });
+      queryClient.refetchQueries({ queryKey: ["/api/stock"] });
       toast({
         title: "Stock Updated",
         description: "Stock entry has been updated successfully.",

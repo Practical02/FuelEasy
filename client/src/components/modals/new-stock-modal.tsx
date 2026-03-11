@@ -66,8 +66,11 @@ export default function NewStockModal({ open, onOpenChange }: NewStockModalProps
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/stock"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stock/with-balance"] });
       queryClient.invalidateQueries({ queryKey: ["/api/stock/current-level"] });
       queryClient.invalidateQueries({ queryKey: ["/api/reports/overview"] });
+      queryClient.refetchQueries({ queryKey: ["/api/stock/with-balance"] });
+      queryClient.refetchQueries({ queryKey: ["/api/stock"] });
       toast({
         title: "Stock Added",
         description: "New stock entry has been added successfully.",

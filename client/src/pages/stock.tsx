@@ -30,12 +30,15 @@ export default function Stock() {
   const [minCost, setMinCost] = useState("");
   const [maxCost, setMaxCost] = useState("");
 
-  const { data: stock, isLoading } = useQuery<Stock[]>({
-    queryKey: ["/api/stock"],
+  type StockWithBalance = Stock & { remainingGallons: number };
+  const { data: stock, isLoading } = useQuery<StockWithBalance[]>({
+    queryKey: ["/api/stock/with-balance"],
+    staleTime: 0,
   });
 
   const { data: currentLevel } = useQuery<{ currentLevel: number }>({
     queryKey: ["/api/stock/current-level"],
+    staleTime: 0,
   });
 
   const totalStockValue = stock?.reduce((sum, entry) => 
@@ -53,8 +56,10 @@ export default function Stock() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/stock"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stock/with-balance"] });
       queryClient.invalidateQueries({ queryKey: ["/api/stock/current-level"] });
       queryClient.invalidateQueries({ queryKey: ["/api/reports/overview"] });
+      queryClient.refetchQueries({ queryKey: ["/api/stock/with-balance"] });
       toast({
         title: "Stock Deleted",
         description: "Stock entry has been deleted successfully.",
@@ -266,6 +271,7 @@ export default function Stock() {
                   <tr className="border-b border-gray-200">
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Purchase Date</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Quantity (Gallons)</th>
+                    <th className="text-left py-3 px-4 font-medium text-gray-900">Balance (Gallons)</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Price per Gallon</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Total Cost</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Date Added</th>
@@ -275,13 +281,14 @@ export default function Stock() {
                 <tbody>
                   {isLoading ? (
                     <tr>
-                      <td colSpan={6} className="py-8 text-center text-gray-500">
+                      <td colSpan={7} className="py-8 text-center text-gray-500">
                         Loading stock entries...
                       </td>
                     </tr>
                   ) : filteredStock && filteredStock.length > 0 ? (
                     filteredStock.map((entry) => {
                       const quantity = parseFloat(entry.quantityGallons);
+                      const balance = entry.remainingGallons ?? quantity;
                       const pricePerGallon = parseFloat(entry.purchasePricePerGallon);
                       const totalCost = parseFloat(entry.totalCost);
 
@@ -292,6 +299,9 @@ export default function Stock() {
                           </td>
                           <td className="py-3 px-4 text-sm text-gray-900">
                             {quantity.toLocaleString()}
+                          </td>
+                          <td className="py-3 px-4 text-sm font-medium text-gray-900">
+                            {balance.toLocaleString()}
                           </td>
                           <td className="py-3 px-4 text-sm text-gray-900">
                             {CURRENCY} {pricePerGallon.toFixed(3)}
@@ -327,7 +337,7 @@ export default function Stock() {
                     })
                   ) : (
                     <tr>
-                      <td colSpan={6} className="py-8 text-center text-gray-500">
+                      <td colSpan={7} className="py-8 text-center text-gray-500">
                         {hasActiveFilters
                           ? "No stock entries match your current filters. Try adjusting the filters or clearing them."
                           : "No stock entries found. Click \"Add Stock\" to get started."

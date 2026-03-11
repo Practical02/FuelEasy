@@ -119,6 +119,26 @@ export default function NewSaleModal({ open, onOpenChange }: NewSaleModalProps) 
     calculateTotals();
   }, [quantity, price, vatPercentage, form]);
 
+  // Auto-fill purchase price from FIFO when quantity changes
+  useEffect(() => {
+    if (!open || !quantity || quantity <= 0) return;
+    let cancelled = false;
+    apiRequest("GET", `/api/stock/fifo-cost?quantity=${encodeURIComponent(quantity)}`)
+      .then((res) => {
+        if (cancelled || !res.ok) return res.json().catch(() => ({}));
+        return res.json();
+      })
+      .then((data) => {
+        if (!cancelled && data?.pricePerGallon != null) {
+          form.setValue("purchasePricePerGallon", Number(data.pricePerGallon));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [open, quantity, form]);
+
   const onSubmit = (data: z.infer<typeof saleFormSchema>) => {
     createSaleMutation.mutate(data);
   };

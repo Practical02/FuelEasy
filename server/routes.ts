@@ -296,6 +296,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/stock/with-balance", requireAuth, async (req, res) => {
+    try {
+      const list = await storage.getStockWithBalance();
+      res.json(list);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch stock with balance", error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
   app.get("/api/stock/current-level", requireAuth, async (req, res) => {
     try {
       const level = await storage.getCurrentStockLevel();

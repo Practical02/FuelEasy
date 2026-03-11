@@ -69,6 +69,8 @@ export interface IStorage {
   getCurrentStockLevel(): Promise<number>;
   /** FIFO: get weighted-average purchase cost for the next quantity gallons. Returns null if insufficient stock. */
   getFIFOPurchaseCostForQuantity(quantityGallons: number): Promise<{ pricePerGallon: number; totalCost: number } | null>;
+  /** Stock list with remaining gallons per batch (FIFO consumption). */
+  getStockWithBalance(): Promise<(Stock & { remainingGallons: number })[]>;
   
   // Client methods
   getClients(): Promise<Client[]>;
@@ -360,6 +362,35 @@ export class DatabaseStorage implements IStorage {
     if (need > 0) return null;
     const pricePerGallon = totalCost / quantityGallons;
     return { pricePerGallon, totalCost };
+  }
+
+  /** Return all stock entries with remaining gallons per batch (FIFO). */
+  async getStockWithBalance(): Promise<(Stock & { remainingGallons: number })[]> {
+    const batches = await db.select().from(stock).orderBy(asc(stock.purchaseDate), asc(stock.id));
+    const salesList = await db
+      .select({ quantityGallons: sales.quantityGallons })
+      .from(sales)
+      .orderBy(asc(sales.saleDate), asc(sales.id));
+    const remaining = new Map<string, number>();
+    for (const b of batches) {
+      remaining.set(b.id, parseFloat(b.quantityGallons));
+    }
+    for (const s of salesList) {
+      let q = parseFloat(s.quantityGallons);
+      for (const b of batches) {
+        if (q <= 0) break;
+        const rem = remaining.get(b.id) ?? 0;
+        const take = Math.min(rem, q);
+        if (take > 0) {
+          remaining.set(b.id, rem - take);
+          q -= take;
+        }
+      }
+    }
+    return batches.map((b) => ({
+      ...b,
+      remainingGallons: remaining.get(b.id) ?? 0,
+    }));
   }
 
   async getClients(): Promise<Client[]> {
