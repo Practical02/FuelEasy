@@ -67,8 +67,8 @@ export interface IStorage {
   updateStock(id: string, stock: InsertStock): Promise<Stock | undefined>;
   deleteStock(id: string): Promise<boolean>;
   getCurrentStockLevel(): Promise<number>;
-  /** FIFO: get weighted-average purchase cost for the next quantity gallons. Returns null if insufficient stock. */
-  getFIFOPurchaseCostForQuantity(quantityGallons: number): Promise<{ pricePerGallon: number; totalCost: number } | null>;
+  /** FIFO: mix-and-match cost for next quantity gallons (oldest stock first). Returns null if insufficient stock. */
+  getFIFOPurchaseCostForQuantity(quantityGallons: number): Promise<{ pricePerGallon: number; totalCost: number; breakdown?: Array<{ gallons: number; pricePerGallon: number; cost: number }> } | null>;
   /** Stock list with remaining gallons per batch (FIFO consumption). */
   getStockWithBalance(): Promise<(Stock & { remainingGallons: number })[]>;
   
@@ -316,11 +316,16 @@ export class DatabaseStorage implements IStorage {
   }
 
   /**
-   * Compute FIFO purchase cost for a given quantity: simulate consumption from stock batches
-   * (oldest purchase_date first), then allocate the requested quantity and return weighted-average
-   * price per gallon and total cost. Returns null if there is insufficient stock.
+   * Compute FIFO purchase cost for a given quantity: mix-and-match from stock batches
+   * (oldest purchase_date first). E.g. 100 gal @ 9 + 1500 gal @ 10, sale 150 gal
+   * => first 100 @ 9, next 50 @ 10 => totalCost 900+500=1400, pricePerGallon 1400/150 ≈ 9.33.
+   * Returns null if there is insufficient stock.
    */
-  async getFIFOPurchaseCostForQuantity(quantityGallons: number): Promise<{ pricePerGallon: number; totalCost: number } | null> {
+  async getFIFOPurchaseCostForQuantity(quantityGallons: number): Promise<{
+    pricePerGallon: number;
+    totalCost: number;
+    breakdown?: Array<{ gallons: number; pricePerGallon: number; cost: number }>;
+  } | null> {
     if (quantityGallons <= 0) return null;
     const batches = await db
       .select({ id: stock.id, quantityGallons: stock.quantityGallons, purchasePricePerGallon: stock.purchasePricePerGallon })
@@ -349,19 +354,26 @@ export class DatabaseStorage implements IStorage {
     }
     let need = quantityGallons;
     let totalCost = 0;
+    const breakdown: Array<{ gallons: number; pricePerGallon: number; cost: number }> = [];
     for (const b of batches) {
       if (need <= 0) break;
       const rem = remaining.get(b.id) ?? 0;
       const take = Math.min(rem, need);
       if (take > 0) {
         const price = parseFloat(b.purchasePricePerGallon);
-        totalCost += take * price;
+        const cost = take * price;
+        totalCost += cost;
         need -= take;
+        breakdown.push({ gallons: take, pricePerGallon: price, cost });
       }
     }
     if (need > 0) return null;
     const pricePerGallon = totalCost / quantityGallons;
-    return { pricePerGallon, totalCost };
+    return {
+      pricePerGallon: Math.round(pricePerGallon * 100) / 100,
+      totalCost: Math.round(totalCost * 100) / 100,
+      breakdown,
+    };
   }
 
   /** Return all stock entries with remaining gallons per batch (FIFO). */

@@ -325,7 +325,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (fifo === null) {
         return res.status(400).json({ message: "Insufficient stock for requested quantity" });
       }
-      res.json({ pricePerGallon: fifo.pricePerGallon, totalCost: fifo.totalCost });
+      res.json({
+        pricePerGallon: fifo.pricePerGallon,
+        totalCost: fifo.totalCost,
+        ...(fifo.breakdown && { breakdown: fifo.breakdown }),
+      });
     } catch (error) {
       res.status(500).json({ message: "Failed to compute FIFO cost", error: error instanceof Error ? error.message : String(error) });
     }

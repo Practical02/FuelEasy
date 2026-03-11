@@ -27,7 +27,7 @@ export interface IStorage {
   getStock(): Promise<Stock[]>;
   createStock(insertStock: InsertStock): Promise<Stock>;
   getCurrentStockLevel(): Promise<number>;
-  getFIFOPurchaseCostForQuantity(quantityGallons: number): Promise<{ pricePerGallon: number; totalCost: number } | null>;
+  getFIFOPurchaseCostForQuantity(quantityGallons: number): Promise<{ pricePerGallon: number; totalCost: number; breakdown?: Array<{ gallons: number; pricePerGallon: number; cost: number }> } | null>;
 
   // Client methods
   getClients(): Promise<Client[]>;
@@ -335,7 +335,7 @@ export class MemStorage implements IStorage {
     return totalPurchased - totalSold;
   }
 
-  async getFIFOPurchaseCostForQuantity(quantityGallons: number): Promise<{ pricePerGallon: number; totalCost: number } | null> {
+  async getFIFOPurchaseCostForQuantity(quantityGallons: number): Promise<{ pricePerGallon: number; totalCost: number; breakdown?: Array<{ gallons: number; pricePerGallon: number; cost: number }> } | null> {
     const batches = Array.from(this.stock.values())
       .sort((a, b) => new Date(a.purchaseDate).getTime() - new Date(b.purchaseDate).getTime() || a.id.localeCompare(b.id));
     const salesList = Array.from(this.sales.values())
@@ -358,17 +358,26 @@ export class MemStorage implements IStorage {
     }
     let need = quantityGallons;
     let totalCost = 0;
+    const breakdown: Array<{ gallons: number; pricePerGallon: number; cost: number }> = [];
     for (const b of batches) {
       if (need <= 0) break;
       const rem = remaining.get(b.id) ?? 0;
       const take = Math.min(rem, need);
       if (take > 0) {
-        totalCost += take * parseFloat(b.purchasePricePerGallon);
+        const price = parseFloat(b.purchasePricePerGallon);
+        const cost = take * price;
+        totalCost += cost;
         need -= take;
+        breakdown.push({ gallons: take, pricePerGallon: price, cost });
       }
     }
     if (need > 0) return null;
-    return { pricePerGallon: totalCost / quantityGallons, totalCost };
+    const pricePerGallon = totalCost / quantityGallons;
+    return {
+      pricePerGallon: Math.round(pricePerGallon * 100) / 100,
+      totalCost: Math.round(totalCost * 100) / 100,
+      breakdown,
+    };
   }
 
   async getClients(): Promise<Client[]> {
