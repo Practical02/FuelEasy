@@ -180,7 +180,6 @@ async function resetAndSeedDatabase() {
       purchasePricePerGallon: "2.85",
       lpoNumber: "LPO-ABC-001",
       lpoReceivedDate: new Date("2024-01-20"),
-      lpoDueDate: new Date("2024-02-20"),
       invoiceDate: new Date("2024-01-20"),
       saleStatus: "Invoiced",
       vatPercentage: "5.00"
@@ -195,7 +194,6 @@ async function resetAndSeedDatabase() {
       purchasePricePerGallon: "2.90",
       lpoNumber: "LPO-XYZ-001",
       lpoReceivedDate: new Date("2024-02-20"),
-      lpoDueDate: new Date("2024-03-20"),
       invoiceDate: new Date("2024-02-20"),
       saleStatus: "Invoiced",
       vatPercentage: "5.00"
@@ -210,7 +208,6 @@ async function resetAndSeedDatabase() {
       purchasePricePerGallon: "2.85",
       lpoNumber: "LPO-DEF-001",
       lpoReceivedDate: new Date("2024-03-20"),
-      lpoDueDate: new Date("2024-04-20"),
       invoiceDate: new Date("2024-03-20"),
       saleStatus: "Invoiced",
       vatPercentage: "5.00"

@@ -48,7 +48,6 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
       salePricePerGallon: undefined,
       purchasePricePerGallon: undefined,
       lpoNumber: "",
-      lpoDueDate: new Date(),
       vatPercentage: "5.00",
       saleStatus: "Pending LPO",
     },
@@ -75,7 +74,6 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
         purchasePricePerGallon: sale.purchasePricePerGallon ? parseFloat(sale.purchasePricePerGallon) : undefined,
         lpoNumber: sale.lpoNumber || "",
         deliveryNoteNumber: (sale as any).deliveryNoteNumber || "",
-        lpoDueDate: sale.lpoDueDate ? new Date(sale.lpoDueDate) : new Date(),
         vatPercentage: sale.vatPercentage,
         saleStatus: sale.saleStatus,
       });
@@ -95,18 +93,13 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
         throw new Error("No sale to update");
       }
       
-      const { lpoDueDate, ...rest } = data;
       const saleData: any = {
-        ...rest,
+        ...data,
         saleDate: new Date(data.saleDate).toISOString(),
         invoiceDate: data.saleStatus === "Invoiced" || data.saleStatus === "Paid" 
           ? new Date().toISOString() 
           : null,
       };
-
-      if (lpoDueDate) {
-        saleData.lpoDueDate = new Date(lpoDueDate).toISOString();
-      }
 
       const response = await apiRequest("PATCH", `/api/sales/${sale.id}`, saleData);
       return response.json();
@@ -274,24 +267,6 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
                     <FormLabel>Delivery Note No.</FormLabel>
                     <FormControl>
                       <Input placeholder="e.g. DN-2025-001" {...field} value={field.value ?? ""} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="lpoDueDate"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>LPO Due Date</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="date"
-                        value={field.value instanceof Date ? field.value.toISOString().split('T')[0] : ''}
-                        onChange={(e) => field.onChange(new Date(e.target.value))}
-                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

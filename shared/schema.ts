@@ -76,7 +76,6 @@ export const sales = pgTable("sales", {
   lpoNumber: text("lpo_number"),
   deliveryNoteNumber: text("delivery_note_number"),
   lpoReceivedDate: timestamp("lpo_received_date"),
-  lpoDueDate: timestamp("lpo_due_date"),
   invoiceDate: timestamp("invoice_date"),
   saleStatus: text("sale_status").notNull().default("Pending LPO"), // "Pending LPO", "LPO Received", "Invoiced", "Paid"
   vatPercentage: decimal("vat_percentage", { precision: 5, scale: 2 }).notNull().default("5.00"),
@@ -103,6 +102,7 @@ export const invoices = pgTable("invoices", {
   saleId: uuid("sale_id").references(() => sales.id).notNull(),
   invoiceNumber: text("invoice_number").notNull().unique(),
   invoiceDate: timestamp("invoice_date").notNull(),
+  dueDate: timestamp("due_date"), // 1 month from invoice date
   // For multi-sale invoices issued per LPO
   lpoNumber: text("lpo_number"),
   totalAmount: decimal("total_amount", { precision: 12, scale: 2 }).notNull(),

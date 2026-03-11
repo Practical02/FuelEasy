@@ -91,7 +91,8 @@ function cacheMiddleware(ttlMs: number = 60000) {
 const apiInsertSaleSchema = insertSaleSchema.extend({
   quantityGallons: z.number(),
   salePricePerGallon: z.number(),
-  purchasePricePerGallon: z.number(),
+  /** If omitted, server computes from stock using FIFO. */
+  purchasePricePerGallon: z.number().optional(),
 });
 
 const apiInsertPaymentSchema = insertPaymentSchema.extend({
@@ -304,6 +305,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  /** FIFO: get purchase cost for a quantity (weighted average from oldest stock first). */
+  app.get("/api/stock/fifo-cost", requireAuth, async (req, res) => {
+    try {
+      const quantity = parseFloat(req.query.quantity as string);
+      if (!Number.isFinite(quantity) || quantity <= 0) {
+        return res.status(400).json({ message: "Query parameter 'quantity' must be a positive number" });
+      }
+      const fifo = await storage.getFIFOPurchaseCostForQuantity(quantity);
+      if (fifo === null) {
+        return res.status(400).json({ message: "Insufficient stock for requested quantity" });
+      }
+      res.json({ pricePerGallon: fifo.pricePerGallon, totalCost: fifo.totalCost });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to compute FIFO cost", error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
   app.put("/api/stock/:id", requireAuth, writeLimiter, async (req, res) => {
     try {
       const requestData = {
@@ -452,11 +470,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         saleDate: new Date(req.body.saleDate),
       };
       const validatedData = apiInsertSaleSchema.parse(requestData);
+      let purchasePrice = validatedData.purchasePricePerGallon;
+      if (purchasePrice === undefined || purchasePrice === null) {
+        const fifo = await storage.getFIFOPurchaseCostForQuantity(validatedData.quantityGallons);
+        if (!fifo) {
+          return res.status(400).json({ message: "Insufficient stock for this quantity; cannot compute FIFO cost" });
+        }
+        purchasePrice = fifo.pricePerGallon;
+      }
       const saleDataForStorage: InsertSale = {
         ...validatedData,
         quantityGallons: validatedData.quantityGallons.toString(),
         salePricePerGallon: validatedData.salePricePerGallon.toString(),
-        purchasePricePerGallon: validatedData.purchasePricePerGallon.toString(),
+        purchasePricePerGallon: purchasePrice.toString(),
       };
       const sale = await storage.createSale(saleDataForStorage);
       res.json(sale);
@@ -507,15 +533,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const requestData = {
         ...req.body,
         saleDate: new Date(req.body.saleDate),
-        ...(req.body.lpoDueDate && { lpoDueDate: new Date(req.body.lpoDueDate) }),
         ...(req.body.lpoReceivedDate && { lpoReceivedDate: new Date(req.body.lpoReceivedDate) }),
       };
       const validatedData = apiInsertSaleSchema.parse(requestData);
+      // On update, require purchase price (FIFO is only used on create to avoid double-counting this sale)
+      const purchasePrice = validatedData.purchasePricePerGallon;
+      if (purchasePrice === undefined || purchasePrice === null) {
+        return res.status(400).json({ message: "purchasePricePerGallon is required when updating a sale" });
+      }
       const saleDataForStorage: InsertSale = {
         ...validatedData,
         quantityGallons: validatedData.quantityGallons.toString(),
         salePricePerGallon: validatedData.salePricePerGallon.toString(),
-        purchasePricePerGallon: validatedData.purchasePricePerGallon.toString(),
+        purchasePricePerGallon: purchasePrice.toString(),
       };
       const sale = await storage.updateSale(req.params.id, saleDataForStorage);
       if (!sale) {

@@ -27,6 +27,7 @@ export interface IStorage {
   getStock(): Promise<Stock[]>;
   createStock(insertStock: InsertStock): Promise<Stock>;
   getCurrentStockLevel(): Promise<number>;
+  getFIFOPurchaseCostForQuantity(quantityGallons: number): Promise<{ pricePerGallon: number; totalCost: number } | null>;
 
   // Client methods
   getClients(): Promise<Client[]>;
@@ -199,7 +200,6 @@ export class MemStorage implements IStorage {
       purchasePricePerGallon: "2.800",
       lpoNumber: "LPO-EMT-2025-001",
       lpoReceivedDate: new Date("2025-01-22T09:00:00Z"),
-      lpoDueDate: new Date("2025-02-15T23:59:59Z"),
       invoiceDate: null,
       saleStatus: "LPO Received",
       vatPercentage: "5.00",
@@ -221,7 +221,6 @@ export class MemStorage implements IStorage {
       purchasePricePerGallon: "2.750",
       lpoNumber: "LPO-DUB-2025-012",
       lpoReceivedDate: new Date("2025-01-25T13:00:00Z"),
-      lpoDueDate: new Date("2025-02-20T23:59:59Z"),
       invoiceDate: new Date("2025-01-26T09:00:00Z"),
       saleStatus: "Invoiced",
       vatPercentage: "5.00",
@@ -243,7 +242,6 @@ export class MemStorage implements IStorage {
       purchasePricePerGallon: "2.850",
       lpoNumber: "LPO-ALF-2025-005",
       lpoReceivedDate: null,
-      lpoDueDate: new Date("2025-02-25T23:59:59Z"),
       invoiceDate: null,
       saleStatus: "Pending LPO",
       vatPercentage: "5.00",
@@ -337,6 +335,42 @@ export class MemStorage implements IStorage {
     return totalPurchased - totalSold;
   }
 
+  async getFIFOPurchaseCostForQuantity(quantityGallons: number): Promise<{ pricePerGallon: number; totalCost: number } | null> {
+    const batches = Array.from(this.stock.values())
+      .sort((a, b) => new Date(a.purchaseDate).getTime() - new Date(b.purchaseDate).getTime() || a.id.localeCompare(b.id));
+    const salesList = Array.from(this.sales.values())
+      .sort((a, b) => new Date(a.saleDate).getTime() - new Date(b.saleDate).getTime() || a.id.localeCompare(b.id));
+    const remaining = new Map<string, number>();
+    for (const b of batches) {
+      remaining.set(b.id, parseFloat(b.quantityGallons));
+    }
+    for (const s of salesList) {
+      let q = parseFloat(s.quantityGallons);
+      for (const b of batches) {
+        if (q <= 0) break;
+        const rem = remaining.get(b.id) ?? 0;
+        const take = Math.min(rem, q);
+        if (take > 0) {
+          remaining.set(b.id, rem - take);
+          q -= take;
+        }
+      }
+    }
+    let need = quantityGallons;
+    let totalCost = 0;
+    for (const b of batches) {
+      if (need <= 0) break;
+      const rem = remaining.get(b.id) ?? 0;
+      const take = Math.min(rem, need);
+      if (take > 0) {
+        totalCost += take * parseFloat(b.purchasePricePerGallon);
+        need -= take;
+      }
+    }
+    if (need > 0) return null;
+    return { pricePerGallon: totalCost / quantityGallons, totalCost };
+  }
+
   async getClients(): Promise<Client[]> {
     return Array.from(this.clients.values()).sort((a, b) => 
       a.name.localeCompare(b.name)
@@ -410,7 +444,6 @@ export class MemStorage implements IStorage {
       id,
       lpoNumber: insertSale.lpoNumber ?? null,
       lpoReceivedDate: insertSale.lpoReceivedDate ?? null,
-      lpoDueDate: insertSale.lpoDueDate ?? null,
       invoiceDate: insertSale.invoiceDate || null,
       saleStatus: insertSale.saleStatus || "Pending LPO",
       vatPercentage: vatPercentage.toFixed(2),

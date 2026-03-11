@@ -54,12 +54,32 @@ export default function Reports() {
     // Report type filter
     if (reportType === "pending") {
       return sale.saleStatus === "Pending LPO" || sale.saleStatus === "LPO Received" || sale.saleStatus === "Invoiced";
-    } else if (reportType === "vat") {
-      return true; // All sales for VAT report
+    } else if (reportType === "vat" || reportType === "monthly-profit") {
+      return true; // All sales for VAT and Monthly Profit
     }
 
     return true;
   });
+
+  // Monthly profit: group sales by month (sale date)
+  const monthlyProfitData = useMemo(() => {
+    if (reportType !== "monthly-profit") return [];
+    const byMonth: Record<string, { revenue: number; cogs: number; grossProfit: number; count: number }> = {};
+    for (const sale of filteredSales) {
+      const d = new Date(sale.saleDate);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      if (!byMonth[key]) byMonth[key] = { revenue: 0, cogs: 0, grossProfit: 0, count: 0 };
+      const rev = parseFloat(sale.subtotal);
+      const cogs = parseFloat(sale.cogs);
+      byMonth[key].revenue += rev;
+      byMonth[key].cogs += cogs;
+      byMonth[key].grossProfit += parseFloat(sale.grossProfit);
+      byMonth[key].count += 1;
+    }
+    return Object.entries(byMonth)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([month, data]) => ({ month, ...data }));
+  }, [reportType, filteredSales]);
 
   const pendingInvoices = useMemo(() => {
     if (reportType !== "pending-invoices") return [] as any[];
@@ -113,7 +133,9 @@ export default function Reports() {
         ? "Pending Invoices"
         : reportType === "pending"
           ? "Pending Business"
-          : "VAT Report";
+          : reportType === "monthly-profit"
+            ? "Monthly Profit"
+            : "VAT Report";
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet(sheetName);
 
@@ -141,7 +163,9 @@ export default function Reports() {
         ? "Pending Invoices Report"
         : reportType === "pending"
           ? "Pending Business Report"
-          : "VAT Report";
+          : reportType === "monthly-profit"
+            ? "Monthly Profit Report"
+            : "VAT Report";
     worksheet.getCell(`A${currentRow}`).value = `Report Type: ${reportTypeLabel}`;
     worksheet.getCell(`A${currentRow}`).font = { bold: true };
     currentRow++;
@@ -152,14 +176,39 @@ export default function Reports() {
     }
     currentRow++; // Empty row
 
-    if (reportType === "pending-invoices") {
-      // Pending Invoices: invoice columns and data
+    if (reportType === "monthly-profit") {
+      const monthHeaders = ["Month", "Revenue (excl. VAT)", "COGS", "Gross Profit", "Margin %", "Sales Count"];
+      monthHeaders.forEach((header, index) => {
+        const cell = worksheet.getCell(currentRow, index + 1);
+        cell.value = header;
+        cell.font = { bold: true };
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE0E0E0" } };
+      });
+      currentRow++;
+      monthlyProfitData.forEach((row) => {
+        const margin = row.revenue > 0 ? ((row.grossProfit / row.revenue) * 100).toFixed(1) : "0";
+        [row.month, row.revenue, row.cogs, row.grossProfit, `${margin}%`, row.count].forEach((value, index) => {
+          worksheet.getCell(currentRow, index + 1).value = value;
+        });
+        currentRow++;
+      });
+      currentRow++;
+      worksheet.getCell(currentRow, 1).value = "TOTALS:";
+      worksheet.getCell(currentRow, 1).font = { bold: true };
+      worksheet.getCell(currentRow, 2).value = monthlyProfitData.reduce((s, r) => s + r.revenue, 0);
+      worksheet.getCell(currentRow, 3).value = monthlyProfitData.reduce((s, r) => s + r.cogs, 0);
+      worksheet.getCell(currentRow, 4).value = monthlyProfitData.reduce((s, r) => s + r.grossProfit, 0);
+    } else if (reportType === "pending-invoices") {
+      // Pending Invoices: invoice columns and data with VAT split
       const invHeaders = [
         "Invoice No.",
         "Invoice Date",
+        "Due Date",
         "LPO No.",
         "Client Name",
-        "Total Amount (incl. VAT)",
+        "Subtotal (excl. VAT)",
+        "VAT Amount",
+        "Total Amount",
         "Pending Amount",
         "Status",
       ];
@@ -177,12 +226,19 @@ export default function Reports() {
 
       pendingInvoices.forEach((inv: any) => {
         const clientName = inv.sale?.client?.name ?? inv.sales?.[0]?.client?.name ?? "—";
+        const total = parseFloat(inv.totalAmount);
+        const vat = parseFloat(inv.vatAmount || 0);
+        const subtotal = total - vat;
+        const dueDate = inv.dueDate ? new Date(inv.dueDate) : (() => { const d = new Date(inv.invoiceDate); d.setMonth(d.getMonth() + 1); return d; })();
         const rowData = [
           inv.invoiceNumber ?? "",
           new Date(inv.invoiceDate).toLocaleDateString(),
+          dueDate.toLocaleDateString(),
           inv.lpoNumber ?? inv.sale?.lpoNumber ?? inv.sales?.[0]?.lpoNumber ?? "N/A",
           clientName,
-          parseFloat(inv.totalAmount),
+          subtotal,
+          vat,
+          total,
           parseFloat(inv.pendingAmount || 0),
           inv.status ?? "",
         ];
@@ -196,8 +252,10 @@ export default function Reports() {
       currentRow++;
       worksheet.getCell(currentRow, 1).value = "TOTALS:";
       worksheet.getCell(currentRow, 1).font = { bold: true };
-      worksheet.getCell(currentRow, 5).value = invoiceTotals.totalAmount;
-      worksheet.getCell(currentRow, 6).value = invoiceTotals.pendingAmount;
+      worksheet.getCell(currentRow, 6).value = pendingInvoices.reduce((s: number, inv: any) => s + parseFloat(inv.totalAmount) - parseFloat(inv.vatAmount || 0), 0);
+      worksheet.getCell(currentRow, 7).value = pendingInvoices.reduce((s: number, inv: any) => s + parseFloat(inv.vatAmount || 0), 0);
+      worksheet.getCell(currentRow, 8).value = invoiceTotals.totalAmount;
+      worksheet.getCell(currentRow, 9).value = invoiceTotals.pendingAmount;
     } else {
       // Pending LPO (Sales) or VAT: sales columns and data
       const headers = [
@@ -381,6 +439,7 @@ export default function Reports() {
                    <SelectItem value="pending">Pending LPO (Sales)</SelectItem>
                    <SelectItem value="pending-invoices">Pending Invoices</SelectItem>
                    <SelectItem value="vat">VAT Report</SelectItem>
+                   <SelectItem value="monthly-profit">Monthly Profit Report</SelectItem>
                  </SelectContent>
               </Select>
             </div>
@@ -440,8 +499,8 @@ export default function Reports() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600">Total Records</p>
-                <p className="text-2xl font-bold text-gray-900">{reportType === 'pending-invoices' ? invoiceTotals.count : filteredSales.length}</p>
+                <p className="text-sm font-medium text-gray-600">{reportType === "monthly-profit" ? "Months" : "Total Records"}</p>
+                <p className="text-2xl font-bold text-gray-900">{reportType === "monthly-profit" ? monthlyProfitData.length : reportType === "pending-invoices" ? invoiceTotals.count : filteredSales.length}</p>
               </div>
               <FileText className="h-8 w-8 text-blue-600" />
             </div>
@@ -495,11 +554,49 @@ export default function Reports() {
       <Card>
         <CardHeader>
           <CardTitle>
-            {reportType === "pending" ? "Pending Business Report" : reportType === 'pending-invoices' ? 'Pending Invoices Report' : "VAT Report"}
+            {reportType === "pending" ? "Pending Business Report" : reportType === "pending-invoices" ? "Pending Invoices Report" : reportType === "monthly-profit" ? "Monthly Profit Report" : "VAT Report"}
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {reportType === 'pending-invoices' ? (
+          {reportType === "monthly-profit" ? (
+            monthlyProfitData.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-gray-500">No sales in the selected period for monthly profit</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="text-left p-3 text-sm font-medium text-gray-600">Month</th>
+                      <th className="text-right p-3 text-sm font-medium text-gray-600">Revenue (excl. VAT)</th>
+                      <th className="text-right p-3 text-sm font-medium text-gray-600">COGS</th>
+                      <th className="text-right p-3 text-sm font-medium text-gray-600">Gross Profit</th>
+                      <th className="text-right p-3 text-sm font-medium text-gray-600">Margin %</th>
+                      <th className="text-right p-3 text-sm font-medium text-gray-600">Sales</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {monthlyProfitData.map((row) => (
+                      <tr key={row.month} className="border-b hover:bg-gray-50">
+                        <td className="p-3 text-sm font-medium">{row.month}</td>
+                        <td className="p-3 text-sm text-right">{CURRENCY} {row.revenue.toFixed(2)}</td>
+                        <td className="p-3 text-sm text-right">{CURRENCY} {row.cogs.toFixed(2)}</td>
+                        <td className="p-3 text-sm text-right font-medium">{CURRENCY} {row.grossProfit.toFixed(2)}</td>
+                        <td className="p-3 text-sm text-right">{row.revenue > 0 ? ((row.grossProfit / row.revenue) * 100).toFixed(1) : "0"}%</td>
+                        <td className="p-3 text-sm text-right">{row.count}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div className="mt-4 pt-4 border-t flex justify-end gap-6 text-sm">
+                  <span><strong>Total Revenue:</strong> {CURRENCY} {monthlyProfitData.reduce((s, r) => s + r.revenue, 0).toFixed(2)}</span>
+                  <span><strong>Total COGS:</strong> {CURRENCY} {monthlyProfitData.reduce((s, r) => s + r.cogs, 0).toFixed(2)}</span>
+                  <span><strong>Total Gross Profit:</strong> {CURRENCY} {monthlyProfitData.reduce((s, r) => s + r.grossProfit, 0).toFixed(2)}</span>
+                </div>
+              </div>
+            )
+          ) : reportType === "pending-invoices" ? (
             pendingInvoices.length === 0 ? (
               <div className="text-center py-8">
                 <p className="text-gray-500">No pending invoices found for the selected criteria</p>
@@ -511,21 +608,33 @@ export default function Reports() {
                     <tr className="border-b">
                       <th className="text-left p-3 text-sm font-medium text-gray-600">Invoice No.</th>
                       <th className="text-left p-3 text-sm font-medium text-gray-600">Invoice Date</th>
+                      <th className="text-left p-3 text-sm font-medium text-gray-600">Due Date</th>
                       <th className="text-left p-3 text-sm font-medium text-gray-600">LPO No.</th>
-                      <th className="text-right p-3 text-sm font-medium text-gray-600">Total Amount (incl. VAT)</th>
-                      <th className="text-right p-3 text-sm font-medium text-gray-600">Pending Amount</th>
+                      <th className="text-right p-3 text-sm font-medium text-gray-600">Subtotal (excl. VAT)</th>
+                      <th className="text-right p-3 text-sm font-medium text-gray-600">VAT</th>
+                      <th className="text-right p-3 text-sm font-medium text-gray-600">Total</th>
+                      <th className="text-right p-3 text-sm font-medium text-gray-600">Pending</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {pendingInvoices.map((inv: any) => (
-                      <tr key={inv.id} className="border-b hover:bg-gray-50">
-                        <td className="p-3 text-sm">{inv.invoiceNumber}</td>
-                        <td className="p-3 text-sm">{new Date(inv.invoiceDate).toLocaleDateString()}</td>
-                        <td className="p-3 text-sm">{inv.lpoNumber || (inv.sale?.lpoNumber ?? 'N/A')}</td>
-                        <td className="p-3 text-sm text-right">{CURRENCY} {parseFloat(inv.totalAmount).toFixed(2)}</td>
-                        <td className="p-3 text-sm text-right font-medium">{CURRENCY} {parseFloat(inv.pendingAmount || 0).toFixed(2)}</td>
-                      </tr>
-                    ))}
+                    {pendingInvoices.map((inv: any) => {
+                      const total = parseFloat(inv.totalAmount);
+                      const vat = parseFloat(inv.vatAmount || 0);
+                      const subtotal = total - vat;
+                      const dueDate = inv.dueDate ? new Date(inv.dueDate) : (() => { const d = new Date(inv.invoiceDate); d.setMonth(d.getMonth() + 1); return d; })();
+                      return (
+                        <tr key={inv.id} className="border-b hover:bg-gray-50">
+                          <td className="p-3 text-sm">{inv.invoiceNumber}</td>
+                          <td className="p-3 text-sm">{new Date(inv.invoiceDate).toLocaleDateString()}</td>
+                          <td className="p-3 text-sm">{dueDate.toLocaleDateString()}</td>
+                          <td className="p-3 text-sm">{inv.lpoNumber || (inv.sale?.lpoNumber ?? "N/A")}</td>
+                          <td className="p-3 text-sm text-right">{CURRENCY} {subtotal.toFixed(2)}</td>
+                          <td className="p-3 text-sm text-right">{CURRENCY} {vat.toFixed(2)}</td>
+                          <td className="p-3 text-sm text-right">{CURRENCY} {total.toFixed(2)}</td>
+                          <td className="p-3 text-sm text-right font-medium">{CURRENCY} {parseFloat(inv.pendingAmount || 0).toFixed(2)}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

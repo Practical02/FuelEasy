@@ -118,14 +118,13 @@ export default function LPO() {
                     <th className="text-left py-3 px-4 font-medium text-gray-900">LPO Number</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Delivery Note</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">LPO Received</th>
-                    <th className="text-left py-3 px-4 font-medium text-gray-900">LPO Due</th>
                     <th className="text-right py-3 px-4 font-medium text-gray-900">Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredSales.length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="py-8 text-center text-gray-500">
+                      <td colSpan={9} className="py-8 text-center text-gray-500">
                         No sales match the filter. Record sales first, then record LPOs here.
                       </td>
                     </tr>
@@ -156,11 +155,6 @@ export default function LPO() {
                         <td className="py-3 px-4 text-sm text-gray-600">
                           {sale.lpoReceivedDate
                             ? new Date(sale.lpoReceivedDate).toLocaleDateString()
-                            : "—"}
-                        </td>
-                        <td className="py-3 px-4 text-sm text-gray-600">
-                          {sale.lpoDueDate
-                            ? new Date(sale.lpoDueDate).toLocaleDateString()
                             : "—"}
                         </td>
                         <td className="py-3 px-4 text-right">

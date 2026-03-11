@@ -374,7 +374,6 @@ export default function Sales() {
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Total Amount</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">LPO Number</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Delivery Note</th>
-                    <th className="text-left py-3 px-4 font-medium text-gray-900">Due Date</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Status</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Actions</th>
                   </tr>
@@ -382,7 +381,7 @@ export default function Sales() {
                 <tbody>
                   {isLoading ? (
                     <tr>
-                      <td colSpan={10} className="py-8 text-center text-gray-500">
+                      <td colSpan={9} className="py-8 text-center text-gray-500">
                         Loading sales...
                       </td>
                     </tr>
@@ -404,9 +403,6 @@ export default function Sales() {
                         </td>
                         <td className="py-3 px-4 text-sm text-gray-900">{sale.lpoNumber ?? "—"}</td>
                         <td className="py-3 px-4 text-sm text-gray-900">{(sale as any).deliveryNoteNumber ?? "—"}</td>
-                        <td className="py-3 px-4 text-sm text-gray-900">
-                          {sale.lpoDueDate ? new Date(sale.lpoDueDate).toLocaleDateString() : "N/A"}
-                        </td>
                         <td className="py-3 px-4">
                           <StatusBadge status={sale.saleStatus as any} />
                         </td>
@@ -452,7 +448,7 @@ export default function Sales() {
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={10} className="py-8 text-center text-gray-500">
+                      <td colSpan={9} className="py-8 text-center text-gray-500">
                         {hasActiveFilters 
                           ? "No sales match your current filters. Try adjusting the filters or clearing them."
                           : "No sales recorded yet. Click 'New Sale' to get started."

@@ -48,7 +48,7 @@ import {
 import { randomUUID } from "crypto";
 import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
-import { eq, desc, sql, and, inArray } from "drizzle-orm";
+import { eq, desc, asc, sql, and, inArray } from "drizzle-orm";
 
 // Initialize database connection
 const connectionString = process.env.DATABASE_URL || "";
@@ -67,6 +67,8 @@ export interface IStorage {
   updateStock(id: string, stock: InsertStock): Promise<Stock | undefined>;
   deleteStock(id: string): Promise<boolean>;
   getCurrentStockLevel(): Promise<number>;
+  /** FIFO: get weighted-average purchase cost for the next quantity gallons. Returns null if insufficient stock. */
+  getFIFOPurchaseCostForQuantity(quantityGallons: number): Promise<{ pricePerGallon: number; totalCost: number } | null>;
   
   // Client methods
   getClients(): Promise<Client[]>;
@@ -216,6 +218,36 @@ export class DatabaseStorage implements IStorage {
 
     const created = result[0];
 
+    // Always record stock purchase as cashbook outflow (cost / expense) so cashbook tracks all costs
+    const purchaseDate = (insertStock as any).purchaseDate || new Date();
+    let stockPurchaseAccountHeadId: string;
+    if ((insertStock as any).supplierAccountHeadId) {
+      stockPurchaseAccountHeadId = (insertStock as any).supplierAccountHeadId as string;
+    } else {
+      const existing = await db.select().from(accountHeads).where(eq(accountHeads.name, "Stock Purchase")).limit(1);
+      if (existing[0]) {
+        stockPurchaseAccountHeadId = existing[0].id;
+      } else {
+        const [newHead] = await db.insert(accountHeads).values({ name: "Stock Purchase", type: "Expense" }).returning();
+        stockPurchaseAccountHeadId = newHead.id;
+      }
+    }
+    await this.createCashbookEntry({
+      transactionDate: purchaseDate instanceof Date ? purchaseDate : new Date(purchaseDate),
+      transactionType: "Stock Purchase",
+      category: "Cost",
+      accountHeadId: stockPurchaseAccountHeadId,
+      amount: totalCost.toFixed(2),
+      isInflow: 0,
+      description: `Stock purchase - ${quantity} gallons @ ${pricePerGallon.toFixed(2)}/gal`,
+      counterparty: "Supplier",
+      paymentMethod: "Credit",
+      referenceType: "stock",
+      referenceId: created.id,
+      isPending: 0,
+      notes: `Stock entry ${created.id}`,
+    });
+
     // If a supplier is specified, allocate from supplier advances to cover this stock purchase
     if ((insertStock as any).supplierAccountHeadId) {
       const supplierId = (insertStock as any).supplierAccountHeadId as string;
@@ -279,6 +311,55 @@ export class DatabaseStorage implements IStorage {
     const totalSold = salesResult[0]?.totalSold || 0;
     
     return totalPurchased - totalSold;
+  }
+
+  /**
+   * Compute FIFO purchase cost for a given quantity: simulate consumption from stock batches
+   * (oldest purchase_date first), then allocate the requested quantity and return weighted-average
+   * price per gallon and total cost. Returns null if there is insufficient stock.
+   */
+  async getFIFOPurchaseCostForQuantity(quantityGallons: number): Promise<{ pricePerGallon: number; totalCost: number } | null> {
+    if (quantityGallons <= 0) return null;
+    const batches = await db
+      .select({ id: stock.id, quantityGallons: stock.quantityGallons, purchasePricePerGallon: stock.purchasePricePerGallon })
+      .from(stock)
+      .orderBy(asc(stock.purchaseDate), asc(stock.id));
+    const salesList = await db
+      .select({ quantityGallons: sales.quantityGallons })
+      .from(sales)
+      .orderBy(asc(sales.saleDate), asc(sales.id));
+
+    const remaining = new Map<string, number>();
+    for (const b of batches) {
+      remaining.set(b.id, parseFloat(b.quantityGallons));
+    }
+    for (const s of salesList) {
+      let q = parseFloat(s.quantityGallons);
+      for (const b of batches) {
+        if (q <= 0) break;
+        const rem = remaining.get(b.id) ?? 0;
+        const take = Math.min(rem, q);
+        if (take > 0) {
+          remaining.set(b.id, rem - take);
+          q -= take;
+        }
+      }
+    }
+    let need = quantityGallons;
+    let totalCost = 0;
+    for (const b of batches) {
+      if (need <= 0) break;
+      const rem = remaining.get(b.id) ?? 0;
+      const take = Math.min(rem, need);
+      if (take > 0) {
+        const price = parseFloat(b.purchasePricePerGallon);
+        totalCost += take * price;
+        need -= take;
+      }
+    }
+    if (need > 0) return null;
+    const pricePerGallon = totalCost / quantityGallons;
+    return { pricePerGallon, totalCost };
   }
 
   async getClients(): Promise<Client[]> {
@@ -513,7 +594,6 @@ export class DatabaseStorage implements IStorage {
         lpoNumber: sales.lpoNumber,
         deliveryNoteNumber: sales.deliveryNoteNumber,
         lpoReceivedDate: sales.lpoReceivedDate,
-        lpoDueDate: sales.lpoDueDate,
         invoiceDate: sales.invoiceDate,
         saleStatus: sales.saleStatus,
         vatPercentage: sales.vatPercentage,
@@ -552,7 +632,6 @@ export class DatabaseStorage implements IStorage {
         lpoNumber: sales.lpoNumber,
         deliveryNoteNumber: sales.deliveryNoteNumber,
         lpoReceivedDate: sales.lpoReceivedDate,
-        lpoDueDate: sales.lpoDueDate,
         invoiceDate: sales.invoiceDate,
         saleStatus: sales.saleStatus,
         vatPercentage: sales.vatPercentage,
@@ -590,7 +669,6 @@ export class DatabaseStorage implements IStorage {
         lpoNumber: sales.lpoNumber,
         deliveryNoteNumber: sales.deliveryNoteNumber,
         lpoReceivedDate: sales.lpoReceivedDate,
-        lpoDueDate: sales.lpoDueDate,
         invoiceDate: sales.invoiceDate,
         saleStatus: sales.saleStatus,
         vatPercentage: sales.vatPercentage,
@@ -629,7 +707,6 @@ export class DatabaseStorage implements IStorage {
         lpoNumber: sales.lpoNumber,
         deliveryNoteNumber: sales.deliveryNoteNumber,
         lpoReceivedDate: sales.lpoReceivedDate,
-        lpoDueDate: sales.lpoDueDate,
         invoiceDate: sales.invoiceDate,
         saleStatus: sales.saleStatus,
         vatPercentage: sales.vatPercentage,
@@ -766,8 +843,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createInvoice(insertInvoice: InsertInvoice): Promise<Invoice> {
-    // Backward-compatible single-sale invoice creation
-    const result = await db.insert(invoices).values(insertInvoice).returning();
+    const values = { ...insertInvoice } as Record<string, unknown>;
+    if (insertInvoice.invoiceDate) {
+      const d = new Date(insertInvoice.invoiceDate as any);
+      d.setMonth(d.getMonth() + 1);
+      values.dueDate = d;
+    }
+    const result = await db.insert(invoices).values(values as any).returning();
     const inv = result[0];
     // Link the single sale in invoice_sales for consistency
     await db.insert(invoiceSales).values({ invoiceId: inv.id, saleId: insertInvoice.saleId });
@@ -777,9 +859,15 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateInvoice(id: string, insertInvoice: InsertInvoice): Promise<Invoice | undefined> {
+    const updateData = { ...insertInvoice } as Record<string, unknown>;
+    if (insertInvoice.invoiceDate) {
+      const d = new Date(insertInvoice.invoiceDate as any);
+      d.setMonth(d.getMonth() + 1);
+      updateData.dueDate = d;
+    }
     const result = await db
       .update(invoices)
-      .set(insertInvoice)
+      .set(updateData as any)
       .where(eq(invoices.id, id))
       .returning();
     return result[0];
@@ -802,12 +890,16 @@ export class DatabaseStorage implements IStorage {
     const totalAmount = candidateSales.reduce((sum, s) => sum + parseFloat(s.totalAmount), 0);
     const vatAmount = candidateSales.reduce((sum, s) => sum + parseFloat(s.vatAmount), 0);
 
+    // Due date = 1 month from invoice date
+    const dueDate = new Date(invoiceDate);
+    dueDate.setMonth(dueDate.getMonth() + 1);
     // Create invoice row (pick first sale's id for legacy column, but will link all via invoice_sales)
     const baseSaleId = candidateSales[0].id;
     const invRows = await db.insert(invoices).values({
       saleId: baseSaleId,
       invoiceNumber,
       invoiceDate,
+      dueDate,
       lpoNumber,
       totalAmount: totalAmount.toFixed(2),
       vatAmount: vatAmount.toFixed(2),
@@ -1307,7 +1399,6 @@ export class DatabaseStorage implements IStorage {
         projectId: sales.projectId,
         saleDate: sales.saleDate,
         lpoReceivedDate: sales.lpoReceivedDate,
-        lpoDueDate: sales.lpoDueDate,
         invoiceDate: sales.invoiceDate,
         saleStatus: sales.saleStatus,
         totalAmount: sales.totalAmount,
@@ -1324,10 +1415,7 @@ export class DatabaseStorage implements IStorage {
       let delayDays = 0;
       let delayReason = "";
       
-      if (r.saleStatus === "Pending LPO" && r.lpoDueDate) {
-        delayDays = Math.floor((now.getTime() - new Date(r.lpoDueDate).getTime()) / (1000 * 60 * 60 * 24));
-        delayReason = delayDays > 0 ? `LPO overdue by ${delayDays} days` : `LPO due in ${Math.abs(delayDays)} days`;
-      } else if (r.saleStatus === "LPO Received" && r.lpoReceivedDate) {
+      if (r.saleStatus === "LPO Received" && r.lpoReceivedDate) {
         delayDays = Math.floor((now.getTime() - new Date(r.lpoReceivedDate).getTime()) / (1000 * 60 * 60 * 24));
         delayReason = `Invoice pending for ${delayDays} days`;
       } else if (r.saleStatus === "Invoiced" && r.invoiceDate) {
@@ -1467,7 +1555,6 @@ export class DatabaseStorage implements IStorage {
         lpoNumber: sales.lpoNumber,
         deliveryNoteNumber: sales.deliveryNoteNumber,
         lpoReceivedDate: sales.lpoReceivedDate,
-        lpoDueDate: sales.lpoDueDate,
         invoiceDate: sales.invoiceDate,
         saleStatus: sales.saleStatus,
         vatPercentage: sales.vatPercentage,
@@ -1520,7 +1607,6 @@ export class DatabaseStorage implements IStorage {
         lpoNumber: sales.lpoNumber,
         deliveryNoteNumber: sales.deliveryNoteNumber,
         lpoReceivedDate: sales.lpoReceivedDate,
-        lpoDueDate: sales.lpoDueDate,
         invoiceDate: sales.invoiceDate,
         saleStatus: sales.saleStatus,
         vatPercentage: sales.vatPercentage,
@@ -1960,11 +2046,10 @@ export class DatabaseStorage implements IStorage {
 
   async getOverdueClientPayments(daysThreshold: number): Promise<{
     client: Client;
-    invoices: Array<{ id: string; invoiceNumber: string | null; invoiceDate: Date | null; pendingAmount: number; totalAmount: number }>;
+    invoices: Array<{ id: string; invoiceNumber: string | null; invoiceDate: Date | null; dueDate: Date | null; pendingAmount: number; totalAmount: number }>;
     totalPending: number;
   }[]> {
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - Math.max(1, daysThreshold || 30));
+    const today = new Date();
 
     // Fetch candidate invoices that are still not marked Paid
     const rows = await db
@@ -1977,17 +2062,20 @@ export class DatabaseStorage implements IStorage {
       .leftJoin(sales, eq(invoices.saleId, sales.id))
       .leftJoin(clients, eq(sales.clientId, clients.id));
 
-    // Compute pending amounts and filter overdue
-    const perClient: Record<string, { client: Client; invoices: Array<{ id: string; invoiceNumber: string | null; invoiceDate: Date | null; pendingAmount: number; totalAmount: number }>; totalPending: number }>
+    // Compute pending amounts and filter: overdue = due date (1 month from invoice date) has passed
+    const perClient: Record<string, { client: Client; invoices: Array<{ id: string; invoiceNumber: string | null; invoiceDate: Date | null; dueDate: Date | null; pendingAmount: number; totalAmount: number }>; totalPending: number }>
       = {};
 
     for (const r of rows) {
       if (!r.invoice || !r.sale || !r.client) continue;
-      // Consider only invoices that are not paid
       if (r.invoice.status === 'Paid') continue;
-      // Must have an invoice date
-      const invDate = r.invoice.invoiceDate ? new Date(r.invoice.invoiceDate as any) : undefined;
-      if (!invDate || invDate > cutoff) continue;
+      const invDate = r.invoice.invoiceDate ? new Date(r.invoice.invoiceDate as any) : null;
+      const dueDate = (r.invoice as any).dueDate
+        ? new Date((r.invoice as any).dueDate as any)
+        : invDate
+          ? (() => { const d = new Date(invDate); d.setMonth(d.getMonth() + 1); return d; })()
+          : null;
+      if (!dueDate || dueDate >= today) continue;
 
       const allocated = await this.getInvoiceAllocatedAmount(r.invoice.id);
       const totalAmt = parseFloat(r.invoice.totalAmount);
@@ -2002,6 +2090,7 @@ export class DatabaseStorage implements IStorage {
         id: r.invoice.id,
         invoiceNumber: r.invoice.invoiceNumber,
         invoiceDate: invDate,
+        dueDate,
         pendingAmount: parseFloat(pending.toFixed(2)),
         totalAmount: totalAmt,
       });
@@ -2040,6 +2129,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteStock(id: string): Promise<boolean> {
+    // Remove supplier advance allocations that reference this stock
+    await db.delete(supplierAdvanceAllocations).where(eq(supplierAdvanceAllocations.stockId, id));
+    // Remove cashbook entries linked to this stock (purchase outflow + any unsettled debt)
+    await db.delete(cashbook).where(and(eq(cashbook.referenceType, "stock"), eq(cashbook.referenceId, id)));
     const result = await db
       .delete(stock)
       .where(eq(stock.id, id))

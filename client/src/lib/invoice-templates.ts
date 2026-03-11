@@ -125,13 +125,10 @@ export function generateModernInvoice({ businessSettings, invoice }: InvoiceTemp
   doc.text(invoice.invoiceNumber, 155, 52);
   doc.text(formatDate(invoice.invoiceDate), 155, 58);
   
-  // Calculate due date based on payment terms
+  // Due date = 1 month from invoice date
   const dueDate = new Date(invoice.invoiceDate);
-  const terms = businessSettings.defaultPaymentTerms.match(/\d+/);
-  if (terms) {
-    dueDate.setDate(dueDate.getDate() + parseInt(terms[0]));
-  }
-  doc.text(formatDate(dueDate), 155, 64);
+  dueDate.setMonth(dueDate.getMonth() + 1);
+  doc.text(formatDate(invoice.dueDate ? new Date(invoice.dueDate) : dueDate), 155, 64);
   doc.text(invoice.sale.lpoNumber || 'N/A', 155, 70);
   
   // Bill To section
