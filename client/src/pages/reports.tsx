@@ -12,7 +12,7 @@ import { CURRENCY, STATUS_COLORS } from "@/lib/constants";
 import type { Sale, Client, Invoice } from "@shared/schema";
 import ExcelJS from 'exceljs';
 
-type SaleWithClient = Sale & { client: Client };
+type SaleWithClient = Sale & { client: Client; project?: { name: string } | null };
 
 export default function Reports() {
   const [selectedClient, setSelectedClient] = useState<string>("all");
@@ -34,6 +34,17 @@ export default function Reports() {
   const { data: invoices = [] } = useQuery<any[]>({
     queryKey: ["/api/invoices"],
   });
+
+  // Map saleId -> { invoiceNumber, invoiceDate } for pending report
+  const saleIdToInvoice = useMemo(() => {
+    const map: Record<string, { invoiceNumber: string; invoiceDate: string }> = {};
+    (invoices || []).forEach((inv: any) => {
+      const info = { invoiceNumber: inv.invoiceNumber ?? "", invoiceDate: inv.invoiceDate ? new Date(inv.invoiceDate).toISOString() : "" };
+      if (inv.sale?.id) map[inv.sale.id] = info;
+      (inv.sales || []).forEach((s: any) => { if (s?.id) map[s.id] = info; });
+    });
+    return map;
+  }, [invoices]);
 
   // Filter sales based on selected criteria
   const filteredSales = sales.filter(sale => {
@@ -260,10 +271,11 @@ export default function Reports() {
       // Pending LPO (Sales) or VAT: sales columns and data
       const headers = [
         "Date of Sale",
-        "Date of Invoice",
-        "Invoice Number",
         "Client Name",
+        "Project",
         "LPO Number",
+        "Invoice Number",
+        "Date of Invoice",
         "Quantity (Gallons)",
         "Unit Price (AED)",
         "Subtotal (AED)",
@@ -285,12 +297,15 @@ export default function Reports() {
       currentRow++;
 
       filteredSales.forEach(sale => {
+        const inv = saleIdToInvoice[sale.id];
+        const saleWithProject = sale as SaleWithClient;
         const rowData = [
           new Date(sale.saleDate).toLocaleDateString(),
-          sale.saleStatus === "Invoiced" || sale.saleStatus === "Paid" ? new Date(sale.saleDate).toLocaleDateString() : "Not Invoiced",
-          sale.saleStatus === "Invoiced" || sale.saleStatus === "Paid" ? `INV-${sale.lpoNumber}` : "Not Generated",
           sale.client.name,
+          saleWithProject.project?.name ?? "—",
           sale.lpoNumber,
+          inv?.invoiceNumber ?? "—",
+          inv?.invoiceDate ? new Date(inv.invoiceDate).toLocaleDateString() : (sale.invoiceDate ? new Date(sale.invoiceDate).toLocaleDateString() : "—"),
           parseFloat(sale.quantityGallons),
           parseFloat(sale.salePricePerGallon),
           parseFloat(sale.subtotal),
@@ -305,12 +320,12 @@ export default function Reports() {
       });
 
       currentRow++;
-      worksheet.getCell(currentRow, 6).value = "TOTALS:";
-      worksheet.getCell(currentRow, 6).font = { bold: true };
-      worksheet.getCell(currentRow, 7).value = totals.quantity;
-      worksheet.getCell(currentRow, 8).value = totals.subtotal;
-      worksheet.getCell(currentRow, 9).value = totals.vatAmount;
-      worksheet.getCell(currentRow, 10).value = totals.totalAmount;
+      worksheet.getCell(currentRow, 7).value = "TOTALS:";
+      worksheet.getCell(currentRow, 7).font = { bold: true };
+      worksheet.getCell(currentRow, 8).value = totals.quantity;
+      worksheet.getCell(currentRow, 10).value = totals.subtotal;
+      worksheet.getCell(currentRow, 11).value = totals.vatAmount;
+      worksheet.getCell(currentRow, 12).value = totals.totalAmount;
     }
 
     // Auto-size columns
@@ -652,7 +667,10 @@ export default function Reports() {
                     <tr className="border-b">
                       <th className="text-left p-3 text-sm font-medium text-gray-600">Date</th>
                       <th className="text-left p-3 text-sm font-medium text-gray-600">Client</th>
+                      <th className="text-left p-3 text-sm font-medium text-gray-600">Project</th>
                       <th className="text-left p-3 text-sm font-medium text-gray-600">LPO Number</th>
+                      <th className="text-left p-3 text-sm font-medium text-gray-600">Invoice No.</th>
+                      <th className="text-left p-3 text-sm font-medium text-gray-600">Invoice Date</th>
                       <th className="text-right p-3 text-sm font-medium text-gray-600">Quantity</th>
                       <th className="text-right p-3 text-sm font-medium text-gray-600">Subtotal</th>
                       <th className="text-right p-3 text-sm font-medium text-gray-600">VAT</th>
@@ -661,37 +679,48 @@ export default function Reports() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredSales.map((sale) => (
-                      <tr key={sale.id} className="border-b hover:bg-gray-50">
-                        <td className="p-3 text-sm">
-                          {new Date(sale.saleDate).toLocaleDateString()}
-                        </td>
-                        <td className="p-3 text-sm font-medium">{sale.client.name}</td>
-                        <td className="p-3 text-sm">{sale.lpoNumber}</td>
-                        <td className="p-3 text-sm text-right">{parseFloat(sale.quantityGallons).toFixed(0)}</td>
-                        <td className="p-3 text-sm text-right">{CURRENCY} {parseFloat(sale.subtotal).toFixed(2)}</td>
-                        <td className="p-3 text-sm text-right">{CURRENCY} {parseFloat(sale.vatAmount).toFixed(2)}</td>
-                        <td className="p-3 text-sm text-right font-medium">{CURRENCY} {parseFloat(sale.totalAmount).toFixed(2)}</td>
-                        <td className="p-3 text-center">
-                          <Badge className={STATUS_COLORS[sale.saleStatus as keyof typeof STATUS_COLORS]}>
-                            {sale.saleStatus}
-                          </Badge>
-                        </td>
-                      </tr>
-                    ))}
+                    {filteredSales.map((sale) => {
+                      const inv = saleIdToInvoice[sale.id];
+                      return (
+                        <tr key={sale.id} className="border-b hover:bg-gray-50">
+                          <td className="p-3 text-sm">
+                            {new Date(sale.saleDate).toLocaleDateString()}
+                          </td>
+                          <td className="p-3 text-sm font-medium">{sale.client.name}</td>
+                          <td className="p-3 text-sm">{(sale as SaleWithClient).project?.name ?? "—"}</td>
+                          <td className="p-3 text-sm">{sale.lpoNumber}</td>
+                          <td className="p-3 text-sm">{inv?.invoiceNumber ?? "—"}</td>
+                          <td className="p-3 text-sm">{inv?.invoiceDate ? new Date(inv.invoiceDate).toLocaleDateString() : (sale.invoiceDate ? new Date(sale.invoiceDate).toLocaleDateString() : "—")}</td>
+                          <td className="p-3 text-sm text-right">{parseFloat(sale.quantityGallons).toFixed(0)}</td>
+                          <td className="p-3 text-sm text-right">{CURRENCY} {parseFloat(sale.subtotal).toFixed(2)}</td>
+                          <td className="p-3 text-sm text-right">{CURRENCY} {parseFloat(sale.vatAmount).toFixed(2)}</td>
+                          <td className="p-3 text-sm text-right font-medium">{CURRENCY} {parseFloat(sale.totalAmount).toFixed(2)}</td>
+                          <td className="p-3 text-center">
+                            <Badge className={STATUS_COLORS[sale.saleStatus as keyof typeof STATUS_COLORS]}>
+                              {sale.saleStatus}
+                            </Badge>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
 
               {/* Mobile Cards */}
               <div className="md:hidden space-y-4">
-                {filteredSales.map((sale) => (
+                {filteredSales.map((sale) => {
+                  const inv = saleIdToInvoice[sale.id];
+                  return (
                   <Card key={sale.id}>
                     <CardContent className="p-4">
                       <div className="flex items-start justify-between mb-3">
                         <div>
                           <h3 className="font-medium text-gray-900">{sale.client.name}</h3>
                           <p className="text-sm text-gray-600">{sale.lpoNumber}</p>
+                          {(sale as SaleWithClient).project?.name && (
+                            <p className="text-sm text-gray-500">Project: {(sale as SaleWithClient).project?.name}</p>
+                          )}
                         </div>
                         <Badge className={STATUS_COLORS[sale.saleStatus as keyof typeof STATUS_COLORS]}>
                           {sale.saleStatus}
@@ -707,6 +736,18 @@ export default function Reports() {
                           <span className="text-gray-600">Quantity:</span>
                           <p className="font-medium">{parseFloat(sale.quantityGallons).toFixed(0)} gal</p>
                         </div>
+                        {inv && (
+                          <>
+                            <div>
+                              <span className="text-gray-600">Invoice No.:</span>
+                              <p className="font-medium">{inv.invoiceNumber}</p>
+                            </div>
+                            <div>
+                              <span className="text-gray-600">Invoice Date:</span>
+                              <p className="font-medium">{inv.invoiceDate ? new Date(inv.invoiceDate).toLocaleDateString() : "—"}</p>
+                            </div>
+                          </>
+                        )}
                       </div>
 
                       <Separator className="my-3" />
@@ -727,7 +768,8 @@ export default function Reports() {
                       </div>
                     </CardContent>
                   </Card>
-                ))}
+                  );
+                })}
               </div>
 
               {/* Summary Footer */}

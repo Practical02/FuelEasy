@@ -454,7 +454,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ? await storage.getSalesByStatus(status as string)
         : await storage.getSales();
       
-      // Simple pagination
+      // Status-filtered lists (e.g. LPO page) must return every row — dashboard count vs table
+      // was wrong when e.g. 74 Pending LPO existed but only 50 were returned per page.
+      if (status) {
+        res.json({
+          data: sales,
+          pagination: {
+            page: 1,
+            limit: sales.length,
+            total: sales.length,
+            totalPages: 1,
+          },
+        });
+        return;
+      }
+
       const startIndex = (pageNum - 1) * limitNum;
       const endIndex = startIndex + limitNum;
       const paginatedSales = sales.slice(startIndex, endIndex);
