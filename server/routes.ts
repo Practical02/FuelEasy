@@ -15,7 +15,6 @@ import {
   insertCashbookSchema,
   insertAccountHeadSchema,
   insertCashbookPaymentAllocationSchema,
-  insertSupplierAdvanceAllocationSchema,
   insertBusinessSettingsSchema
 } from "@shared/schema";
 import "./types/session";
@@ -446,16 +445,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Sale routes
   app.get("/api/sales", requireAuth, cacheMiddleware(2 * 60 * 1000), async (req, res) => {
     try {
-      const { status, page = '1', limit = '50' } = req.query;
+      const { status, page = "1", limit } = req.query;
       const pageNum = Math.max(1, parseInt(page as string) || 1);
-      const limitNum = Math.min(100, Math.max(1, parseInt(limit as string) || 50));
-      
-      const sales = status 
+      /** Max rows per page when paginating; omit limit (or limit=all) to return full list for Sales/Reports/etc. */
+      const MAX_PAGE = 50_000;
+
+      const sales = status
         ? await storage.getSalesByStatus(status as string)
         : await storage.getSales();
-      
-      // Status-filtered lists (e.g. LPO page) must return every row — dashboard count vs table
-      // was wrong when e.g. 74 Pending LPO existed but only 50 were returned per page.
+
+      // Status-filtered lists (e.g. LPO page): always every row for that status
       if (status) {
         res.json({
           data: sales,
@@ -469,18 +468,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return;
       }
 
+      const limitStr = limit === undefined || limit === null ? "" : String(limit);
+      const returnAll =
+        limitStr === "" ||
+        limitStr === "all" ||
+        limitStr === "0";
+
+      if (returnAll) {
+        res.json({
+          data: sales,
+          pagination: {
+            page: 1,
+            limit: sales.length,
+            total: sales.length,
+            totalPages: 1,
+          },
+        });
+        return;
+      }
+
+      const limitNum = Math.min(MAX_PAGE, Math.max(1, parseInt(limitStr, 10) || 50));
       const startIndex = (pageNum - 1) * limitNum;
       const endIndex = startIndex + limitNum;
       const paginatedSales = sales.slice(startIndex, endIndex);
-      
+
       res.json({
         data: paginatedSales,
         pagination: {
           page: pageNum,
           limit: limitNum,
           total: sales.length,
-          totalPages: Math.ceil(sales.length / limitNum)
-        }
+          totalPages: Math.ceil(sales.length / limitNum) || 1,
+        },
       });
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch sales", error: error instanceof Error ? error.message : String(error) });
@@ -895,30 +914,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Cashbook routes
   app.get("/api/cashbook", requireAuth, async (req, res) => {
     try {
-      const entries = await storage.getCashbookEntries();
+      const accountHeadId = typeof req.query.accountHeadId === "string" ? req.query.accountHeadId : undefined;
+      const dateFrom = typeof req.query.dateFrom === "string" ? req.query.dateFrom : undefined;
+      const dateTo = typeof req.query.dateTo === "string" ? req.query.dateTo : undefined;
+      const transactionType = typeof req.query.transactionType === "string" ? req.query.transactionType : undefined;
+      const flow = typeof req.query.flow === "string" ? req.query.flow : undefined; // inflow | outflow
+      const entries = await storage.getCashbookEntries({
+        accountHeadId,
+        dateFrom,
+        dateTo,
+        transactionType,
+        flow: flow === "inflow" ? "inflow" : flow === "outflow" ? "outflow" : undefined,
+      });
       res.json(entries);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch cashbook entries", error: error instanceof Error ? error.message : String(error) });
-    }
-  });
-
-  // Supplier advance allocation listing
-  app.get("/api/cashbook/supplier-advances", requireAuth, async (req, res) => {
-    try {
-      const advances = await storage.getSupplierAdvances();
-      res.json(advances);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch supplier advances", error: error instanceof Error ? error.message : String(error) });
-    }
-  });
-
-  app.post("/api/cashbook/supplier-advance-allocations", requireAuth, writeLimiter, async (req, res) => {
-    try {
-      const allocationData = insertSupplierAdvanceAllocationSchema.parse(req.body);
-      const allocation = await storage.createSupplierAdvanceAllocation(allocationData);
-      res.json(allocation);
-    } catch (error) {
-      res.status(400).json({ message: "Invalid supplier advance allocation data", error: error instanceof Error ? error.message : String(error) });
     }
   });
 

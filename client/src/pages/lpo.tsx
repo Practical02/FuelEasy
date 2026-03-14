@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Header from "@/components/layout/header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -8,6 +8,7 @@ import { SearchInput } from "@/components/ui/search-input";
 import EditSaleModal from "@/components/modals/edit-sale-modal";
 import { ClipboardList, Pencil } from "lucide-react";
 import { CURRENCY, STATUS_COLORS } from "@/lib/constants";
+import { SALES_PAGE_SIZE } from "@/lib/sales-query";
 import type { SaleWithClient } from "@shared/schema";
 
 export default function LPO() {
@@ -15,6 +16,7 @@ export default function LPO() {
   const [selectedSaleId, setSelectedSaleId] = useState<string>("");
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "received">("all");
+  const [lpoPage, setLpoPage] = useState(1);
 
   // Fetch Pending LPO and LPO Received separately so we get all relevant sales (no pagination cutoff)
   const { data: pendingResponse } = useQuery<any>({
@@ -52,6 +54,21 @@ export default function LPO() {
       return true;
     });
   }, [sales, statusFilter, searchTerm]);
+
+  const lpoTotalPages = Math.max(1, Math.ceil(filteredSales.length / SALES_PAGE_SIZE));
+  const lpoSafePage = Math.min(lpoPage, lpoTotalPages);
+  const pagedLpo = useMemo(() => {
+    const start = (lpoSafePage - 1) * SALES_PAGE_SIZE;
+    return filteredSales.slice(start, start + SALES_PAGE_SIZE);
+  }, [filteredSales, lpoSafePage]);
+
+  useEffect(() => {
+    setLpoPage(1);
+  }, [statusFilter, searchTerm]);
+
+  useEffect(() => {
+    setLpoPage((p) => Math.min(p, lpoTotalPages));
+  }, [lpoTotalPages]);
 
   const selectedSale = selectedSaleId
     ? (sales.find((s) => s.id === selectedSaleId) ?? null)
@@ -100,9 +117,38 @@ export default function LPO() {
           </div>
         </div>
 
-        <p className="text-sm text-gray-600 mb-4">
-          Showing {filteredSales.length} sale(s). Record or edit LPO details for each sale.
-        </p>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
+          <p className="text-sm text-gray-600">
+            {filteredSales.length} sale(s) total
+            {lpoTotalPages > 1 &&
+              ` · rows ${(lpoSafePage - 1) * SALES_PAGE_SIZE + 1}–${Math.min(lpoSafePage * SALES_PAGE_SIZE, filteredSales.length)}`}
+          </p>
+          {lpoTotalPages > 1 && (
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={lpoSafePage <= 1}
+                onClick={() => setLpoPage((p) => Math.max(1, p - 1))}
+              >
+                Previous
+              </Button>
+              <span className="text-sm text-gray-600 tabular-nums">
+                Page {lpoSafePage} / {lpoTotalPages}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={lpoSafePage >= lpoTotalPages}
+                onClick={() => setLpoPage((p) => Math.min(lpoTotalPages, p + 1))}
+              >
+                Next
+              </Button>
+            </div>
+          )}
+        </div>
 
         <Card>
           <CardContent className="p-4 lg:p-6">
@@ -129,7 +175,7 @@ export default function LPO() {
                       </td>
                     </tr>
                   ) : (
-                    filteredSales.map((sale) => (
+                    pagedLpo.map((sale) => (
                       <tr key={sale.id} className="border-b hover:bg-gray-50">
                         <td className="py-3 px-4 text-sm font-medium text-gray-900">
                           {(sale as SaleWithClient).client?.name ?? "—"}

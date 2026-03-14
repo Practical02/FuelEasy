@@ -39,9 +39,13 @@ export default function PaymentModal({ open, onOpenChange, saleId }: PaymentModa
 
   // Fetch data
   const { data: salesResponse } = useQuery<any>({
-    queryKey: ["/api/sales"],
+    queryKey: ["/api/sales", "all"],
     enabled: open,
-    queryFn: async () => (await apiRequest("GET", "/api/sales")).json(),
+    queryFn: async () => {
+      const r = await apiRequest("GET", "/api/sales?limit=all");
+      const j = await r.json();
+      return Array.isArray(j) ? { data: j } : j;
+    },
   });
   const sales: any[] = Array.isArray(salesResponse)
     ? (salesResponse as any[])

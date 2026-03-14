@@ -16,6 +16,7 @@ import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { Trash2, Users, CreditCard } from "lucide-react";
 import { CURRENCY } from "@/lib/constants";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { SALES_ALL_QUERY_KEY, fetchAllSales, salesListFromResponse } from "@/lib/sales-query";
 import { useToast } from "@/hooks/use-toast";
 import type { PaymentWithSaleAndClient, Client } from "@shared/schema";
 
@@ -43,12 +44,11 @@ export default function Payments() {
   });
 
 // type SaleWithClient = any;
-const { data: salesResponse } = useQuery<any>({
-    queryKey: ["/api/sales"],
+  const { data: salesResponse } = useQuery({
+    queryKey: SALES_ALL_QUERY_KEY,
+    queryFn: fetchAllSales,
   });
-const sales: SaleWithClient[] = Array.isArray(salesResponse)
-  ? (salesResponse as SaleWithClient[])
-  : (salesResponse?.data ?? []);
+  const sales: SaleWithClient[] = salesListFromResponse(salesResponse) as SaleWithClient[];
 
   const deletePaymentMutation = useMutation({
     mutationFn: async (paymentId: string) => {

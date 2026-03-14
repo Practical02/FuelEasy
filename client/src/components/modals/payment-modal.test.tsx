@@ -60,6 +60,12 @@ describe('PaymentModal', () => {
       if (url === '/api/sales/sale-123') {
         return Promise.resolve({ json: () => Promise.resolve(mockSale) });
       }
+      if (url === '/api/sales?limit=all') {
+        return Promise.resolve({ json: () => Promise.resolve({ data: [mockSale] }) });
+      }
+      if (url === '/api/clients') {
+        return Promise.resolve({ json: () => Promise.resolve([{ id: 'client-456', name: 'Test Client' }]) });
+      }
       if (url === '/api/payments/sale/sale-123') {
         return Promise.resolve({ json: () => Promise.resolve(mockPayments) });
       }
@@ -144,6 +150,12 @@ describe('PaymentModal', () => {
       const [method, url] = args;
       if (url === '/api/sales/sale-123') {
         return Promise.resolve({ json: () => Promise.resolve(mockSale) });
+      }
+      if (url === '/api/sales?limit=all') {
+        return Promise.resolve({ json: () => Promise.resolve({ data: [mockSale] }) });
+      }
+      if (url === '/api/clients') {
+        return Promise.resolve({ json: () => Promise.resolve([{ id: 'client-456', name: 'Test Client' }]) });
       }
       if (url === '/api/payments/sale/sale-123') {
         return Promise.resolve({ json: () => Promise.resolve(mockPayments) });

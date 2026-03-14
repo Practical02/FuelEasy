@@ -67,8 +67,10 @@ describe('Sales Page', () => {
 // ...existing code...
     (apiRequest as unknown as import('vitest').MockInstance<any>).mockImplementation((...args) => {
       const [method, url] = args;
-      if (url === '/api/sales') {
-        return Promise.resolve({ json: () => Promise.resolve(mockSales) });
+      if (url === '/api/sales?limit=all' || url === '/api/sales') {
+        return Promise.resolve({
+          json: () => Promise.resolve({ data: mockSales, pagination: { total: mockSales.length, totalPages: 1, page: 1, limit: mockSales.length } }),
+        });
       }
       if (url === '/api/clients') {
         return Promise.resolve({ json: () => Promise.resolve(mockClients) });

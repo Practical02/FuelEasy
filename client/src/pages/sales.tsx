@@ -18,6 +18,12 @@ import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { Edit, Eye, CreditCard, Trash2, Users, Fuel } from "lucide-react";
 import { CURRENCY, SALE_STATUSES } from "@/lib/constants";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import {
+  SALES_ALL_QUERY_KEY,
+  SALES_PAGE_SIZE,
+  fetchAllSales,
+  salesListFromResponse,
+} from "@/lib/sales-query";
 import { useToast } from "@/hooks/use-toast";
 import type { SaleWithClient, Client } from "@shared/schema";
 
@@ -42,15 +48,14 @@ export default function Sales() {
   const [maxAmount, setMaxAmount] = useState("");
   const [minQuantity, setMinQuantity] = useState("");
   const [maxQuantity, setMaxQuantity] = useState("");
+  const [salesPage, setSalesPage] = useState(1);
 
-  const { data: salesResponse, isLoading } = useQuery<any>({
-    queryKey: ["/api/sales"],
-    queryFn: async () => (await apiRequest("GET", "/api/sales")).json(),
+  const { data: salesResponse, isLoading } = useQuery({
+    queryKey: SALES_ALL_QUERY_KEY,
+    queryFn: fetchAllSales,
   });
 
-  const sales: SaleWithClient[] = Array.isArray(salesResponse)
-    ? salesResponse
-    : (salesResponse?.data ?? []);
+  const sales: SaleWithClient[] = salesListFromResponse(salesResponse) as SaleWithClient[];
 
   const { data: clients } = useQuery<Client[]>({
     queryKey: ["/api/clients"],
@@ -173,6 +178,32 @@ export default function Sales() {
       return true;
     });
   }, [sales, searchTerm, selectedStatuses, selectedClients, startDate, endDate, minAmount, maxAmount, minQuantity, maxQuantity]);
+
+  const totalFiltered = filteredSales.length;
+  const totalPages = Math.max(1, Math.ceil(totalFiltered / SALES_PAGE_SIZE));
+  const safePage = Math.min(salesPage, totalPages);
+  const pagedSales = useMemo(() => {
+    const start = (safePage - 1) * SALES_PAGE_SIZE;
+    return filteredSales.slice(start, start + SALES_PAGE_SIZE);
+  }, [filteredSales, safePage]);
+
+  useEffect(() => {
+    setSalesPage(1);
+  }, [
+    searchTerm,
+    selectedStatuses,
+    selectedClients,
+    startDate,
+    endDate,
+    minAmount,
+    maxAmount,
+    minQuantity,
+    maxQuantity,
+  ]);
+
+  useEffect(() => {
+    setSalesPage((p) => Math.min(p, totalPages));
+  }, [totalPages]);
 
   // Check if any filters are active
   const hasActiveFilters = useMemo(() => {
@@ -352,11 +383,37 @@ export default function Sales() {
         </FilterPanel>
 
         {/* Results Summary */}
-        <div className="mb-4">
+        <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <p className="text-sm text-gray-600">
-            Showing {filteredSales.length} of {sales?.length || 0} sales
-            {hasActiveFilters && <span className="font-medium"> (filtered)</span>}
+            {totalFiltered === 0
+              ? `0 sales (of ${sales.length} loaded)`
+              : `Rows ${(safePage - 1) * SALES_PAGE_SIZE + 1}–${Math.min(safePage * SALES_PAGE_SIZE, totalFiltered)} of ${totalFiltered}${hasActiveFilters ? " filtered" : ""} · ${sales.length} total in system`}
           </p>
+          {totalPages > 1 && (
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={safePage <= 1}
+                onClick={() => setSalesPage((p) => Math.max(1, p - 1))}
+              >
+                Previous
+              </Button>
+              <span className="text-sm text-gray-600 tabular-nums">
+                Page {safePage} / {totalPages}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={safePage >= totalPages}
+                onClick={() => setSalesPage((p) => Math.min(totalPages, p + 1))}
+              >
+                Next
+              </Button>
+            </div>
+          )}
         </div>
 
         <Card>
@@ -385,8 +442,8 @@ export default function Sales() {
                         Loading sales...
                       </td>
                     </tr>
-                  ) : filteredSales.length > 0 ? (
-                    filteredSales.map((sale) => (
+                  ) : totalFiltered > 0 ? (
+                    pagedSales.map((sale) => (
                       <tr key={sale.id} className="border-b border-gray-100 hover:bg-gray-50">
                         <td className="py-3 px-4 text-sm text-gray-900">
                           {new Date(sale.saleDate).toLocaleDateString()}
@@ -466,8 +523,8 @@ export default function Sales() {
                 <div className="py-8 text-center text-gray-500">
                   Loading sales...
                 </div>
-              ) : filteredSales.length > 0 ? (
-                filteredSales.map((sale) => (
+              ) : totalFiltered > 0 ? (
+                pagedSales.map((sale) => (
                   <Card key={sale.id} className="border border-gray-200">
                     <CardContent className="p-4">
                       <div className="flex justify-between items-start mb-3">

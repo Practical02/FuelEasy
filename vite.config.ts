@@ -20,6 +20,18 @@ export default defineConfig(async ({ mode }) => {
       "@": path.resolve(__dirname, "client", "src"),
       "@shared": path.resolve(__dirname, "shared"),
     },
+    // Single React instance — avoids "dispatcher is null" / useContext errors when
+    // lazy chunks + manualChunks would otherwise resolve duplicate react copies.
+    dedupe: ["react", "react-dom"],
+  },
+  optimizeDeps: {
+    include: [
+      "react",
+      "react-dom",
+      "react/jsx-runtime",
+      "@radix-ui/react-popover",
+      "react-day-picker",
+    ],
   },
   root: path.resolve(__dirname, "client"),
   build: {
@@ -31,7 +43,13 @@ export default defineConfig(async ({ mode }) => {
           // Vendor chunks
           'react-vendor': ['react', 'react-dom'],
           'query-vendor': ['@tanstack/react-query'],
-          'ui-vendor': ['@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu', '@radix-ui/react-select'],
+          'ui-vendor': [
+            '@radix-ui/react-dialog',
+            '@radix-ui/react-dropdown-menu',
+            '@radix-ui/react-select',
+            '@radix-ui/react-popover',
+            '@radix-ui/react-collapsible',
+          ],
           'chart-vendor': ['recharts'],
           // Removed PDF-related vendor chunking as PDF generation is not used
         },

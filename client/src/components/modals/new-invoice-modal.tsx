@@ -11,6 +11,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { insertInvoiceSchema, SaleWithClient } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { SALES_ALL_QUERY_KEY, fetchAllSales, salesListFromResponse } from "@/lib/sales-query";
 import { useToast } from "@/hooks/use-toast";
 import { z } from "zod";
 
@@ -31,12 +32,11 @@ export default function NewInvoiceModal({ open, onOpenChange }: NewInvoiceModalP
   const isMobile = useIsMobile();
   const { toast } = useToast();
 
-  const { data: salesResponse } = useQuery<any>({
-    queryKey: ["/api/sales"],
+  const { data: salesResponse } = useQuery({
+    queryKey: SALES_ALL_QUERY_KEY,
+    queryFn: fetchAllSales,
   });
-  const sales: SaleWithClient[] = Array.isArray(salesResponse)
-    ? (salesResponse as SaleWithClient[])
-    : (salesResponse?.data ?? []);
+  const sales: SaleWithClient[] = salesListFromResponse(salesResponse) as SaleWithClient[];
 
   const form = useForm<z.infer<typeof invoiceFormSchema>>({
     resolver: zodResolver(invoiceFormSchema),

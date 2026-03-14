@@ -8,6 +8,7 @@ import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { FileText, Trash2, Eye, PlusCircle, Pencil } from "lucide-react";
 import { CURRENCY } from "@/lib/constants";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { SALES_ALL_QUERY_KEY, fetchAllSales, salesListFromResponse } from "@/lib/sales-query";
 import { useToast } from "@/hooks/use-toast";
 import type { Invoice, SaleWithClient } from "@shared/schema";
 import NewInvoiceModal from "@/components/modals/new-invoice-modal";
@@ -33,12 +34,11 @@ export default function Invoices() {
   // Use all invoices since we're not using soft delete anymore
   const invoices = allInvoices || [];
 
-  const { data: salesResponse } = useQuery<any>({
-    queryKey: ["/api/sales"],
+  const { data: salesResponse } = useQuery({
+    queryKey: SALES_ALL_QUERY_KEY,
+    queryFn: fetchAllSales,
   });
-  const sales: SaleWithClient[] = Array.isArray(salesResponse)
-    ? (salesResponse as SaleWithClient[])
-    : (salesResponse?.data ?? []);
+  const sales: SaleWithClient[] = salesListFromResponse(salesResponse) as SaleWithClient[];
 
   const deleteInvoiceMutation = useMutation({
     mutationFn: async (invoiceId: string) => {

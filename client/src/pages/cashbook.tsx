@@ -16,26 +16,43 @@ import { insertCashbookSchema, type CashbookEntry, type AccountHead, type Cashbo
 import { z } from "zod";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { PaymentAllocationModal } from "@/components/modals/payment-allocation-modal";
-import SupplierAdvanceAllocationModal from "@/components/modals/supplier-advance-allocation-modal";
-
 export default function CashbookPage() {
   const [isTransactionModalOpen, setIsTransactionModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isPayDebtModalOpen, setIsPayDebtModalOpen] = useState(false);
-  const [isAllocationModalOpen, setIsAllocationModalOpen] = useState(false);
-  const [isSupplierAllocationOpen, setIsSupplierAllocationOpen] = useState(false);
-  const { data: supplierAdvances = [] } = useQuery<any[]>({ queryKey: ["/api/cashbook/supplier-advances"] });
+  const [filterAccountHeadId, setFilterAccountHeadId] = useState<string>("all");
+  const [filterDateFrom, setFilterDateFrom] = useState<string>("");
+  const [filterDateTo, setFilterDateTo] = useState<string>("");
+  const [filterTransactionType, setFilterTransactionType] = useState<string>("all");
+  const [filterFlow, setFilterFlow] = useState<string>("all");
   const [isAccountHeadModalOpen, setIsAccountHeadModalOpen] = useState(false);
   const [selectedDebt, setSelectedDebt] = useState<CashbookEntry | null>(null);
-  const [selectedPaymentForAllocation, setSelectedPaymentForAllocation] = useState<CashbookEntryWithAccountHead | null>(null);
   const [selectedEntryForEdit, setSelectedEntryForEdit] = useState<CashbookEntryWithAccountHead | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
   // Queries
+  const cashbookQueryKey = [
+    "/api/cashbook",
+    filterAccountHeadId,
+    filterDateFrom,
+    filterDateTo,
+    filterTransactionType,
+    filterFlow,
+  ] as const;
+
   const { data: entries = [], isLoading: entriesLoading } = useQuery<CashbookEntryWithAccountHead[]>({
-    queryKey: ["/api/cashbook"],
+    queryKey: cashbookQueryKey,
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (filterAccountHeadId !== "all") params.set("accountHeadId", filterAccountHeadId);
+      if (filterDateFrom) params.set("dateFrom", filterDateFrom);
+      if (filterDateTo) params.set("dateTo", filterDateTo);
+      if (filterTransactionType !== "all") params.set("transactionType", filterTransactionType);
+      if (filterFlow !== "all") params.set("flow", filterFlow);
+      const q = params.toString();
+      return (await apiRequest("GET", `/api/cashbook${q ? `?${q}` : ""}`)).json();
+    },
   });
 
   const { data: accountHeads = [], isLoading: accountHeadsLoading } = useQuery<AccountHead[]>({
@@ -297,11 +314,6 @@ export default function CashbookPage() {
     setSelectedDebt(debt);
     debtPaymentForm.setValue("amount", debt.amount);
     setIsPayDebtModalOpen(true);
-  };
-
-  const openAllocationModal = (payment: CashbookEntryWithAccountHead) => {
-    setSelectedPaymentForAllocation(payment);
-    setIsAllocationModalOpen(true);
   };
 
   const openEditModal = (entry: CashbookEntryWithAccountHead) => {
@@ -649,9 +661,6 @@ export default function CashbookPage() {
             </Form>
           </DialogContent>
         </Dialog>
-          <Button variant="outline" onClick={() => setIsSupplierAllocationOpen(true)}>
-            Allocate Supplier Advance
-          </Button>
          </div>
       </div>
 
@@ -708,10 +717,67 @@ export default function CashbookPage() {
 
    
 
+      {/* Filters */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Filters</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Account head</label>
+            <Select value={filterAccountHeadId} onValueChange={setFilterAccountHeadId}>
+              <SelectTrigger><SelectValue placeholder="All" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All account heads</SelectItem>
+                {accountHeads.map((h) => (
+                  <SelectItem key={h.id} value={h.id}>{h.name} ({h.type})</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">From date</label>
+            <Input type="date" value={filterDateFrom} onChange={(e) => setFilterDateFrom(e.target.value)} />
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">To date</label>
+            <Input type="date" value={filterDateTo} onChange={(e) => setFilterDateTo(e.target.value)} />
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Transaction type</label>
+            <Select value={filterTransactionType} onValueChange={setFilterTransactionType}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All types</SelectItem>
+                {["Invoice", "Stock Purchase", "Supplier Payment", "Investment", "Expense", "Withdrawal", "Other"].map((t) => (
+                  <SelectItem key={t} value={t}>{t}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Flow</label>
+            <Select value={filterFlow} onValueChange={setFilterFlow}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">In + out</SelectItem>
+                <SelectItem value="inflow">Inflow only</SelectItem>
+                <SelectItem value="outflow">Outflow only</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="sm:col-span-2 lg:col-span-5 flex gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={() => { setFilterAccountHeadId("all"); setFilterDateFrom(""); setFilterDateTo(""); setFilterTransactionType("all"); setFilterFlow("all"); }}>
+              Clear filters
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* All Transactions Table */}
       <Card>
         <CardHeader>
-          <CardTitle>All Transactions</CardTitle>
+          <CardTitle>Transactions {entriesLoading ? "…" : `(${entries.length})`}</CardTitle>
         </CardHeader>
         <CardContent>
           <Table>
@@ -724,7 +790,6 @@ export default function CashbookPage() {
                 <TableHead>Description</TableHead>
                 <TableHead>Method</TableHead>
                 <TableHead>Amount</TableHead>
-                <TableHead>Allocation Status</TableHead>
                 <TableHead>Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -745,23 +810,7 @@ export default function CashbookPage() {
                     {entry.isInflow === 1 ? "+" : "-"}{formatCurrency(entry.amount)}
                   </TableCell>
                   <TableCell>
-                    {entry.isInflow === 1 && entry.accountHead?.type === "Client" ? (
-                      <Badge 
-                        className={
-                          entry.allocationStatus === "Fully Allocated" ? "bg-green-100 text-green-600" :
-                          entry.allocationStatus === "Partially Allocated" ? "bg-blue-100 text-blue-600" :
-                          entry.allocationStatus === "Not Allocated" ? "bg-orange-100 text-orange-600" :
-                          "bg-gray-100 text-gray-600"
-                        }
-                      >
-                        {entry.allocationStatus || "Not Allocated"}
-                      </Badge>
-                    ) : (
-                      "—"
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                       {/* Edit button for all transactions */}
                       <Button
                         variant="outline"
@@ -781,17 +830,6 @@ export default function CashbookPage() {
                         <Trash2 className="h-3 w-3" />
                       </Button>
                       
-                      {/* Allocate button for client payments that have unallocated amounts */}
-                      {entry.isInflow === 1 && entry.accountHead?.type === "Client" && entry.allocationStatus !== "Fully Allocated" && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => openAllocationModal(entry)}
-                        >
-                          Allocate
-                        </Button>
-                      )}
-                      
                       {/* Settle pending button for pending debts */}
                       {entry.isPending === 1 && (
                         <Button
@@ -808,46 +846,6 @@ export default function CashbookPage() {
               ))}
             </TableBody>
           </Table>
-        </CardContent>
-      </Card>
-
-      {/* Supplier Advances Overview */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>Supplier Advances</CardTitle>
-          <Button variant="outline" onClick={() => setIsSupplierAllocationOpen(true)}>Allocate Supplier Advance</Button>
-        </CardHeader>
-        <CardContent>
-          {supplierAdvances.length === 0 ? (
-            <div className="text-sm text-gray-500">No supplier advances found.</div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Supplier</TableHead>
-                  <TableHead>Original Amount</TableHead>
-                  <TableHead>Allocated</TableHead>
-                  <TableHead>Remaining</TableHead>
-                  <TableHead></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {supplierAdvances.map((a: any) => (
-                  <TableRow key={a.entry.id}>
-                    <TableCell>{formatDate(a.entry.transactionDate)}</TableCell>
-                    <TableCell>{a.entry.counterparty || a.entry.accountHead?.name || "—"}</TableCell>
-                    <TableCell>{formatCurrency(a.entry.amount)}</TableCell>
-                    <TableCell>{formatCurrency(a.allocatedAmount || 0)}</TableCell>
-                    <TableCell>{formatCurrency(a.remainingAmount || 0)}</TableCell>
-                    <TableCell>
-                      <Button size="sm" variant="outline" onClick={() => setIsSupplierAllocationOpen(true)}>Allocate</Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
         </CardContent>
       </Card>
 
@@ -1144,32 +1142,6 @@ export default function CashbookPage() {
           </Form>
         </DialogContent>
       </Dialog>
-
-      {/* Payment Allocation Modal */}
-      <PaymentAllocationModal
-        isOpen={isAllocationModalOpen}
-        onOpenChange={setIsAllocationModalOpen}
-        cashbookEntryId={selectedPaymentForAllocation?.id}
-        totalAmount={selectedPaymentForAllocation ? parseFloat(selectedPaymentForAllocation.amount) : 0}
-        accountHeadId={selectedPaymentForAllocation?.accountHeadId}
-        onSuccess={() => {
-          queryClient.invalidateQueries({ queryKey: ["/api/cashbook"] });
-          queryClient.invalidateQueries({ queryKey: ["/api/cashbook/payment-allocations"] });
-        }}
-      />
-
-      <SupplierAdvanceAllocationModal
-        open={isSupplierAllocationOpen}
-        onOpenChange={(open) => {
-          setIsSupplierAllocationOpen(open);
-          if (!open) {
-            queryClient.invalidateQueries({ queryKey: ["/api/cashbook/supplier-advances"] });
-          }
-        }}
-        onSuccess={() => {
-          queryClient.invalidateQueries({ queryKey: ["/api/cashbook/supplier-advances"] });
-        }}
-      />
     </div>
   );
 }

@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Phone, Mail, MapPin, Receipt, TrendingUp, Calendar } from "lucide-react";
 import { CURRENCY } from "@/lib/constants";
 import type { Client, SaleWithClient } from "@shared/schema";
+import { SALES_ALL_QUERY_KEY, fetchAllSales, salesListFromResponse } from "@/lib/sales-query";
 
 interface ViewClientModalProps {
   open: boolean;
@@ -17,13 +18,12 @@ interface ViewClientModalProps {
 
 export default function ViewClientModal({ open, onOpenChange, client }: ViewClientModalProps) {
   const isMobile = useIsMobile();
-  const { data: salesResponse } = useQuery<any>({
-    queryKey: ["/api/sales"],
+  const { data: salesResponse } = useQuery({
+    queryKey: SALES_ALL_QUERY_KEY,
+    queryFn: fetchAllSales,
     enabled: !!client,
   });
-  const sales: SaleWithClient[] = Array.isArray(salesResponse)
-    ? (salesResponse as SaleWithClient[])
-    : (salesResponse?.data ?? []);
+  const sales: SaleWithClient[] = salesListFromResponse(salesResponse) as SaleWithClient[];
 
   if (!client) return null;
 

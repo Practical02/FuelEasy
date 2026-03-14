@@ -28,8 +28,6 @@ import {
   type InsertBusinessSettings,
   type InsertInvoiceSale,
   type InvoiceSale,
-  type InsertSupplierAdvanceAllocation,
-  type SupplierAdvanceAllocation,
   users,
   stock,
   clients,
@@ -48,12 +46,12 @@ import {
 import { randomUUID } from "crypto";
 import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
-import { eq, desc, asc, sql, and, inArray } from "drizzle-orm";
+import { eq, desc, asc, sql, and, inArray, gte, lte } from "drizzle-orm";
 
 // Initialize database connection
 const connectionString = process.env.DATABASE_URL || "";
 const sql_conn = neon(connectionString);
-const db = drizzle(sql_conn, { schema: { users, stock, clients, projects, sales, invoices, payments, cashbook, accountHeads, cashbookPaymentAllocations, businessSettings, invoiceSales, supplierAdvanceAllocations, paymentProjects } });
+const db = drizzle(sql_conn, { schema: { users, stock, clients, projects, sales, invoices, payments, cashbook, accountHeads, cashbookPaymentAllocations, businessSettings, invoiceSales, supplierAdvanceAllocations, paymentProjects } }); // supplierAdvanceAllocations legacy table
 
 export interface IStorage {
   // User methods
@@ -117,7 +115,13 @@ export interface IStorage {
   migratePaymentsToCashbook(): Promise<number>;
   
   // Cashbook methods
-  getCashbookEntries(): Promise<CashbookEntryWithAccountHead[]>;
+  getCashbookEntries(filters?: {
+    accountHeadId?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    transactionType?: string;
+    flow?: "inflow" | "outflow";
+  }): Promise<CashbookEntryWithAccountHead[]>;
   getCashbookEntry(id: string): Promise<CashbookEntry | undefined>;
   createCashbookEntry(entry: InsertCashbook): Promise<CashbookEntry>;
   updateCashbookEntry(id: string, entry: InsertCashbook): Promise<CashbookEntry | undefined>;
@@ -140,11 +144,6 @@ export interface IStorage {
   getInvoiceAllocatedAmount(invoiceId: string): Promise<number>;
   updateInvoiceStatusIfPaid(invoiceId: string): Promise<void>;
 
-  // Supplier advance allocation methods
-  getSupplierAdvances(): Promise<Array<{ entry: CashbookEntryWithAccountHead; allocatedAmount: number; remainingAmount: number }>>;
-  getSupplierAdvanceAllocatedAmount(cashbookEntryId: string): Promise<number>;
-  createSupplierAdvanceAllocation(allocation: InsertSupplierAdvanceAllocation): Promise<SupplierAdvanceAllocation>;
-  
   // Supplier Debt Tracking methods
   getSupplierDebts(): Promise<CashbookEntryWithAccountHead[]>;
   getSupplierOutstandingBalance(supplierId: string): Promise<number>;
@@ -234,66 +233,42 @@ export class DatabaseStorage implements IStorage {
         stockPurchaseAccountHeadId = newHead.id;
       }
     }
-    await this.createCashbookEntry({
-      transactionDate: purchaseDate instanceof Date ? purchaseDate : new Date(purchaseDate),
-      transactionType: "Stock Purchase",
-      category: "Cost",
-      accountHeadId: stockPurchaseAccountHeadId,
-      amount: totalCost.toFixed(2),
-      isInflow: 0,
-      description: `Stock purchase - ${quantity} gallons @ ${pricePerGallon.toFixed(2)}/gal`,
-      counterparty: "Supplier",
-      paymentMethod: "Credit",
-      referenceType: "stock",
-      referenceId: created.id,
-      isPending: 0,
-      notes: `Stock entry ${created.id}`,
-    });
-
-    // If a supplier is specified, allocate from supplier advances to cover this stock purchase
-    if ((insertStock as any).supplierAccountHeadId) {
-      const supplierId = (insertStock as any).supplierAccountHeadId as string;
-      let remaining = totalCost;
-
-      // Fetch supplier advance entries (outflows with no pending) for this supplier ordered by date (FIFO)
-      const advanceEntries = await db
-        .select()
-        .from(cashbook)
-        .where(and(eq(cashbook.accountHeadId, supplierId), eq(cashbook.isInflow, 0), eq(cashbook.isPending, 0)))
-        .orderBy(cashbook.transactionDate);
-
-      for (const adv of advanceEntries) {
-        if (remaining <= 0) break;
-        const allocatedSoFar = await this.getSupplierAdvanceAllocatedAmount(adv.id);
-        const available = parseFloat(adv.amount) - allocatedSoFar;
-        if (available <= 0) continue;
-        const allocate = Math.min(remaining, available);
-        await db.insert(supplierAdvanceAllocations).values({
-          cashbookEntryId: adv.id,
-          stockId: created.id,
-          amountAllocated: allocate.toFixed(2),
-        });
-        remaining -= allocate;
-      }
-
-      // If any remainder exists, record as pending debt to supplier
-      if (remaining > 0.001) {
-        await this.createCashbookEntry({
-          transactionDate: (insertStock as any).purchaseDate || new Date(),
-          transactionType: "Supplier Payment",
-          category: "Stock Purchase Unsettled",
-          accountHeadId: supplierId,
-          amount: remaining.toFixed(2),
-          isInflow: 0,
-          description: `Unsettled amount for stock ${created.id}`,
-          counterparty: "Supplier",
-          paymentMethod: "Credit",
-          referenceType: "stock",
-          referenceId: created.id,
-          isPending: 1,
-          notes: `Auto-created from stock purchase; total ${totalCost.toFixed(2)}`,
-        });
-      }
+    // Single cashbook line: stock purchase is always an outflow (negative to cash when settled).
+    // With supplier: record full amount as pending payable on that supplier (settle via cashbook later).
+    // Without supplier: immediate expense (Stock Purchase) so it hits outflow now.
+    const supplierId = (insertStock as any).supplierAccountHeadId as string | undefined;
+    if (supplierId) {
+      await this.createCashbookEntry({
+        transactionDate: purchaseDate instanceof Date ? purchaseDate : new Date(purchaseDate),
+        transactionType: "Stock Purchase",
+        category: "Supplier payable",
+        accountHeadId: supplierId,
+        amount: totalCost.toFixed(2),
+        isInflow: 0,
+        description: `Stock purchase (payable) — ${quantity} gal @ ${pricePerGallon.toFixed(2)}/gal`,
+        counterparty: "Supplier",
+        paymentMethod: "Credit",
+        referenceType: "stock",
+        referenceId: created.id,
+        isPending: 1,
+        notes: `Stock ${created.id}. Settle pending when you pay the supplier.`,
+      });
+    } else {
+      await this.createCashbookEntry({
+        transactionDate: purchaseDate instanceof Date ? purchaseDate : new Date(purchaseDate),
+        transactionType: "Stock Purchase",
+        category: "Cost",
+        accountHeadId: stockPurchaseAccountHeadId,
+        amount: totalCost.toFixed(2),
+        isInflow: 0,
+        description: `Stock purchase — ${quantity} gal @ ${pricePerGallon.toFixed(2)}/gal`,
+        counterparty: "—",
+        paymentMethod: "Cash",
+        referenceType: "stock",
+        referenceId: created.id,
+        isPending: 0,
+        notes: `Stock entry ${created.id}`,
+      });
     }
 
     return created;
@@ -1110,8 +1085,26 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Cashbook methods
-  async getCashbookEntries(): Promise<CashbookEntryWithAccountHead[]> {
-    const result = await db
+  async getCashbookEntries(filters?: {
+    accountHeadId?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    transactionType?: string;
+    flow?: "inflow" | "outflow";
+  }): Promise<CashbookEntryWithAccountHead[]> {
+    const conditions = [];
+    if (filters?.accountHeadId) conditions.push(eq(cashbook.accountHeadId, filters.accountHeadId));
+    if (filters?.dateFrom) conditions.push(gte(cashbook.transactionDate, new Date(filters.dateFrom)));
+    if (filters?.dateTo) {
+      const end = new Date(filters.dateTo);
+      end.setHours(23, 59, 59, 999);
+      conditions.push(lte(cashbook.transactionDate, end));
+    }
+    if (filters?.transactionType) conditions.push(eq(cashbook.transactionType, filters.transactionType));
+    if (filters?.flow === "inflow") conditions.push(eq(cashbook.isInflow, 1));
+    if (filters?.flow === "outflow") conditions.push(eq(cashbook.isInflow, 0));
+
+    const base = db
       .select({
         id: cashbook.id,
         transactionDate: cashbook.transactionDate,
@@ -1131,8 +1124,10 @@ export class DatabaseStorage implements IStorage {
         accountHead: accountHeads,
       })
       .from(cashbook)
-      .leftJoin(accountHeads, eq(cashbook.accountHeadId, accountHeads.id))
-      .orderBy(desc(cashbook.transactionDate));
+      .leftJoin(accountHeads, eq(cashbook.accountHeadId, accountHeads.id));
+    const result = await (conditions.length
+      ? base.where(and(...conditions)).orderBy(desc(cashbook.transactionDate))
+      : base.orderBy(desc(cashbook.transactionDate)));
 
     // Calculate allocation status for client payments
     const entriesWithStatus = await Promise.all(
@@ -1889,62 +1884,6 @@ export class DatabaseStorage implements IStorage {
         .set({ status: "Paid" })
         .where(eq(invoices.id, invoiceId));
     }
-  }
-
-  async getSupplierAdvanceAllocatedAmount(cashbookEntryId: string): Promise<number> {
-    const result = await db
-      .select({
-        allocatedAmount: sql<number>`COALESCE(SUM(${supplierAdvanceAllocations.amountAllocated})::numeric, 0)`,
-      })
-      .from(supplierAdvanceAllocations)
-      .where(eq(supplierAdvanceAllocations.cashbookEntryId, cashbookEntryId));
-    return result[0]?.allocatedAmount || 0;
-  }
-
-  async getSupplierAdvances(): Promise<Array<{ entry: CashbookEntryWithAccountHead; allocatedAmount: number; remainingAmount: number }>> {
-    // Supplier advances are outflow entries with category 'Advance' or transactionType 'Supplier Payment' and isPending = 0
-    const entries = await db
-      .select({
-        id: cashbook.id,
-        transactionDate: cashbook.transactionDate,
-        transactionType: cashbook.transactionType,
-        category: cashbook.category,
-        accountHeadId: cashbook.accountHeadId,
-        amount: cashbook.amount,
-        isInflow: cashbook.isInflow,
-        description: cashbook.description,
-        counterparty: cashbook.counterparty,
-        paymentMethod: cashbook.paymentMethod,
-        referenceType: cashbook.referenceType,
-        referenceId: cashbook.referenceId,
-        isPending: cashbook.isPending,
-        notes: cashbook.notes,
-        createdAt: cashbook.createdAt,
-        accountHead: accountHeads,
-      })
-      .from(cashbook)
-      .leftJoin(accountHeads, eq(cashbook.accountHeadId, accountHeads.id))
-      .where(and(eq(cashbook.isInflow, 0), eq(cashbook.isPending, 0)));
-
-    const result: Array<{ entry: CashbookEntryWithAccountHead; allocatedAmount: number; remainingAmount: number }> = [];
-    for (const r of entries) {
-      const entryWithHead: CashbookEntryWithAccountHead = { ...r, accountHead: r.accountHead! };
-      const allocated = await this.getSupplierAdvanceAllocatedAmount(r.id);
-      const total = parseFloat(r.amount);
-      result.push({ entry: entryWithHead, allocatedAmount: allocated, remainingAmount: total - allocated });
-    }
-    return result;
-  }
-
-  async createSupplierAdvanceAllocation(allocation: InsertSupplierAdvanceAllocation): Promise<SupplierAdvanceAllocation> {
-    // Validate remaining amount
-    const remaining = (await this.getSupplierAdvances()).find(a => a.entry.id === allocation.cashbookEntryId)?.remainingAmount || 0;
-    const toAllocate = parseFloat(allocation.amountAllocated);
-    if (toAllocate > remaining) {
-      throw new Error(`Cannot allocate AED ${toAllocate.toFixed(2)}. Only AED ${remaining.toFixed(2)} remains in this advance.`);
-    }
-    const result = await db.insert(supplierAdvanceAllocations).values(allocation).returning();
-    return result[0];
   }
 
   // Supplier Debt Tracking methods

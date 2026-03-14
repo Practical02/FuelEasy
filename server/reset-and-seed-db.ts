@@ -34,6 +34,8 @@ async function resetAndSeedDatabase() {
     
     await db.execute(sql`DELETE FROM cashbook_payment_allocations`);
     console.log("✅ Cleared cashbook_payment_allocations");
+    await db.execute(sql`DELETE FROM supplier_advance_allocations`);
+    console.log("✅ Cleared supplier_advance_allocations");
 
     // Use direct database calls to clear everything in correct order
     await db.execute(sql`DELETE FROM cashbook_payment_allocations`);

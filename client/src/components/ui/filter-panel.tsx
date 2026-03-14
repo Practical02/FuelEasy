@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Filter, ChevronDown, ChevronUp, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -7,6 +7,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { cn } from "@/lib/utils";
 
 interface FilterPanelProps {
   children: React.ReactNode;
@@ -23,28 +24,43 @@ export function FilterPanel({
   hasActiveFilters,
   title = "Filters",
   defaultOpen = false,
-  className
+  className,
 }: FilterPanelProps) {
-  const [isOpen, setIsOpen] = useState(defaultOpen);
+  const [isOpen, setIsOpen] = useState(() => defaultOpen || hasActiveFilters);
+
+  useEffect(() => {
+    if (hasActiveFilters) setIsOpen(true);
+  }, [hasActiveFilters]);
 
   return (
-    <Card className={`mb-6 ${className}`}>
+    <Card className={cn("mb-6", className)}>
       <Collapsible open={isOpen} onOpenChange={setIsOpen}>
         <CollapsibleTrigger asChild>
-          <div className="p-4 cursor-pointer hover:bg-gray-50 transition-colors">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <Filter className="w-4 h-4 text-gray-600" />
+          <div
+            role="button"
+            tabIndex={0}
+            className="p-4 cursor-pointer hover:bg-gray-50 transition-colors rounded-t-lg"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                setIsOpen((o) => !o);
+              }
+            }}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center flex-wrap gap-2">
+                <Filter className="w-4 h-4 text-gray-600 shrink-0" />
                 <span className="font-medium text-gray-900">{title}</span>
                 {hasActiveFilters && (
-                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800">
                     Active
                   </span>
                 )}
               </div>
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center gap-2 shrink-0">
                 {hasActiveFilters && (
                   <Button
+                    type="button"
                     variant="ghost"
                     size="sm"
                     onClick={(e) => {
@@ -54,7 +70,7 @@ export function FilterPanel({
                     className="text-gray-500 hover:text-gray-700"
                   >
                     <RotateCcw className="w-4 h-4 mr-1" />
-                    Clear All
+                    Clear all
                   </Button>
                 )}
                 {isOpen ? (
@@ -66,9 +82,10 @@ export function FilterPanel({
             </div>
           </div>
         </CollapsibleTrigger>
-        <CollapsibleContent>
-          <CardContent className="pt-0 pb-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        <CollapsibleContent className="overflow-visible data-[state=closed]:overflow-hidden">
+          <CardContent className="pt-0 pb-4 px-4 overflow-visible">
+            {/* Choice filters: multi-column. Range blocks (DateRangePicker, AmountRangeFilter) use col-span / min-width via their own classNames. */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 auto-rows-min">
               {children}
             </div>
           </CardContent>

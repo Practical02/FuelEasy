@@ -29,7 +29,7 @@ export function AmountRangeFilter({
   const hasValues = minValue || maxValue;
 
   return (
-    <div className={`space-y-2 ${className}`}>
+    <div className={`space-y-2 min-w-0 w-full ${className ?? ""}`}>
       <div className="flex items-center justify-between">
         <Label className="text-sm font-medium text-gray-700 flex items-center">
           {icon && <span className="mr-1">{icon}</span>}
