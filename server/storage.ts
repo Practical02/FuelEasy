@@ -195,7 +195,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getStock(): Promise<Stock[]> {
-    return await db.select().from(stock).orderBy(asc(stock.purchaseDate), asc(stock.createdAt));
+    return await db.select().from(stock).orderBy(desc(stock.purchaseDate), desc(stock.createdAt));
   }
 
   async createStock(insertStock: InsertStock): Promise<Stock> {
@@ -374,10 +374,16 @@ export class DatabaseStorage implements IStorage {
         }
       }
     }
-    return batches.map((b) => ({
+    const withBalance = batches.map((b) => ({
       ...b,
       remainingGallons: remaining.get(b.id) ?? 0,
     }));
+    // Newest purchases first in UI (FIFO above still used oldest-first for remaining gallons)
+    return withBalance.sort(
+      (a, b) =>
+        new Date(b.purchaseDate).getTime() - new Date(a.purchaseDate).getTime() ||
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
   }
 
   async getClients(): Promise<Client[]> {
