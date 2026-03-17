@@ -22,6 +22,7 @@ const saleFormSchema = insertSaleSchema.extend({
   quantityGallons: z.coerce.number().min(0.01, "Quantity is required"),
   salePricePerGallon: z.coerce.number().min(0.001, "Price per gallon is required"),
   purchasePricePerGallon: z.coerce.number().min(0.001, "Purchase price is required"),
+  deliveryNoteNumber: z.string().min(1, "Delivery number is required"),
 });
 
 interface NewSaleModalProps {
@@ -234,9 +235,9 @@ export default function NewSaleModal({ open, onOpenChange }: NewSaleModalProps) 
                 name="deliveryNoteNumber"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Delivery Note No.</FormLabel>
+                    <FormLabel>Delivery Note No. <span className="text-destructive">*</span></FormLabel>
                     <FormControl>
-                      <Input placeholder="e.g. DN-2025-001" {...field} value={field.value ?? ""} />
+                      <Input placeholder="e.g. DN-2025-001" {...field} value={field.value ?? ""} required />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

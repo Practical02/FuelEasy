@@ -20,6 +20,7 @@ const editSaleFormSchema = insertSaleSchema.extend({
   salePricePerGallon: z.coerce.number().min(0.001, "Sale price is required"),
   purchasePricePerGallon: z.coerce.number().min(0.001, "Purchase price is required"),
   vatPercentage: z.string().default("5.00"),
+  deliveryNoteNumber: z.string().min(1, "Delivery number is required"),
 });
 
 interface EditSaleModalProps {
@@ -284,9 +285,9 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
                 name="deliveryNoteNumber"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Delivery Note No.</FormLabel>
+                    <FormLabel>Delivery Note No. <span className="text-destructive">*</span></FormLabel>
                     <FormControl>
-                      <Input placeholder="e.g. DN-2025-001" {...field} value={field.value ?? ""} />
+                      <Input placeholder="e.g. DN-2025-001" {...field} value={field.value ?? ""} required />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

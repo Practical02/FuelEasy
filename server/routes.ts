@@ -92,6 +92,7 @@ const apiInsertSaleSchema = insertSaleSchema.extend({
   salePricePerGallon: z.number(),
   /** If omitted, server computes from stock using FIFO. */
   purchasePricePerGallon: z.number().optional(),
+  deliveryNoteNumber: z.string().min(1, "Delivery number is required"),
 });
 
 const apiInsertPaymentSchema = insertPaymentSchema.extend({
@@ -601,6 +602,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Sale update validation error:", error);
       res.status(400).json({ message: "Invalid sale data", error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post("/api/sales/bulk-record-lpo", requireAuth, writeLimiter, async (req, res) => {
+    try {
+      clearCachePattern('/api/sales');
+      clearCachePattern('/api/reports/overview');
+      const body = z.object({
+        saleIds: z.array(z.string().uuid()).min(1, "At least one sale is required"),
+        lpoNumber: z.string().min(1, "LPO number is required"),
+        deliveryNoteNumber: z.string().min(1, "Delivery note number is required"),
+        lpoReceivedDate: z.string().optional(),
+      }).parse(req.body);
+      const lpoReceivedDate = body.lpoReceivedDate ? new Date(body.lpoReceivedDate) : undefined;
+      const result = await storage.bulkRecordLPO({
+        saleIds: body.saleIds,
+        lpoNumber: body.lpoNumber,
+        deliveryNoteNumber: body.deliveryNoteNumber,
+        lpoReceivedDate,
+      });
+      res.json(result);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid request", errors: error.errors });
+      }
+      res.status(500).json({ message: "Bulk LPO update failed", error: error instanceof Error ? error.message : String(error) });
     }
   });
 

@@ -1,10 +1,14 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import Header from "@/components/layout/header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
+import { SearchInput } from "@/components/ui/search-input";
+import { FilterPanel } from "@/components/ui/filter-panel";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
+import { MultiSelectFilter } from "@/components/ui/multi-select-filter";
 import { FileText, Trash2, Eye, PlusCircle, Pencil } from "lucide-react";
 import { CURRENCY } from "@/lib/constants";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -19,12 +23,22 @@ export type InvoiceWithSale = Invoice & {
   sale: SaleWithClient;
 };
 
+const INVOICE_STATUS_OPTIONS = [
+  { value: "Generated", label: "Generated" },
+  { value: "Sent", label: "Sent" },
+  { value: "Paid", label: "Paid" },
+];
+
 export default function Invoices() {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState<InvoiceWithSale | null>(null);
   const [isNewInvoiceModalOpen, setIsNewInvoiceModalOpen] = useState(false);
   const [isEditInvoiceModalOpen, setIsEditInvoiceModalOpen] = useState(false);
   const [isViewInvoiceModalOpen, setIsViewInvoiceModalOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const { toast } = useToast();
 
   const { data: allInvoices, isLoading } = useQuery<InvoiceWithSale[]>({
@@ -33,6 +47,30 @@ export default function Invoices() {
 
   // Use all invoices since we're not using soft delete anymore
   const invoices = allInvoices || [];
+
+  const filteredInvoices = useMemo(() => {
+    return invoices.filter((inv) => {
+      if (searchTerm) {
+        const q = searchTerm.toLowerCase();
+        const matchInv = inv.invoiceNumber?.toLowerCase().includes(q);
+        const matchClient = inv.sale?.client?.name?.toLowerCase().includes(q);
+        const matchLpo = (inv.sale?.lpoNumber ?? (inv as any).lpoNumber)?.toLowerCase().includes(q);
+        if (!matchInv && !matchClient && !matchLpo) return false;
+      }
+      if (selectedStatuses.length > 0 && !selectedStatuses.includes(inv.status)) return false;
+      if (startDate && new Date(inv.invoiceDate) < new Date(startDate)) return false;
+      if (endDate && new Date(inv.invoiceDate) > new Date(endDate)) return false;
+      return true;
+    });
+  }, [invoices, searchTerm, selectedStatuses, startDate, endDate]);
+
+  const hasActiveFilters = !!(searchTerm || selectedStatuses.length > 0 || startDate || endDate);
+  const clearAllFilters = () => {
+    setSearchTerm("");
+    setSelectedStatuses([]);
+    setStartDate("");
+    setEndDate("");
+  };
 
   const { data: salesResponse } = useQuery({
     queryKey: SALES_ALL_QUERY_KEY,
@@ -108,6 +146,38 @@ export default function Invoices() {
       />
 
       <div className="p-4 lg:p-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
+          <SearchInput
+            value={searchTerm}
+            onChange={setSearchTerm}
+            placeholder="Search by invoice number, client, or LPO..."
+            className="flex-1 max-w-md"
+          />
+        </div>
+
+        <FilterPanel
+          hasActiveFilters={hasActiveFilters}
+          onClearAll={clearAllFilters}
+          title="Advanced search"
+          className="mb-6"
+        >
+          <MultiSelectFilter
+            options={INVOICE_STATUS_OPTIONS}
+            selectedValues={selectedStatuses}
+            onSelectionChange={setSelectedStatuses}
+            label="Status"
+            placeholder="Select statuses"
+          />
+          <DateRangePicker
+            startDate={startDate}
+            endDate={endDate}
+            onStartDateChange={setStartDate}
+            onEndDateChange={setEndDate}
+            onClear={() => { setStartDate(""); setEndDate(""); }}
+            label="Invoice date range"
+          />
+        </FilterPanel>
+
         {/* Invoice Statistics */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <Card>
@@ -189,8 +259,8 @@ export default function Invoices() {
                         Loading invoices...
                       </td>
                     </tr>
-                  ) : invoices && invoices.length > 0 ? (
-                    invoices.map((invoice) => (
+                  ) : filteredInvoices && filteredInvoices.length > 0 ? (
+                    filteredInvoices.map((invoice) => (
                       <tr key={invoice.id} className="border-b border-gray-100 hover:bg-gray-50">
                         <td className="py-3 px-4 text-sm font-medium text-gray-900">
                           {invoice.invoiceNumber}
@@ -255,7 +325,7 @@ export default function Invoices() {
                   ) : (
                     <tr>
                       <td colSpan={8} className="py-8 text-center text-gray-500">
-                        No active invoices found.
+                        {invoices.length === 0 ? "No active invoices found." : "No invoices match the current filters."}
                       </td>
                     </tr>
                   )}

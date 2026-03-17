@@ -97,6 +97,7 @@ export interface IStorage {
   createSale(sale: InsertSale): Promise<Sale>;
   updateSale(id: string, sale: InsertSale): Promise<Sale | undefined>;
   updateSaleStatus(id: string, status: string): Promise<Sale | undefined>;
+  bulkRecordLPO(params: { saleIds: string[]; lpoNumber: string; deliveryNoteNumber: string; lpoReceivedDate?: Date }): Promise<{ updated: number; errors: string[] }>;
   deleteSale(id: string): Promise<boolean>;
   
   // Invoice methods
@@ -1570,6 +1571,42 @@ export class DatabaseStorage implements IStorage {
       .returning();
 
     return result[0];
+  }
+
+  async bulkRecordLPO(params: { saleIds: string[]; lpoNumber: string; deliveryNoteNumber: string; lpoReceivedDate?: Date }): Promise<{ updated: number; errors: string[] }> {
+    const { saleIds, lpoNumber, deliveryNoteNumber, lpoReceivedDate } = params;
+    const errors: string[] = [];
+    let updated = 0;
+    const receivedDate = lpoReceivedDate || new Date();
+    for (const id of saleIds) {
+      try {
+        const sale = await this.getSale(id);
+        if (!sale) {
+          errors.push(`Sale ${id} not found`);
+          continue;
+        }
+        const { client, project, ...saleFields } = sale as SaleWithClient & { client?: unknown; project?: unknown };
+        const payload: InsertSale = {
+          clientId: saleFields.clientId,
+          projectId: saleFields.projectId,
+          saleDate: saleFields.saleDate,
+          quantityGallons: saleFields.quantityGallons,
+          salePricePerGallon: saleFields.salePricePerGallon,
+          purchasePricePerGallon: saleFields.purchasePricePerGallon,
+          lpoNumber,
+          deliveryNoteNumber,
+          lpoReceivedDate: receivedDate,
+          invoiceDate: saleFields.invoiceDate,
+          saleStatus: "LPO Received",
+          vatPercentage: saleFields.vatPercentage,
+        };
+        const updatedSale = await this.updateSale(id, payload);
+        if (updatedSale) updated++;
+      } catch (e) {
+        errors.push(`${id}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    return { updated, errors };
   }
 
   async getPendingBusinessReport(clientId?: string, dateFrom?: string, dateTo?: string): Promise<SaleWithClient[]> {

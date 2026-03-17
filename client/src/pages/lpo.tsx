@@ -5,18 +5,32 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { SearchInput } from "@/components/ui/search-input";
+import { FilterPanel } from "@/components/ui/filter-panel";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import EditSaleModal from "@/components/modals/edit-sale-modal";
+import BulkRecordLpoModal from "@/components/modals/bulk-record-lpo-modal";
+import { Checkbox } from "@/components/ui/checkbox";
 import { ClipboardList, Pencil } from "lucide-react";
 import { CURRENCY, STATUS_COLORS } from "@/lib/constants";
 import { SALES_PAGE_SIZE } from "@/lib/sales-query";
+import { apiRequest } from "@/lib/queryClient";
 import type { SaleWithClient } from "@shared/schema";
+import type { Client } from "@shared/schema";
+import type { Project } from "@shared/schema";
 
 export default function LPO() {
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showBulkLpoModal, setShowBulkLpoModal] = useState(false);
   const [selectedSaleId, setSelectedSaleId] = useState<string>("");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "received">("all");
   const [lpoPage, setLpoPage] = useState(1);
+  const [filterClientId, setFilterClientId] = useState<string>("all");
+  const [filterProjectId, setFilterProjectId] = useState<string>("all");
+  const [filterDateFrom, setFilterDateFrom] = useState("");
+  const [filterDateTo, setFilterDateTo] = useState("");
 
   // Fetch Pending LPO and LPO Received separately so we get all relevant sales (no pagination cutoff)
   const { data: pendingResponse } = useQuery<any>({
@@ -38,6 +52,15 @@ export default function LPO() {
     );
   }, [pendingSales, receivedSales]);
 
+  const { data: clients } = useQuery<Client[]>({
+    queryKey: ["/api/clients"],
+    queryFn: async () => (await apiRequest("GET", "/api/clients")).json(),
+  });
+  const { data: projects } = useQuery<Project[]>({
+    queryKey: ["/api/projects"],
+    queryFn: async () => (await apiRequest("GET", "/api/projects")).json(),
+  });
+
   const filteredSales = useMemo(() => {
     return sales.filter((sale) => {
       if (statusFilter === "pending") {
@@ -45,15 +68,33 @@ export default function LPO() {
       } else if (statusFilter === "received") {
         if (sale.saleStatus !== "LPO Received") return false;
       }
+      if (filterClientId !== "all" && sale.clientId !== filterClientId) return false;
+      if (filterProjectId !== "all" && sale.projectId !== filterProjectId) return false;
+      if (filterDateFrom) {
+        if (new Date(sale.saleDate) < new Date(filterDateFrom)) return false;
+      }
+      if (filterDateTo) {
+        if (new Date(sale.saleDate) > new Date(filterDateTo)) return false;
+      }
       if (searchTerm) {
         const q = searchTerm.toLowerCase();
         const matchClient = sale.client?.name?.toLowerCase().includes(q);
         const matchLpo = sale.lpoNumber?.toLowerCase().includes(q);
-        if (!matchClient && !matchLpo) return false;
+        const matchDelivery = (sale as any).deliveryNoteNumber?.toLowerCase().includes(q);
+        const matchProject = (sale as SaleWithClient).project?.name?.toLowerCase().includes(q);
+        if (!matchClient && !matchLpo && !matchDelivery && !matchProject) return false;
       }
       return true;
     });
-  }, [sales, statusFilter, searchTerm]);
+  }, [sales, statusFilter, searchTerm, filterClientId, filterProjectId, filterDateFrom, filterDateTo]);
+
+  const hasActiveFilters = !!(filterClientId !== "all" || filterProjectId !== "all" || filterDateFrom || filterDateTo);
+  const clearAdvancedFilters = () => {
+    setFilterClientId("all");
+    setFilterProjectId("all");
+    setFilterDateFrom("");
+    setFilterDateTo("");
+  };
 
   const lpoTotalPages = Math.max(1, Math.ceil(filteredSales.length / SALES_PAGE_SIZE));
   const lpoSafePage = Math.min(lpoPage, lpoTotalPages);
@@ -64,7 +105,7 @@ export default function LPO() {
 
   useEffect(() => {
     setLpoPage(1);
-  }, [statusFilter, searchTerm]);
+  }, [statusFilter, searchTerm, filterClientId, filterProjectId, filterDateFrom, filterDateTo]);
 
   useEffect(() => {
     setLpoPage((p) => Math.min(p, lpoTotalPages));
@@ -77,6 +118,33 @@ export default function LPO() {
   const pendingCount = sales.filter((s) => s.saleStatus === "Pending LPO").length;
   const receivedCount = sales.filter((s) => s.saleStatus === "LPO Received").length;
 
+  const selectedCount = selectedIds.size;
+  const pageIds = pagedLpo.map((s) => s.id);
+  const allOnPageSelected = pageIds.length > 0 && pageIds.every((id) => selectedIds.has(id));
+  const toggleSelectAll = () => {
+    if (allOnPageSelected) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        pageIds.forEach((id) => next.delete(id));
+        return next;
+      });
+    } else {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        pageIds.forEach((id) => next.add(id));
+        return next;
+      });
+    }
+  };
+  const toggleSelectOne = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
   return (
     <>
       <Header
@@ -85,11 +153,11 @@ export default function LPO() {
       />
 
       <div className="p-4 lg:p-6">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
           <SearchInput
             value={searchTerm}
             onChange={setSearchTerm}
-            placeholder="Search by client or LPO number..."
+            placeholder="Search by client, project, LPO or delivery note..."
             className="flex-1 max-w-md"
           />
           <div className="flex gap-2">
@@ -116,6 +184,54 @@ export default function LPO() {
             </Button>
           </div>
         </div>
+
+        <FilterPanel
+          hasActiveFilters={hasActiveFilters}
+          onClearAll={clearAdvancedFilters}
+          title="Advanced search"
+          className="mb-4"
+        >
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700">Client</label>
+              <Select value={filterClientId} onValueChange={setFilterClientId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All clients" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All clients</SelectItem>
+                  {clients?.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700">Project</label>
+              <Select value={filterProjectId} onValueChange={setFilterProjectId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All projects" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All projects</SelectItem>
+                  {projects?.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="sm:col-span-2">
+              <DateRangePicker
+                startDate={filterDateFrom}
+                endDate={filterDateTo}
+                onStartDateChange={setFilterDateFrom}
+                onEndDateChange={setFilterDateTo}
+                onClear={() => { setFilterDateFrom(""); setFilterDateTo(""); }}
+                label="Sale date range"
+              />
+            </div>
+          </div>
+        </FilterPanel>
 
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
           <p className="text-sm text-gray-600">
@@ -150,13 +266,43 @@ export default function LPO() {
           )}
         </div>
 
+        {selectedCount > 0 && (
+          <div className="flex flex-wrap items-center gap-3 mb-4 p-3 bg-primary/10 border border-primary/20 rounded-lg">
+            <span className="text-sm font-medium text-gray-900">
+              {selectedCount} sale(s) selected
+            </span>
+            <Button
+              size="sm"
+              onClick={() => setShowBulkLpoModal(true)}
+            >
+              <ClipboardList className="w-4 h-4 mr-1" />
+              Record LPO for selected
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setSelectedIds(new Set())}
+            >
+              Clear selection
+            </Button>
+          </div>
+        )}
+
         <Card>
           <CardContent className="p-4 lg:p-6">
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
                   <tr className="border-b">
+                    <th className="w-10 py-3 px-2 text-left">
+                      <Checkbox
+                        checked={allOnPageSelected}
+                        onCheckedChange={toggleSelectAll}
+                        aria-label="Select all on page"
+                      />
+                    </th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Client</th>
+                    <th className="text-left py-3 px-4 font-medium text-gray-900">Project</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Sale Date</th>
                     <th className="text-right py-3 px-4 font-medium text-gray-900">Quantity</th>
                     <th className="text-right py-3 px-4 font-medium text-gray-900">Total</th>
@@ -170,15 +316,25 @@ export default function LPO() {
                 <tbody>
                   {filteredSales.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="py-8 text-center text-gray-500">
+                      <td colSpan={11} className="py-8 text-center text-gray-500">
                         No sales match the filter. Record sales first, then record LPOs here.
                       </td>
                     </tr>
                   ) : (
                     pagedLpo.map((sale) => (
                       <tr key={sale.id} className="border-b hover:bg-gray-50">
+                        <td className="w-10 py-3 px-2">
+                          <Checkbox
+                            checked={selectedIds.has(sale.id)}
+                            onCheckedChange={() => toggleSelectOne(sale.id)}
+                            aria-label={`Select sale ${sale.id}`}
+                          />
+                        </td>
                         <td className="py-3 px-4 text-sm font-medium text-gray-900">
                           {(sale as SaleWithClient).client?.name ?? "—"}
+                        </td>
+                        <td className="py-3 px-4 text-sm text-gray-600">
+                          {(sale as SaleWithClient).project?.name ?? "—"}
                         </td>
                         <td className="py-3 px-4 text-sm text-gray-600">
                           {new Date(sale.saleDate).toLocaleDateString()}
@@ -242,6 +398,13 @@ export default function LPO() {
           if (!open) setSelectedSaleId("");
         }}
         sale={selectedSale}
+      />
+
+      <BulkRecordLpoModal
+        open={showBulkLpoModal}
+        onOpenChange={setShowBulkLpoModal}
+        saleIds={Array.from(selectedIds)}
+        onSuccess={() => setSelectedIds(new Set())}
       />
     </>
   );

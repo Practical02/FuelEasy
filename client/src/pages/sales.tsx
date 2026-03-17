@@ -15,7 +15,7 @@ import EditSaleModal from "@/components/modals/edit-sale-modal";
 import ViewSaleModal from "@/components/modals/view-sale-modal";
 import PaymentModal from "@/components/modals/payment-modal";
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
-import { Edit, Eye, CreditCard, Trash2, Users, Fuel } from "lucide-react";
+import { Edit, Eye, CreditCard, Trash2, Users, Fuel, LayoutGrid } from "lucide-react";
 import { CURRENCY, SALE_STATUSES } from "@/lib/constants";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
@@ -25,7 +25,7 @@ import {
   salesListFromResponse,
 } from "@/lib/sales-query";
 import { useToast } from "@/hooks/use-toast";
-import type { SaleWithClient, Client } from "@shared/schema";
+import type { SaleWithClient, Client, Project } from "@shared/schema";
 
 export default function Sales() {
   const [showNewSaleModal, setShowNewSaleModal] = useState(false);
@@ -48,6 +48,7 @@ export default function Sales() {
   const [maxAmount, setMaxAmount] = useState("");
   const [minQuantity, setMinQuantity] = useState("");
   const [maxQuantity, setMaxQuantity] = useState("");
+  const [selectedProjects, setSelectedProjects] = useState<string[]>([]);
   const [salesPage, setSalesPage] = useState(1);
 
   const { data: salesResponse, isLoading } = useQuery({
@@ -60,6 +61,10 @@ export default function Sales() {
   const { data: clients } = useQuery<Client[]>({
     queryKey: ["/api/clients"],
     queryFn: async () => (await apiRequest("GET", "/api/clients")).json(),
+  });
+  const { data: projects } = useQuery<Project[]>({
+    queryKey: ["/api/projects"],
+    queryFn: async () => (await apiRequest("GET", "/api/projects")).json(),
   });
 
   const updateStatusMutation = useMutation({
@@ -118,14 +123,15 @@ export default function Sales() {
     if (!sales) return [];
 
     return sales.filter((sale) => {
-      // Search term filter (LPO number, client name)
+      // Search term filter (LPO number, client name, project name, delivery note)
       if (searchTerm) {
         const searchLower = searchTerm.toLowerCase();
         const matchesLPO = sale.lpoNumber?.toLowerCase().includes(searchLower) || false;
         const matchesClient = sale.client.name.toLowerCase().includes(searchLower);
         const matchesContact = sale.client.contactPerson.toLowerCase().includes(searchLower);
-        
-        if (!matchesLPO && !matchesClient && !matchesContact) {
+        const matchesProject = (sale as SaleWithClient).project?.name?.toLowerCase().includes(searchLower) || false;
+        const matchesDelivery = (sale as any).deliveryNoteNumber?.toLowerCase().includes(searchLower) || false;
+        if (!matchesLPO && !matchesClient && !matchesContact && !matchesProject && !matchesDelivery) {
           return false;
         }
       }
@@ -137,6 +143,11 @@ export default function Sales() {
 
       // Client filter
       if (selectedClients.length > 0 && !selectedClients.includes(sale.clientId)) {
+        return false;
+      }
+
+      // Project filter
+      if (selectedProjects.length > 0 && !selectedProjects.includes(sale.projectId)) {
         return false;
       }
 
@@ -177,7 +188,7 @@ export default function Sales() {
 
       return true;
     });
-  }, [sales, searchTerm, selectedStatuses, selectedClients, startDate, endDate, minAmount, maxAmount, minQuantity, maxQuantity]);
+  }, [sales, searchTerm, selectedStatuses, selectedClients, selectedProjects, startDate, endDate, minAmount, maxAmount, minQuantity, maxQuantity]);
 
   const totalFiltered = filteredSales.length;
   const totalPages = Math.max(1, Math.ceil(totalFiltered / SALES_PAGE_SIZE));
@@ -193,6 +204,7 @@ export default function Sales() {
     searchTerm,
     selectedStatuses,
     selectedClients,
+    selectedProjects,
     startDate,
     endDate,
     minAmount,
@@ -210,19 +222,21 @@ export default function Sales() {
     return !!(searchTerm || 
            selectedStatuses.length > 0 || 
            selectedClients.length > 0 || 
+           selectedProjects.length > 0 || 
            startDate || 
            endDate || 
            minAmount || 
            maxAmount || 
            minQuantity || 
            maxQuantity);
-  }, [searchTerm, selectedStatuses, selectedClients, startDate, endDate, minAmount, maxAmount, minQuantity, maxQuantity]);
+  }, [searchTerm, selectedStatuses, selectedClients, selectedProjects, startDate, endDate, minAmount, maxAmount, minQuantity, maxQuantity]);
 
   // Clear all filters
   const clearAllFilters = () => {
     setSearchTerm("");
     setSelectedStatuses([]);
     setSelectedClients([]);
+    setSelectedProjects([]);
     setStartDate("");
     setEndDate("");
     setMinAmount("");
@@ -258,6 +272,11 @@ export default function Sales() {
   const clientOptions = clients?.map(client => ({
     value: client.id,
     label: client.name
+  })) || [];
+
+  const projectOptions = projects?.map(project => ({
+    value: project.id,
+    label: project.name
   })) || [];
 
   const handlePaymentClick = (saleId: string) => {
@@ -317,7 +336,7 @@ export default function Sales() {
           <SearchInput
             value={searchTerm}
             onChange={setSearchTerm}
-            placeholder="Search by LPO number, client name, or contact person..."
+            placeholder="Search by LPO, client, project, or delivery note..."
             className="flex-1 max-w-md"
           />
           <Button 
@@ -349,6 +368,15 @@ export default function Sales() {
             label="Clients"
             placeholder="Select clients"
             icon={<Users className="w-4 h-4" />}
+          />
+
+          <MultiSelectFilter
+            options={projectOptions}
+            selectedValues={selectedProjects}
+            onSelectionChange={setSelectedProjects}
+            label="Projects"
+            placeholder="Select projects"
+            icon={<LayoutGrid className="w-4 h-4" />}
           />
 
           <DateRangePicker
