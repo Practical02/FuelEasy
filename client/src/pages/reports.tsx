@@ -163,6 +163,8 @@ export default function Reports() {
     // Report type filter
     if (reportType === "pending") {
       return sale.saleStatus === "Pending LPO" || sale.saleStatus === "LPO Received" || sale.saleStatus === "Invoiced";
+    } else if (reportType === "whole-sales") {
+      return true; // All sales regardless of status
     } else if (reportType === "vat" || reportType === "profit") {
       return true;
     } else if (reportType === "cashbook") {
@@ -409,7 +411,9 @@ export default function Reports() {
         ? "Pending Invoices"
         : reportType === "pending"
           ? "Pending Business"
-          : reportType === "profit"
+          : reportType === "whole-sales"
+            ? "Whole Sales"
+            : reportType === "profit"
             ? "Profit Report"
             : reportType === "cashbook"
               ? "Cashbook"
@@ -439,11 +443,13 @@ export default function Reports() {
         ? "Pending Invoices Report"
         : reportType === "pending"
           ? "Pending Business Report"
-          : reportType === "profit"
-            ? "Profit Report"
-            : reportType === "cashbook"
-              ? "Cashbook Report"
-              : "VAT Report";
+          : reportType === "whole-sales"
+            ? "Whole Sales Report"
+            : reportType === "profit"
+              ? "Profit Report"
+              : reportType === "cashbook"
+                ? "Cashbook Report"
+                : "VAT Report";
     mergeTitleRow(`Report type: ${reportTypeLabel}`);
 
     if (dateFrom || dateTo) {
@@ -907,7 +913,7 @@ export default function Reports() {
         onClearAll={clearReportFilters}
         defaultOpen
       >
-        <div className="space-y-2 min-w-0">
+        <div className="space-y-2 min-w-[160px]">
           <label className="text-sm font-medium text-gray-700">Report type</label>
           <Select value={reportType} onValueChange={setReportType}>
             <SelectTrigger>
@@ -915,6 +921,7 @@ export default function Reports() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="pending">Pending LPO (Sales)</SelectItem>
+              <SelectItem value="whole-sales">Whole Sales report</SelectItem>
               <SelectItem value="pending-invoices">Pending Invoices</SelectItem>
               <SelectItem value="vat">VAT Report</SelectItem>
               <SelectItem value="profit">Profit report</SelectItem>
@@ -973,7 +980,7 @@ export default function Reports() {
           </>
         )}
 
-        <div className={`space-y-2 min-w-0 ${reportType === "cashbook" ? "opacity-50 pointer-events-none" : ""}`}>
+        <div className={`space-y-2 min-w-[160px] ${reportType === "cashbook" ? "opacity-50 pointer-events-none" : ""}`}>
           <label className="text-sm font-medium text-gray-700">Client</label>
           <Select value={selectedClient} onValueChange={setSelectedClient}>
             <SelectTrigger>
@@ -990,7 +997,7 @@ export default function Reports() {
           </Select>
         </div>
 
-        <div className="space-y-2 min-w-0">
+        <div className="space-y-2 min-w-[160px]">
           <label className="text-sm font-medium text-gray-700">Project</label>
           <Select
             value={selectedProject}
@@ -1390,7 +1397,7 @@ export default function Reports() {
       <Card>
         <CardHeader>
           <CardTitle>
-            {reportType === "pending" ? "Pending Business Report" : reportType === "pending-invoices" ? "Pending Invoices Report" : "VAT Report"}
+            {reportType === "pending" ? "Pending Business Report" : reportType === "whole-sales" ? "Whole Sales Report" : reportType === "pending-invoices" ? "Pending Invoices Report" : "VAT Report"}
           </CardTitle>
         </CardHeader>
         <CardContent>

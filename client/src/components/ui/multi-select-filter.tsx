@@ -87,14 +87,15 @@ export function MultiSelectFilter({
             {options.map((option) => (
               <div
                 key={option.value}
-                className="flex items-center space-x-2 px-3 py-2 hover:bg-gray-50 cursor-pointer"
+                className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 cursor-pointer"
                 onClick={() => handleToggle(option.value)}
               >
                 <Checkbox
                   checked={selectedValues.includes(option.value)}
-                  onChange={() => handleToggle(option.value)}
+                  onCheckedChange={() => handleToggle(option.value)}
+                  className="h-4 w-4 shrink-0 mt-0"
                 />
-                <label className="text-sm flex-1 cursor-pointer">
+                <label className="text-sm flex-1 cursor-pointer py-0.5">
                   {option.label}
                 </label>
               </div>

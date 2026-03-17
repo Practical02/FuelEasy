@@ -294,11 +294,12 @@ export default function LPO() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b">
-                    <th className="w-10 py-3 px-2 text-left">
+                    <th className="w-10 py-3 px-2 text-left align-middle">
                       <Checkbox
                         checked={allOnPageSelected}
                         onCheckedChange={toggleSelectAll}
                         aria-label="Select all on page"
+                        className="h-4 w-4 shrink-0"
                       />
                     </th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Client</th>
@@ -323,11 +324,12 @@ export default function LPO() {
                   ) : (
                     pagedLpo.map((sale) => (
                       <tr key={sale.id} className="border-b hover:bg-gray-50">
-                        <td className="w-10 py-3 px-2">
+                        <td className="w-10 py-3 px-2 align-middle">
                           <Checkbox
                             checked={selectedIds.has(sale.id)}
                             onCheckedChange={() => toggleSelectOne(sale.id)}
                             aria-label={`Select sale ${sale.id}`}
+                            className="h-4 w-4 shrink-0"
                           />
                         </td>
                         <td className="py-3 px-4 text-sm font-medium text-gray-900">

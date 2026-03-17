@@ -83,9 +83,9 @@ export function FilterPanel({
           </div>
         </CollapsibleTrigger>
         <CollapsibleContent className="overflow-visible data-[state=closed]:overflow-hidden">
-          <CardContent className="pt-0 pb-4 px-4 overflow-visible">
-            {/* Choice filters: multi-column. Range blocks (DateRangePicker, AmountRangeFilter) use col-span / min-width via their own classNames. */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 auto-rows-min">
+          <CardContent className="pt-0 pb-6 px-5 overflow-visible">
+            {/* Choice filters: multi-column with relaxed spacing to avoid congestion */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5 sm:gap-6 auto-rows-min">
               {children}
             </div>
           </CardContent>
