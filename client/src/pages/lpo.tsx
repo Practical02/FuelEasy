@@ -191,11 +191,11 @@ export default function LPO() {
           title="Advanced search"
           className="mb-6"
         >
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 sm:gap-6">
-            <div className="space-y-2 min-w-0">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+            <div className="space-y-2 min-w-[200px]">
               <label className="text-sm font-medium text-gray-700">Client</label>
               <Select value={filterClientId} onValueChange={setFilterClientId}>
-                <SelectTrigger>
+                <SelectTrigger className="w-full min-w-0">
                   <SelectValue placeholder="All clients" />
                 </SelectTrigger>
                 <SelectContent>
@@ -206,10 +206,10 @@ export default function LPO() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2 min-w-0">
+            <div className="space-y-2 min-w-[200px]">
               <label className="text-sm font-medium text-gray-700">Project</label>
               <Select value={filterProjectId} onValueChange={setFilterProjectId}>
-                <SelectTrigger>
+                <SelectTrigger className="w-full min-w-0">
                   <SelectValue placeholder="All projects" />
                 </SelectTrigger>
                 <SelectContent>
