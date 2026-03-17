@@ -103,6 +103,12 @@ export default function LPO() {
     return filteredSales.slice(start, start + SALES_PAGE_SIZE);
   }, [filteredSales, lpoSafePage]);
 
+  const filteredTotals = useMemo(() => {
+    const quantity = filteredSales.reduce((sum, s) => sum + parseFloat(s.quantityGallons), 0);
+    const amount = filteredSales.reduce((sum, s) => sum + parseFloat(s.totalAmount), 0);
+    return { quantity, amount };
+  }, [filteredSales]);
+
   useEffect(() => {
     setLpoPage(1);
   }, [statusFilter, searchTerm, filterClientId, filterProjectId, filterDateFrom, filterDateTo]);
@@ -388,6 +394,22 @@ export default function LPO() {
                     ))
                   )}
                 </tbody>
+                {filteredSales.length > 0 && (
+                  <tfoot>
+                    <tr className="border-t-2 border-gray-200 bg-gray-50 font-medium">
+                      <td className="py-4 px-4" colSpan={4}>
+                        Total ({filteredSales.length} sale{filteredSales.length !== 1 ? "s" : ""})
+                      </td>
+                      <td className="py-4 px-5 text-right text-sm">
+                        {filteredTotals.quantity.toFixed(0)} gal
+                      </td>
+                      <td className="py-4 px-5 text-right text-sm font-semibold">
+                        {CURRENCY} {filteredTotals.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </td>
+                      <td className="py-4 px-5" colSpan={5} />
+                    </tr>
+                  </tfoot>
+                )}
               </table>
             </div>
           </CardContent>
