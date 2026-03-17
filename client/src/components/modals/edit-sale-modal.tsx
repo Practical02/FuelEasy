@@ -20,7 +20,7 @@ const editSaleFormSchema = insertSaleSchema.extend({
   salePricePerGallon: z.coerce.number().min(0.001, "Sale price is required"),
   purchasePricePerGallon: z.coerce.number().min(0.001, "Purchase price is required"),
   vatPercentage: z.string().default("5.00"),
-  deliveryNoteNumber: z.string().min(1, "Delivery number is required"),
+  deliveryNoteNumber: z.string().optional(), // Not required when recording LPO; only when entering new sale
 });
 
 interface EditSaleModalProps {
@@ -100,6 +100,7 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
         invoiceDate: data.saleStatus === "Invoiced" || data.saleStatus === "Paid" 
           ? new Date().toISOString() 
           : null,
+        deliveryNoteNumber: (data.deliveryNoteNumber?.trim() || (sale as any).deliveryNoteNumber || ""),
       };
 
       const response = await apiRequest("PATCH", `/api/sales/${sale.id}`, saleData);
@@ -280,19 +281,21 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
                 )}
               />
 
-              <FormField
-                control={form.control}
-                name="deliveryNoteNumber"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Delivery Note No. <span className="text-destructive">*</span></FormLabel>
-                    <FormControl>
-                      <Input placeholder="e.g. DN-2025-001" {...field} value={field.value ?? ""} required />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              {sale?.saleStatus !== "Pending LPO" && (
+                <FormField
+                  control={form.control}
+                  name="deliveryNoteNumber"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Delivery Note No.</FormLabel>
+                      <FormControl>
+                        <Input placeholder="e.g. DN-2025-001" {...field} value={field.value ?? ""} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
 
               <FormField
                 control={form.control}

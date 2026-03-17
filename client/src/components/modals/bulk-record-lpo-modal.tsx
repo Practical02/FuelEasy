@@ -24,7 +24,6 @@ import { z } from "zod";
 
 const bulkLpoSchema = z.object({
   lpoNumber: z.string().min(1, "LPO number is required"),
-  deliveryNoteNumber: z.string().min(1, "Delivery note number is required"),
   lpoReceivedDate: z.string().min(1, "LPO received date is required"),
 });
 
@@ -48,7 +47,6 @@ export default function BulkRecordLpoModal({
     resolver: zodResolver(bulkLpoSchema),
     defaultValues: {
       lpoNumber: "",
-      deliveryNoteNumber: "",
       lpoReceivedDate: new Date().toISOString().slice(0, 10),
     },
   });
@@ -58,7 +56,6 @@ export default function BulkRecordLpoModal({
       const res = await apiRequest("POST", "/api/sales/bulk-record-lpo", {
         saleIds,
         lpoNumber: data.lpoNumber,
-        deliveryNoteNumber: data.deliveryNoteNumber,
         lpoReceivedDate: data.lpoReceivedDate ? new Date(data.lpoReceivedDate).toISOString() : undefined,
       });
       return res.json();
@@ -83,7 +80,6 @@ export default function BulkRecordLpoModal({
       }
       form.reset({
         lpoNumber: "",
-        deliveryNoteNumber: "",
         lpoReceivedDate: new Date().toISOString().slice(0, 10),
       });
       onOpenChange(false);
@@ -121,19 +117,6 @@ export default function BulkRecordLpoModal({
                   <FormLabel>LPO Number</FormLabel>
                   <FormControl>
                     <Input placeholder="e.g. LPO-2025-001" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="deliveryNoteNumber"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Delivery Note No.</FormLabel>
-                  <FormControl>
-                    <Input placeholder="e.g. DN-2025-001" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

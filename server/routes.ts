@@ -612,14 +612,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const body = z.object({
         saleIds: z.array(z.string().uuid()).min(1, "At least one sale is required"),
         lpoNumber: z.string().min(1, "LPO number is required"),
-        deliveryNoteNumber: z.string().min(1, "Delivery note number is required"),
         lpoReceivedDate: z.string().optional(),
       }).parse(req.body);
       const lpoReceivedDate = body.lpoReceivedDate ? new Date(body.lpoReceivedDate) : undefined;
       const result = await storage.bulkRecordLPO({
         saleIds: body.saleIds,
         lpoNumber: body.lpoNumber,
-        deliveryNoteNumber: body.deliveryNoteNumber,
         lpoReceivedDate,
       });
       res.json(result);

@@ -97,7 +97,7 @@ export interface IStorage {
   createSale(sale: InsertSale): Promise<Sale>;
   updateSale(id: string, sale: InsertSale): Promise<Sale | undefined>;
   updateSaleStatus(id: string, status: string): Promise<Sale | undefined>;
-  bulkRecordLPO(params: { saleIds: string[]; lpoNumber: string; deliveryNoteNumber: string; lpoReceivedDate?: Date }): Promise<{ updated: number; errors: string[] }>;
+  bulkRecordLPO(params: { saleIds: string[]; lpoNumber: string; lpoReceivedDate?: Date }): Promise<{ updated: number; errors: string[] }>;
   deleteSale(id: string): Promise<boolean>;
   
   // Invoice methods
@@ -1573,8 +1573,8 @@ export class DatabaseStorage implements IStorage {
     return result[0];
   }
 
-  async bulkRecordLPO(params: { saleIds: string[]; lpoNumber: string; deliveryNoteNumber: string; lpoReceivedDate?: Date }): Promise<{ updated: number; errors: string[] }> {
-    const { saleIds, lpoNumber, deliveryNoteNumber, lpoReceivedDate } = params;
+  async bulkRecordLPO(params: { saleIds: string[]; lpoNumber: string; lpoReceivedDate?: Date }): Promise<{ updated: number; errors: string[] }> {
+    const { saleIds, lpoNumber, lpoReceivedDate } = params;
     const errors: string[] = [];
     let updated = 0;
     const receivedDate = lpoReceivedDate || new Date();
@@ -1594,7 +1594,7 @@ export class DatabaseStorage implements IStorage {
           salePricePerGallon: saleFields.salePricePerGallon,
           purchasePricePerGallon: saleFields.purchasePricePerGallon,
           lpoNumber,
-          deliveryNoteNumber,
+          deliveryNoteNumber: saleFields.deliveryNoteNumber ?? "",
           lpoReceivedDate: receivedDate,
           invoiceDate: saleFields.invoiceDate,
           saleStatus: "LPO Received",
