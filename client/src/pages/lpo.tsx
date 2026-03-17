@@ -152,15 +152,15 @@ export default function LPO() {
         description="Record LPOs received for sales"
       />
 
-      <div className="p-4 lg:p-6">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
+      <div className="p-5 lg:p-8">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-5 mb-6">
           <SearchInput
             value={searchTerm}
             onChange={setSearchTerm}
             placeholder="Search by client, project, LPO or delivery note..."
             className="flex-1 max-w-md"
           />
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-3">
             <Button
               variant={statusFilter === "all" ? "default" : "outline"}
               size="sm"
@@ -189,10 +189,10 @@ export default function LPO() {
           hasActiveFilters={hasActiveFilters}
           onClearAll={clearAdvancedFilters}
           title="Advanced search"
-          className="mb-4"
+          className="mb-6"
         >
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="space-y-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 sm:gap-6">
+            <div className="space-y-2 min-w-0">
               <label className="text-sm font-medium text-gray-700">Client</label>
               <Select value={filterClientId} onValueChange={setFilterClientId}>
                 <SelectTrigger>
@@ -206,7 +206,7 @@ export default function LPO() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
+            <div className="space-y-2 min-w-0">
               <label className="text-sm font-medium text-gray-700">Project</label>
               <Select value={filterProjectId} onValueChange={setFilterProjectId}>
                 <SelectTrigger>
@@ -220,7 +220,7 @@ export default function LPO() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="sm:col-span-2">
+            <div className="sm:col-span-2 min-w-0">
               <DateRangePicker
                 startDate={filterDateFrom}
                 endDate={filterDateTo}
@@ -233,7 +233,7 @@ export default function LPO() {
           </div>
         </FilterPanel>
 
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
           <p className="text-sm text-gray-600">
             {filteredSales.length} sale(s) total
             {lpoTotalPages > 1 &&
@@ -267,7 +267,7 @@ export default function LPO() {
         </div>
 
         {selectedCount > 0 && (
-          <div className="flex flex-wrap items-center gap-3 mb-4 p-3 bg-primary/10 border border-primary/20 rounded-lg">
+          <div className="flex flex-wrap items-center gap-4 mb-5 p-4 bg-primary/10 border border-primary/20 rounded-lg">
             <span className="text-sm font-medium text-gray-900">
               {selectedCount} sale(s) selected
             </span>
@@ -289,12 +289,12 @@ export default function LPO() {
         )}
 
         <Card>
-          <CardContent className="p-4 lg:p-6">
+          <CardContent className="p-5 lg:p-8">
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
                   <tr className="border-b">
-                    <th className="w-10 py-3 px-2 text-left align-middle">
+                    <th className="w-12 py-4 px-4 text-left align-middle">
                       <Checkbox
                         checked={allOnPageSelected}
                         onCheckedChange={toggleSelectAll}
@@ -302,29 +302,29 @@ export default function LPO() {
                         className="h-4 w-4 shrink-0"
                       />
                     </th>
-                    <th className="text-left py-3 px-4 font-medium text-gray-900">Client</th>
-                    <th className="text-left py-3 px-4 font-medium text-gray-900">Project</th>
-                    <th className="text-left py-3 px-4 font-medium text-gray-900">Sale Date</th>
-                    <th className="text-right py-3 px-4 font-medium text-gray-900">Quantity</th>
-                    <th className="text-right py-3 px-4 font-medium text-gray-900">Total</th>
-                    <th className="text-center py-3 px-4 font-medium text-gray-900">Status</th>
-                    <th className="text-left py-3 px-4 font-medium text-gray-900">LPO Number</th>
-                    <th className="text-left py-3 px-4 font-medium text-gray-900">Delivery Note</th>
-                    <th className="text-left py-3 px-4 font-medium text-gray-900">LPO Received</th>
-                    <th className="text-right py-3 px-4 font-medium text-gray-900">Action</th>
+                    <th className="text-left py-4 px-5 font-medium text-gray-900">Client</th>
+                    <th className="text-left py-4 px-5 font-medium text-gray-900">Project</th>
+                    <th className="text-left py-4 px-5 font-medium text-gray-900">Sale Date</th>
+                    <th className="text-right py-4 px-5 font-medium text-gray-900">Quantity</th>
+                    <th className="text-right py-4 px-5 font-medium text-gray-900">Total</th>
+                    <th className="text-center py-4 px-5 font-medium text-gray-900">Status</th>
+                    <th className="text-left py-4 px-5 font-medium text-gray-900">LPO Number</th>
+                    <th className="text-left py-4 px-5 font-medium text-gray-900">Delivery Note</th>
+                    <th className="text-left py-4 px-5 font-medium text-gray-900">LPO Received</th>
+                    <th className="text-right py-4 px-5 font-medium text-gray-900">Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredSales.length === 0 ? (
                     <tr>
-                      <td colSpan={11} className="py-8 text-center text-gray-500">
+                      <td colSpan={11} className="py-12 text-center text-gray-500">
                         No sales match the filter. Record sales first, then record LPOs here.
                       </td>
                     </tr>
                   ) : (
                     pagedLpo.map((sale) => (
                       <tr key={sale.id} className="border-b hover:bg-gray-50">
-                        <td className="w-10 py-3 px-2 align-middle">
+                        <td className="w-12 py-4 px-4 align-middle">
                           <Checkbox
                             checked={selectedIds.has(sale.id)}
                             onCheckedChange={() => toggleSelectOne(sale.id)}
@@ -332,36 +332,36 @@ export default function LPO() {
                             className="h-4 w-4 shrink-0"
                           />
                         </td>
-                        <td className="py-3 px-4 text-sm font-medium text-gray-900">
+                        <td className="py-4 px-5 text-sm font-medium text-gray-900">
                           {(sale as SaleWithClient).client?.name ?? "—"}
                         </td>
-                        <td className="py-3 px-4 text-sm text-gray-600">
+                        <td className="py-4 px-5 text-sm text-gray-600">
                           {(sale as SaleWithClient).project?.name ?? "—"}
                         </td>
-                        <td className="py-3 px-4 text-sm text-gray-600">
+                        <td className="py-4 px-5 text-sm text-gray-600">
                           {new Date(sale.saleDate).toLocaleDateString()}
                         </td>
-                        <td className="py-3 px-4 text-sm text-right">
+                        <td className="py-4 px-5 text-sm text-right">
                           {parseFloat(sale.quantityGallons).toFixed(0)} gal
                         </td>
-                        <td className="py-3 px-4 text-sm text-right font-medium">
+                        <td className="py-4 px-5 text-sm text-right font-medium">
                           {CURRENCY} {parseFloat(sale.totalAmount).toLocaleString()}
                         </td>
-                        <td className="py-3 px-4 text-center">
+                        <td className="py-4 px-5 text-center">
                           <StatusBadge status={sale.saleStatus as keyof typeof STATUS_COLORS} />
                         </td>
-                        <td className="py-3 px-4 text-sm text-gray-600">
+                        <td className="py-4 px-5 text-sm text-gray-600">
                           {sale.lpoNumber || "—"}
                         </td>
-                        <td className="py-3 px-4 text-sm text-gray-600">
+                        <td className="py-4 px-5 text-sm text-gray-600">
                           {(sale as any).deliveryNoteNumber || "—"}
                         </td>
-                        <td className="py-3 px-4 text-sm text-gray-600">
+                        <td className="py-4 px-5 text-sm text-gray-600">
                           {sale.lpoReceivedDate
                             ? new Date(sale.lpoReceivedDate).toLocaleDateString()
                             : "—"}
                         </td>
-                        <td className="py-3 px-4 text-right">
+                        <td className="py-4 px-5 text-right">
                           <Button
                             variant="outline"
                             size="sm"
