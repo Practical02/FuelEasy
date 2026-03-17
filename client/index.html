@@ -44,6 +44,14 @@
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" />
     
     <title>FuelFlow - Trading Management</title>
+    <!-- Suppress PWA install prompt; remove any leftover prompt element from cache -->
+    <script>
+      window.addEventListener('beforeinstallprompt', function(e) { e.preventDefault(); });
+      document.addEventListener('DOMContentLoaded', function() {
+        var el = document.getElementById('pwa-install-prompt');
+        if (el && el.parentNode) el.parentNode.removeChild(el);
+      });
+    </script>
   </head>
   <body>
     <div id="root"></div>

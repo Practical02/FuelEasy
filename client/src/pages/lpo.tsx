@@ -191,11 +191,12 @@ export default function LPO() {
           title="Advanced search"
           className="mb-6"
         >
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-            <div className="space-y-2 min-w-[200px]">
+          {/* col-span-full so this block uses full FilterPanel width and doesn't get squeezed into one grid cell */}
+          <div className="col-span-full grid grid-cols-1 sm:grid-cols-2 gap-6 w-full min-w-0">
+            <div className="space-y-2 w-full min-w-0">
               <label className="text-sm font-medium text-gray-700">Client</label>
               <Select value={filterClientId} onValueChange={setFilterClientId}>
-                <SelectTrigger className="w-full min-w-0">
+                <SelectTrigger className="w-full">
                   <SelectValue placeholder="All clients" />
                 </SelectTrigger>
                 <SelectContent>
@@ -206,10 +207,10 @@ export default function LPO() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2 min-w-[200px]">
+            <div className="space-y-2 w-full min-w-0">
               <label className="text-sm font-medium text-gray-700">Project</label>
               <Select value={filterProjectId} onValueChange={setFilterProjectId}>
-                <SelectTrigger className="w-full min-w-0">
+                <SelectTrigger className="w-full">
                   <SelectValue placeholder="All projects" />
                 </SelectTrigger>
                 <SelectContent>
@@ -220,7 +221,7 @@ export default function LPO() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="sm:col-span-2 min-w-0">
+            <div className="sm:col-span-2 w-full min-w-0">
               <DateRangePicker
                 startDate={filterDateFrom}
                 endDate={filterDateTo}
