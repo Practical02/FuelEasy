@@ -315,7 +315,7 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
                   name="deliveryNoteNumber"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Delivery Note No.</FormLabel>
+                      <FormLabel>Delivery Note no.</FormLabel>
                       <FormControl>
                         <Input placeholder="e.g. DN-2025-001" {...field} value={field.value ?? ""} />
                       </FormControl>

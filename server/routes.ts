@@ -93,7 +93,7 @@ const apiInsertSaleSchema = insertSaleSchema.extend({
   salePricePerGallon: z.number(),
   /** If omitted, server computes from stock using FIFO. */
   purchasePricePerGallon: z.number().optional(),
-  deliveryNoteNumber: z.string().min(1, "Delivery number is required"),
+  deliveryNoteNumber: z.string().min(1, "Delivery Note no. is required"),
 });
 
 const apiInsertPaymentSchema = insertPaymentSchema.extend({

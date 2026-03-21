@@ -27,7 +27,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import type { SaleWithClient, Client, Project } from "@shared/schema";
 
-/** LPO, else delivery note, else short id — never show the string "null". */
+/** LPO, else delivery note no., else short id — never show the string "null". */
 function saleLabelForDelete(sale: SaleWithClient | undefined): string {
   if (!sale) return "this sale";
   const lpo = sale.lpoNumber?.trim();
@@ -313,7 +313,7 @@ export default function Sales() {
           <SearchInput
             value={searchTerm}
             onChange={setSearchTerm}
-            placeholder="Search by LPO, client, project, or delivery note..."
+            placeholder="Search by LPO, client, project, or delivery note no..."
             className="flex-1 max-w-md"
           />
           <Button 
@@ -431,11 +431,12 @@ export default function Sales() {
                   <tr className="border-b border-gray-200">
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Sale Date</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Client</th>
+                    <th className="text-left py-3 px-4 font-medium text-gray-900">Project</th>
+                    <th className="text-left py-3 px-4 font-medium text-gray-900">Project name</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Quantity</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Unit Price</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Total Amount</th>
-                    <th className="text-left py-3 px-4 font-medium text-gray-900">LPO Number</th>
-                    <th className="text-left py-3 px-4 font-medium text-gray-900">Delivery Note</th>
+                    <th className="text-left py-3 px-4 font-medium text-gray-900">Delivery Note no.</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Status</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Actions</th>
                   </tr>
@@ -443,7 +444,7 @@ export default function Sales() {
                 <tbody>
                   {isLoading ? (
                     <tr>
-                      <td colSpan={9} className="py-8 text-center text-gray-500">
+                      <td colSpan={10} className="py-8 text-center text-gray-500">
                         Loading sales...
                       </td>
                     </tr>
@@ -455,6 +456,12 @@ export default function Sales() {
                         </td>
                         <td className="py-3 px-4 text-sm text-gray-900">{sale.client.name}</td>
                         <td className="py-3 px-4 text-sm text-gray-900">
+                          {sale.project?.location?.trim() || sale.project?.name || "—"}
+                        </td>
+                        <td className="py-3 px-4 text-sm text-gray-900">
+                          {sale.project?.name ?? "—"}
+                        </td>
+                        <td className="py-3 px-4 text-sm text-gray-900">
                           {parseFloat(sale.quantityGallons).toLocaleString()} gal
                         </td>
                         <td className="py-3 px-4 text-sm text-gray-900">
@@ -463,7 +470,6 @@ export default function Sales() {
                         <td className="py-3 px-4 text-sm font-medium text-gray-900">
                           {CURRENCY} {parseFloat(sale.totalAmount).toLocaleString()}
                         </td>
-                        <td className="py-3 px-4 text-sm text-gray-900">{sale.lpoNumber ?? "—"}</td>
                         <td className="py-3 px-4 text-sm text-gray-900">{(sale as any).deliveryNoteNumber ?? "—"}</td>
                         <td className="py-3 px-4">
                           <StatusBadge status={sale.saleStatus as any} />
@@ -510,7 +516,7 @@ export default function Sales() {
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={9} className="py-8 text-center text-gray-500">
+                      <td colSpan={10} className="py-8 text-center text-gray-500">
                         {hasActiveFilters 
                           ? "No sales match your current filters. Try adjusting the filters or clearing them."
                           : "No sales recorded yet. Click 'New Sale' to get started."
@@ -558,11 +564,17 @@ export default function Sales() {
                           <span className="ml-1 font-medium text-lg">{CURRENCY} {parseFloat(sale.totalAmount).toLocaleString()}</span>
                         </div>
                         <div>
-                          <span className="text-gray-500">LPO:</span>
-                          <span className="ml-1 font-medium">{sale.lpoNumber ?? "—"}</span>
+                          <span className="text-gray-500">Project:</span>
+                          <span className="ml-1 font-medium">
+                            {sale.project?.location?.trim() || sale.project?.name || "—"}
+                          </span>
                         </div>
                         <div>
-                          <span className="text-gray-500">Delivery Note:</span>
+                          <span className="text-gray-500">Project name:</span>
+                          <span className="ml-1 font-medium">{sale.project?.name ?? "—"}</span>
+                        </div>
+                        <div>
+                          <span className="text-gray-500">Delivery Note no.:</span>
                           <span className="ml-1 font-medium">{(sale as any).deliveryNoteNumber ?? "—"}</span>
                         </div>
                       </div>

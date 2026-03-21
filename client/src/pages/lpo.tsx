@@ -161,7 +161,7 @@ export default function LPO() {
           <SearchInput
             value={searchTerm}
             onChange={setSearchTerm}
-            placeholder="Search by client, project, LPO or delivery note..."
+            placeholder="Search by client, project, LPO or delivery note no..."
             className="flex-1 max-w-md"
           />
           <div className="flex flex-wrap gap-3">
@@ -314,7 +314,7 @@ export default function LPO() {
                     <th className="text-right py-4 px-5 font-medium text-gray-900">Total</th>
                     <th className="text-center py-4 px-5 font-medium text-gray-900">Status</th>
                     <th className="text-left py-4 px-5 font-medium text-gray-900">LPO Number</th>
-                    <th className="text-left py-4 px-5 font-medium text-gray-900">Delivery Note</th>
+                    <th className="text-left py-4 px-5 font-medium text-gray-900">Delivery Note no.</th>
                     <th className="text-left py-4 px-5 font-medium text-gray-900">LPO Received</th>
                     <th className="text-right py-4 px-5 font-medium text-gray-900">Action</th>
                   </tr>

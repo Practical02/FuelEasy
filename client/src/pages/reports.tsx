@@ -556,12 +556,12 @@ export default function Reports() {
       worksheet.getCell(currentRow, 1).font = { bold: true };
       worksheet.getCell(currentRow, 6).value = invoiceTotals.totalAmount;
     } else if (reportType === "pending") {
-      // Pending LPO: no LPO/invoice columns (not applicable yet); include delivery note when recorded
+      // Pending LPO: no LPO/invoice columns (not applicable yet); include delivery note no. when recorded
       const headers = [
         "Date of Sale",
         "Client Name",
         "Project",
-        "Delivery Note No.",
+        "Delivery Note no.",
         "Quantity",
         "Unit Price (AED)",
         "Subtotal (AED)",
@@ -603,13 +603,13 @@ export default function Reports() {
       worksheet.getCell(currentRow, 8).value = totals.vatAmount;
       worksheet.getCell(currentRow, 9).value = totals.totalAmount;
     } else {
-      // VAT (and any other sales report): LPO + Delivery No. + invoice columns
+      // VAT (and any other sales report): LPO + Delivery Note no. + invoice columns
       const headers = [
         "Date of Sale",
         "Client Name",
         "Project",
         "LPO Number",
-        "Delivery No.",
+        "Delivery Note no.",
         "Invoice Number",
         "Date of Invoice",
         "Quantity (Gallons)",
@@ -806,7 +806,7 @@ export default function Reports() {
             "Date of Sale",
             "Client Name",
             "Project",
-            "Delivery No.",
+            "Delivery Note no.",
             "Quantity (Gallons)",
             "Unit Price",
             "Subtotal",
@@ -818,7 +818,7 @@ export default function Reports() {
             "Date of Sale",
             "Client Name",
             "LPO Number",
-            "Delivery No.",
+            "Delivery Note no.",
             "Invoice No.",
             "Invoice Date",
             "Quantity (Gallons)",
@@ -1598,7 +1598,7 @@ export default function Reports() {
                       <th className="text-left p-3 text-sm font-medium text-gray-600">Date</th>
                       <th className="text-left p-3 text-sm font-medium text-gray-600">Client</th>
                       <th className="text-left p-3 text-sm font-medium text-gray-600">Project</th>
-                      <th className="text-left p-3 text-sm font-medium text-gray-600">Delivery No.</th>
+                      <th className="text-left p-3 text-sm font-medium text-gray-600">Delivery Note no.</th>
                       <th className="text-right p-3 text-sm font-medium text-gray-600">Quantity</th>
                       <th className="text-right p-3 text-sm font-medium text-gray-600">Subtotal</th>
                       <th className="text-right p-3 text-sm font-medium text-gray-600">VAT</th>
@@ -1639,7 +1639,7 @@ export default function Reports() {
                         <div>
                           <h3 className="font-medium text-gray-900">{sale.client.name}</h3>
                             <p className="text-sm text-gray-600">
-                              Delivery No.: {(sale as Sale).deliveryNoteNumber ?? "—"}
+                              Delivery Note no.: {(sale as Sale).deliveryNoteNumber ?? "—"}
                             </p>
                           {(sale as SaleWithClient).project?.name && (
                             <p className="text-sm text-gray-500">Project: {(sale as SaleWithClient).project?.name}</p>

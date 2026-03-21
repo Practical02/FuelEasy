@@ -34,11 +34,20 @@ const mockSales = [
   {
     id: 'sale-1',
     clientId: 'client-1',
+    projectId: 'project-1',
     lpoNumber: 'LPO-001',
     totalAmount: '1000.00',
     saleStatus: 'Invoiced',
     client: { id: 'client-1', name: 'Client A' },
-    project: null,
+    project: {
+      id: 'project-1',
+      clientId: 'client-1',
+      name: 'North Site',
+      location: 'Zone A',
+      description: null,
+      status: 'Active',
+      createdAt: new Date().toISOString(),
+    },
     saleDate: new Date().toISOString(),
     quantityGallons: '100',
     salePricePerGallon: '10',
@@ -53,11 +62,20 @@ const mockSales = [
   {
     id: 'sale-2',
     clientId: 'client-2',
+    projectId: 'project-2',
     lpoNumber: 'LPO-002',
     totalAmount: '500.00',
     saleStatus: 'Pending LPO',
     client: { id: 'client-2', name: 'Client B' },
-    project: null,
+    project: {
+      id: 'project-2',
+      clientId: 'client-2',
+      name: 'South Yard',
+      location: '',
+      description: null,
+      status: 'Active',
+      createdAt: new Date().toISOString(),
+    },
     saleDate: new Date().toISOString(),
     quantityGallons: '50',
     salePricePerGallon: '10',
@@ -130,7 +148,7 @@ describe('Sales Page', () => {
 
     // Wait for sales data to load and render
     await waitFor(() => {
-      expect(screen.getByText('LPO-001')).toBeInTheDocument();
+      expect(screen.getByText('Client A')).toBeInTheDocument();
     });
 
     const editButton = screen.getAllByRole('button', { name: /Edit/i })[0];
@@ -151,7 +169,7 @@ describe('Sales Page', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('LPO-001')).toBeInTheDocument();
+      expect(screen.getByText('Client A')).toBeInTheDocument();
     });
 
     const viewButton = screen.getAllByRole('button', { name: /View/i })[0];
@@ -172,7 +190,7 @@ describe('Sales Page', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('LPO-001')).toBeInTheDocument();
+      expect(screen.getByText('Client A')).toBeInTheDocument();
     });
 
     // Assuming a button that triggers payment modal exists and can be identified
@@ -193,7 +211,7 @@ describe('Sales Page', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('LPO-001')).toBeInTheDocument();
+      expect(screen.getByText('Client A')).toBeInTheDocument();
     });
 
     const payButton = screen.getAllByRole('button', { name: /credit-card/i })[0]; // Simplified selector
