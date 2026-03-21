@@ -8,12 +8,17 @@ import { Input } from "@/components/ui/input";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { insertInvoiceSchema, type Invoice } from "@shared/schema";
+import type { InsertInvoice, Invoice } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { z } from "zod";
 
-const editInvoiceFormSchema = insertInvoiceSchema;
+/** Only fields we edit — full `insertInvoiceSchema` fails validation when reset from API (date/decimal shapes, id/createdAt). */
+const editInvoiceFormSchema = z.object({
+  invoiceNumber: z.string().min(1, "Invoice number is required"),
+  invoiceDate: z.coerce.date(),
+  submissionDate: z.union([z.coerce.date(), z.null()]).optional(),
+});
 
 interface EditInvoiceModalProps {
   open: boolean;
@@ -31,14 +36,14 @@ export default function EditInvoiceModal({ open, onOpenChange, invoice }: EditIn
     defaultValues: {
       invoiceNumber: "",
       invoiceDate: new Date(),
-      status: "Generated",
+      submissionDate: undefined,
     },
   });
 
   useEffect(() => {
     if (invoice) {
       form.reset({
-        ...invoice,
+        invoiceNumber: invoice.invoiceNumber,
         invoiceDate: new Date(invoice.invoiceDate),
         submissionDate: invoice.submissionDate ? new Date(invoice.submissionDate) : undefined,
       });
@@ -46,11 +51,11 @@ export default function EditInvoiceModal({ open, onOpenChange, invoice }: EditIn
   }, [invoice, form]);
 
   const updateInvoiceMutation = useMutation({
-    mutationFn: async (data: z.infer<typeof editInvoiceFormSchema>) => {
+    mutationFn: async (payload: InsertInvoice) => {
       if (!invoice) {
         throw new Error("No invoice to update");
       }
-      const response = await apiRequest("PATCH", `/api/invoices/${invoice.id}`, data);
+      const response = await apiRequest("PATCH", `/api/invoices/${invoice.id}`, payload);
       return response.json();
     },
     onSuccess: () => {
@@ -71,10 +76,26 @@ export default function EditInvoiceModal({ open, onOpenChange, invoice }: EditIn
   });
 
   const onSubmit = (data: z.infer<typeof editInvoiceFormSchema>) => {
-    updateInvoiceMutation.mutate({
-      ...data,
-      submissionDate: data.submissionDate ?? null,
-    });
+    if (!invoice) return;
+    const submissionDate =
+      data.submissionDate === null
+        ? null
+        : data.submissionDate !== undefined
+          ? data.submissionDate
+          : invoice.submissionDate ?? null;
+
+    const payload: InsertInvoice = {
+      saleId: invoice.saleId,
+      invoiceNumber: data.invoiceNumber,
+      invoiceDate: data.invoiceDate,
+      submissionDate,
+      dueDate: invoice.dueDate ?? null,
+      lpoNumber: invoice.lpoNumber ?? null,
+      totalAmount: invoice.totalAmount,
+      vatAmount: invoice.vatAmount,
+      status: invoice.status,
+    };
+    updateInvoiceMutation.mutate(payload);
   };
 
   if (!invoice) {
@@ -91,7 +112,16 @@ export default function EditInvoiceModal({ open, onOpenChange, invoice }: EditIn
       </DialogHeader>
 
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6 pt-4">
+        <form
+          onSubmit={form.handleSubmit(onSubmit, () => {
+            toast({
+              title: "Check the form",
+              description: "Please fix the highlighted fields and try again.",
+              variant: "destructive",
+            });
+          })}
+          className="space-y-6 pt-4"
+        >
             <FormField
               control={form.control}
               name="invoiceNumber"
