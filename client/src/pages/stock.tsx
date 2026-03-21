@@ -11,6 +11,7 @@ import EditStockModal from "@/components/modals/edit-stock-modal";
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { Edit, Trash2, Fuel } from "lucide-react";
 import { CURRENCY } from "@/lib/constants";
+import { isInLocalYmdRange } from "@/lib/date-range";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Stock } from "@shared/schema";
@@ -97,21 +98,9 @@ export default function Stock() {
     if (!stock) return [];
 
     return stock.filter((entry) => {
-      // Date range filter
-      if (startDate) {
-        const entryDate = new Date(entry.purchaseDate);
-        const filterStartDate = new Date(startDate);
-        if (entryDate < filterStartDate) {
-          return false;
-        }
-      }
-
-      if (endDate) {
-        const entryDate = new Date(entry.purchaseDate);
-        const filterEndDate = new Date(endDate);
-        if (entryDate > filterEndDate) {
-          return false;
-        }
+      // Date range filter (end date inclusive)
+      if (!isInLocalYmdRange(entry.purchaseDate, startDate || undefined, endDate || undefined)) {
+        return false;
       }
 
       // Quantity range filter

@@ -24,6 +24,7 @@ import {
   fetchAllSales,
   salesListFromResponse,
 } from "@/lib/sales-query";
+import { isInLocalYmdRange } from "@/lib/date-range";
 import { useToast } from "@/hooks/use-toast";
 import type { SaleWithClient, Client, Project } from "@shared/schema";
 
@@ -33,6 +34,8 @@ export default function Sales() {
   const [showViewSaleModal, setShowViewSaleModal] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  /** Separate from selectedSaleId so delete never mounts Edit/View/Payment dialogs (Radix can fire onOpenChange on mount and clear the shared id). */
+  const [saleIdToDelete, setSaleIdToDelete] = useState<string | null>(null);
   const [selectedSaleId, setSelectedSaleId] = useState<string>("");
   const { toast } = useToast();
 
@@ -103,6 +106,7 @@ export default function Sales() {
         description: "Sale has been deleted successfully.",
       });
       setShowDeleteDialog(false);
+      setSaleIdToDelete(null);
       setSelectedSaleId("");
     },
     onError: () => {
@@ -151,21 +155,9 @@ export default function Sales() {
         return false;
       }
 
-      // Date range filter
-      if (startDate) {
-        const saleDate = new Date(sale.saleDate);
-        const filterStartDate = new Date(startDate);
-        if (saleDate < filterStartDate) {
-          return false;
-        }
-      }
-
-      if (endDate) {
-        const saleDate = new Date(sale.saleDate);
-        const filterEndDate = new Date(endDate);
-        if (saleDate > filterEndDate) {
-          return false;
-        }
+      // Date range filter (end date inclusive)
+      if (!isInLocalYmdRange(sale.saleDate, startDate || undefined, endDate || undefined)) {
+        return false;
       }
 
       // Amount range filter
@@ -281,6 +273,9 @@ export default function Sales() {
 
   const handlePaymentClick = (saleId: string) => {
     setSelectedSaleId(saleId);
+    setShowEditSaleModal(false);
+    setShowViewSaleModal(false);
+    setShowPaymentModal(true);
   };
 
 
@@ -300,13 +295,13 @@ export default function Sales() {
   };
 
   const handleDeleteClick = (saleId: string) => {
-    setSelectedSaleId(saleId);
+    setSaleIdToDelete(saleId);
     setShowDeleteDialog(true);
   };
 
   const handleDeleteConfirm = () => {
-    if (selectedSaleId) {
-      deleteSaleMutation.mutate(selectedSaleId);
+    if (saleIdToDelete) {
+      deleteSaleMutation.mutate(saleIdToDelete);
     }
   };
 
@@ -656,32 +651,37 @@ export default function Sales() {
         open={showNewSaleModal} 
         onOpenChange={(open) => handleCloseModal(setShowNewSaleModal)(open)} 
       />
-      {selectedSaleId && (
+      {showEditSaleModal && selectedSaleId && (
         <EditSaleModal 
           open={showEditSaleModal} 
           onOpenChange={(open) => handleCloseModal(setShowEditSaleModal)(open)}
           sale={filteredSales.find(s => s.id === selectedSaleId)!}
         />
       )}
-      {selectedSaleId && (
+      {showViewSaleModal && selectedSaleId && (
         <ViewSaleModal 
           open={showViewSaleModal} 
           onOpenChange={(open) => handleCloseModal(setShowViewSaleModal)(open)}
           sale={filteredSales.find(s => s.id === selectedSaleId) || null}
         />
       )}
-      <PaymentModal 
-        open={showPaymentModal} 
-        onOpenChange={(open) => handleCloseModal(setShowPaymentModal)(open)}
-        saleId={selectedSaleId}
-      />
+      {showPaymentModal && (
+        <PaymentModal 
+          open={showPaymentModal} 
+          onOpenChange={(open) => handleCloseModal(setShowPaymentModal)(open)}
+          saleId={selectedSaleId}
+        />
+      )}
       <ConfirmationDialog
         open={showDeleteDialog}
-        onOpenChange={setShowDeleteDialog}
+        onOpenChange={(open) => {
+          setShowDeleteDialog(open);
+          if (!open) setSaleIdToDelete(null);
+        }}
         title="Delete Sale"
         description={
-          selectedSaleId && filteredSales.find(s => s.id === selectedSaleId)
-            ? `Are you sure you want to delete the sale "${filteredSales.find(s => s.id === selectedSaleId)?.lpoNumber}"? This action cannot be undone and will remove all associated payment records.`
+          saleIdToDelete && filteredSales.find(s => s.id === saleIdToDelete)
+            ? `Are you sure you want to delete the sale "${filteredSales.find(s => s.id === saleIdToDelete)?.lpoNumber}"? This action cannot be undone and will remove all associated payment records.`
             : "Are you sure you want to delete this sale?"
         }
         confirmText="Delete Sale"

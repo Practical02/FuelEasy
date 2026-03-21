@@ -15,6 +15,7 @@ import { ClipboardList, Pencil } from "lucide-react";
 import { CURRENCY, STATUS_COLORS } from "@/lib/constants";
 import { SALES_PAGE_SIZE } from "@/lib/sales-query";
 import { apiRequest } from "@/lib/queryClient";
+import { isInLocalYmdRange } from "@/lib/date-range";
 import type { SaleWithClient } from "@shared/schema";
 import type { Client } from "@shared/schema";
 import type { Project } from "@shared/schema";
@@ -70,11 +71,8 @@ export default function LPO() {
       }
       if (filterClientId !== "all" && sale.clientId !== filterClientId) return false;
       if (filterProjectId !== "all" && sale.projectId !== filterProjectId) return false;
-      if (filterDateFrom) {
-        if (new Date(sale.saleDate) < new Date(filterDateFrom)) return false;
-      }
-      if (filterDateTo) {
-        if (new Date(sale.saleDate) > new Date(filterDateTo)) return false;
+      if (!isInLocalYmdRange(sale.saleDate, filterDateFrom || undefined, filterDateTo || undefined)) {
+        return false;
       }
       if (searchTerm) {
         const q = searchTerm.toLowerCase();

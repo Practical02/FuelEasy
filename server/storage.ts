@@ -53,6 +53,17 @@ const connectionString = process.env.DATABASE_URL || "";
 const sql_conn = neon(connectionString);
 const db = drizzle(sql_conn, { schema: { users, stock, clients, projects, sales, invoices, payments, cashbook, accountHeads, cashbookPaymentAllocations, businessSettings, invoiceSales, supplierAdvanceAllocations, paymentProjects } }); // supplierAdvanceAllocations legacy table
 
+/** YYYY-MM-DD → start/end of local day for inclusive timestamp range queries. */
+function startOfDayFromYmd(ymd: string): Date {
+  const [y, m, d] = ymd.split("-").map(Number);
+  return new Date(y, m - 1, d, 0, 0, 0, 0);
+}
+
+function endOfDayFromYmd(ymd: string): Date {
+  const [y, m, d] = ymd.split("-").map(Number);
+  return new Date(y, m - 1, d, 23, 59, 59, 999);
+}
+
 export interface IStorage {
   // User methods
   getUser(id: string): Promise<User | undefined>;
@@ -1617,11 +1628,11 @@ export class DatabaseStorage implements IStorage {
     }
     
     if (dateFrom) {
-      conditions.push(sql`${sales.saleDate} >= ${dateFrom}`);
+      conditions.push(gte(sales.saleDate, startOfDayFromYmd(dateFrom)));
     }
-    
+
     if (dateTo) {
-      conditions.push(sql`${sales.saleDate} <= ${dateTo}`);
+      conditions.push(lte(sales.saleDate, endOfDayFromYmd(dateTo)));
     }
 
     const result = await db
@@ -1669,11 +1680,11 @@ export class DatabaseStorage implements IStorage {
     }
     
     if (dateFrom) {
-      conditions.push(sql`${sales.saleDate} >= ${dateFrom}`);
+      conditions.push(gte(sales.saleDate, startOfDayFromYmd(dateFrom)));
     }
-    
+
     if (dateTo) {
-      conditions.push(sql`${sales.saleDate} <= ${dateTo}`);
+      conditions.push(lte(sales.saleDate, endOfDayFromYmd(dateTo)));
     }
 
     const result = await db

@@ -11,6 +11,7 @@ import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { MultiSelectFilter } from "@/components/ui/multi-select-filter";
 import { FileText, Trash2, Eye, PlusCircle, Pencil } from "lucide-react";
 import { CURRENCY } from "@/lib/constants";
+import { isInLocalYmdRange } from "@/lib/date-range";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { SALES_ALL_QUERY_KEY, fetchAllSales, salesListFromResponse } from "@/lib/sales-query";
 import { useToast } from "@/hooks/use-toast";
@@ -58,8 +59,9 @@ export default function Invoices() {
         if (!matchInv && !matchClient && !matchLpo) return false;
       }
       if (selectedStatuses.length > 0 && !selectedStatuses.includes(inv.status)) return false;
-      if (startDate && new Date(inv.invoiceDate) < new Date(startDate)) return false;
-      if (endDate && new Date(inv.invoiceDate) > new Date(endDate)) return false;
+      if (!isInLocalYmdRange(inv.invoiceDate, startDate || undefined, endDate || undefined)) {
+        return false;
+      }
       return true;
     });
   }, [invoices, searchTerm, selectedStatuses, startDate, endDate]);

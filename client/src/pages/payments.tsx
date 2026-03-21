@@ -15,6 +15,7 @@ import PaymentModal from "@/components/modals/payment-modal";
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { Trash2, Users, CreditCard } from "lucide-react";
 import { CURRENCY } from "@/lib/constants";
+import { endOfLocalDay } from "@/lib/date-range";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { SALES_ALL_QUERY_KEY, fetchAllSales, salesListFromResponse } from "@/lib/sales-query";
 import { useToast } from "@/hooks/use-toast";
@@ -134,10 +135,11 @@ export default function Payments() {
         return false;
       }
 
-      // Date range filter
+      // Date range filter (end date inclusive)
       if (startDate) {
         const paymentDate = new Date(payment.paymentDate);
         const filterStartDate = new Date(startDate);
+        filterStartDate.setHours(0, 0, 0, 0);
         if (paymentDate < filterStartDate) {
           return false;
         }
@@ -145,7 +147,7 @@ export default function Payments() {
 
       if (endDate) {
         const paymentDate = new Date(payment.paymentDate);
-        const filterEndDate = new Date(endDate);
+        const filterEndDate = endOfLocalDay(new Date(endDate));
         if (paymentDate > filterEndDate) {
           return false;
         }

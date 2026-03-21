@@ -34,6 +34,7 @@ import { CURRENCY, STATUS_COLORS } from "@/lib/constants";
 import { SALES_ALL_QUERY_KEY, fetchAllSales, salesListFromResponse } from "@/lib/sales-query";
 import type { Sale, Client, Invoice, Stock, AccountHead, CashbookEntryWithAccountHead } from "@shared/schema";
 import ExcelJS from 'exceljs';
+import { isInLocalYmdRange } from "@/lib/date-range";
 
 type SaleWithClient = Sale & { client: Client; project?: { name: string } | null };
 
@@ -151,18 +152,13 @@ export default function Reports() {
       return false;
     }
 
-    // Date filter
-    const saleDate = new Date(sale.saleDate);
-    if (dateFrom && saleDate < new Date(dateFrom)) {
-      return false;
-    }
-    if (dateTo && saleDate > new Date(dateTo)) {
+    // Date filter (end date inclusive — full calendar day)
+    if (!isInLocalYmdRange(sale.saleDate, dateFrom || undefined, dateTo || undefined)) {
       return false;
     }
 
-    // Report type filter
     if (reportType === "pending") {
-      return sale.saleStatus === "Pending LPO" || sale.saleStatus === "LPO Received" || sale.saleStatus === "Invoiced";
+      return sale.saleStatus === "Pending LPO";
     } else if (reportType === "whole-sales") {
       return true; // All sales regardless of status
     } else if (reportType === "vat" || reportType === "profit") {
@@ -262,12 +258,9 @@ export default function Reports() {
   /** Stock purchases in period (input VAT — same date filter as sales VAT report). */
   const filteredStock = useMemo(() => {
     if (reportType !== "vat") return [] as Stock[];
-    return (stockRows || []).filter((row) => {
-      const d = new Date(row.purchaseDate);
-      if (dateFrom && d < new Date(dateFrom)) return false;
-      if (dateTo && d > new Date(dateTo)) return false;
-      return true;
-    });
+    return (stockRows || []).filter((row) =>
+      isInLocalYmdRange(row.purchaseDate, dateFrom || undefined, dateTo || undefined)
+    );
   }, [reportType, stockRows, dateFrom, dateTo]);
 
   const stockInputVatTotal = useMemo(
@@ -368,11 +361,7 @@ export default function Reports() {
         const pid = inv.sale?.projectId ?? inv.sales?.[0]?.projectId;
         if (pid !== selectedProject) return false;
       }
-      if (!dateFrom && !dateTo) return true;
-      const d = new Date(inv.invoiceDate);
-      if (dateFrom && d < new Date(dateFrom)) return false;
-      if (dateTo && d > new Date(dateTo)) return false;
-      return true;
+      return isInLocalYmdRange(inv.invoiceDate, dateFrom || undefined, dateTo || undefined);
     });
   }, [reportType, invoices, selectedClient, selectedProject, dateFrom, dateTo]);
 
@@ -410,7 +399,7 @@ export default function Reports() {
       : reportType === "pending-invoices"
         ? "Pending Invoices"
         : reportType === "pending"
-          ? "Pending Business"
+          ? "Pending LPO"
           : reportType === "whole-sales"
             ? "Whole Sales"
             : reportType === "profit"
@@ -442,7 +431,7 @@ export default function Reports() {
       reportType === "pending-invoices"
         ? "Pending Invoices Report"
         : reportType === "pending"
-          ? "Pending Business Report"
+          ? "Pending LPO Report"
           : reportType === "whole-sales"
             ? "Whole Sales Report"
             : reportType === "profit"
@@ -1397,7 +1386,7 @@ export default function Reports() {
       <Card>
         <CardHeader>
           <CardTitle>
-            {reportType === "pending" ? "Pending Business Report" : reportType === "whole-sales" ? "Whole Sales Report" : reportType === "pending-invoices" ? "Pending Invoices Report" : "VAT Report"}
+            {reportType === "pending" ? "Pending LPO Report" : reportType === "whole-sales" ? "Whole Sales Report" : reportType === "pending-invoices" ? "Pending Invoices Report" : "VAT Report"}
           </CardTitle>
         </CardHeader>
         <CardContent>

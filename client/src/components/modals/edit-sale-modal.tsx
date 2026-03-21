@@ -21,6 +21,8 @@ const editSaleFormSchema = insertSaleSchema.extend({
   purchasePricePerGallon: z.coerce.number().min(0.001, "Purchase price is required"),
   vatPercentage: z.string().default("5.00"),
   deliveryNoteNumber: z.string().optional(), // Not required when recording LPO; only when entering new sale
+  /** YYYY-MM-DD from date input; sent as ISO to API */
+  lpoReceivedDate: z.string().optional(),
 });
 
 interface EditSaleModalProps {
@@ -75,6 +77,9 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
         purchasePricePerGallon: sale.purchasePricePerGallon ? parseFloat(sale.purchasePricePerGallon) : undefined,
         lpoNumber: sale.lpoNumber || "",
         deliveryNoteNumber: (sale as any).deliveryNoteNumber || "",
+        lpoReceivedDate: sale.lpoReceivedDate
+          ? new Date(sale.lpoReceivedDate).toISOString().slice(0, 10)
+          : "",
         vatPercentage: sale.vatPercentage,
         saleStatus: sale.saleStatus,
       });
@@ -93,14 +98,18 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
       if (!sale) {
         throw new Error("No sale to update");
       }
-      
+
+      const { lpoReceivedDate: lpoDateInput, ...rest } = data;
       const saleData: any = {
-        ...data,
+        ...rest,
         saleDate: new Date(data.saleDate).toISOString(),
         invoiceDate: data.saleStatus === "Invoiced" || data.saleStatus === "Paid" 
           ? new Date().toISOString() 
           : null,
         deliveryNoteNumber: (data.deliveryNoteNumber?.trim() || (sale as any).deliveryNoteNumber || ""),
+        lpoReceivedDate: lpoDateInput?.trim()
+          ? new Date(`${lpoDateInput.trim()}T12:00:00`).toISOString()
+          : null,
       };
 
       const response = await apiRequest("PATCH", `/api/sales/${sale.id}`, saleData);
@@ -274,6 +283,25 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
                             form.setValue("saleStatus", "LPO Received");
                           }
                         }}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="lpoReceivedDate"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>LPO received date</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="date"
+                        {...field}
+                        value={field.value ?? ""}
+                        onChange={(e) => field.onChange(e.target.value)}
                       />
                     </FormControl>
                     <FormMessage />
