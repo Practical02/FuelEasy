@@ -56,7 +56,8 @@ export default function Invoices() {
         const matchInv = inv.invoiceNumber?.toLowerCase().includes(q);
         const matchClient = inv.sale?.client?.name?.toLowerCase().includes(q);
         const matchLpo = (inv.sale?.lpoNumber ?? (inv as any).lpoNumber)?.toLowerCase().includes(q);
-        if (!matchInv && !matchClient && !matchLpo) return false;
+        const matchProject = inv.sale?.project?.name?.toLowerCase().includes(q);
+        if (!matchInv && !matchClient && !matchLpo && !matchProject) return false;
       }
       if (selectedStatuses.length > 0 && !selectedStatuses.includes(inv.status)) return false;
       if (!isInLocalYmdRange(inv.invoiceDate, startDate || undefined, endDate || undefined)) {
@@ -152,7 +153,7 @@ export default function Invoices() {
           <SearchInput
             value={searchTerm}
             onChange={setSearchTerm}
-            placeholder="Search by invoice number, client, or LPO..."
+            placeholder="Search by invoice number, client, project, or LPO..."
             className="flex-1 max-w-md"
           />
         </div>
@@ -246,7 +247,8 @@ export default function Invoices() {
                   <tr className="border-b border-gray-200">
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Invoice Number</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Client</th>
-                     <th className="text-left py-3 px-4 font-medium text-gray-900">LPO Number</th>
+                    <th className="text-left py-3 px-4 font-medium text-gray-900">Project</th>
+                    <th className="text-left py-3 px-4 font-medium text-gray-900">LPO Number</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Invoice Date</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Amount</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Pending Amount</th>
@@ -257,7 +259,7 @@ export default function Invoices() {
                 <tbody>
                   {isLoading ? (
                     <tr>
-                      <td colSpan={7} className="py-8 text-center text-gray-500">
+                      <td colSpan={9} className="py-8 text-center text-gray-500">
                         Loading invoices...
                       </td>
                     </tr>
@@ -269,6 +271,9 @@ export default function Invoices() {
                         </td>
                         <td className="py-3 px-4 text-sm text-gray-900">
                           {invoice.sale?.client?.name || "N/A"}
+                        </td>
+                        <td className="py-3 px-4 text-sm text-gray-900">
+                          {invoice.sale?.project?.name ?? "—"}
                         </td>
                         <td className="py-3 px-4 text-sm text-gray-900">
                           {(invoice as any).lpoNumber || invoice.sale?.lpoNumber || "N/A"}
@@ -326,7 +331,7 @@ export default function Invoices() {
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={8} className="py-8 text-center text-gray-500">
+                      <td colSpan={9} className="py-8 text-center text-gray-500">
                         {invoices.length === 0 ? "No active invoices found." : "No invoices match the current filters."}
                       </td>
                     </tr>

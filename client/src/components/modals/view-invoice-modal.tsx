@@ -4,7 +4,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { FileText, User, Calendar, Hash, DollarSign, Percent } from "lucide-react";
+import { FileText, User, Calendar, Hash, LayoutGrid } from "lucide-react";
 import { CURRENCY } from "@/lib/constants";
 import type { Invoice, SaleWithClient } from "@shared/schema";
 
@@ -54,14 +54,21 @@ export default function ViewInvoiceModal({ open, onOpenChange, invoice }: ViewIn
                 <User className="w-5 h-5 text-gray-500" />
                 <div>
                   <p className="text-sm text-gray-500">Client</p>
-                  <p className="font-medium">{invoice.sale.client.name}</p>
+                  <p className="font-medium">{invoice.sale?.client?.name ?? "—"}</p>
+                </div>
+              </div>
+              <div className="flex items-center space-x-3">
+                <LayoutGrid className="w-5 h-5 text-gray-500" />
+                <div>
+                  <p className="text-sm text-gray-500">Project</p>
+                  <p className="font-medium">{invoice.sale?.project?.name ?? "—"}</p>
                 </div>
               </div>
               <div className="flex items-center space-x-3">
                 <Hash className="w-5 h-5 text-gray-500" />
                 <div>
                   <p className="text-sm text-gray-500">LPO Number</p>
-                  <p className="font-medium">{(invoice as any).lpoNumber || invoice.sale.lpoNumber}</p>
+                  <p className="font-medium">{(invoice as any).lpoNumber || invoice.sale?.lpoNumber || "—"}</p>
                 </div>
               </div>
             </CardContent>
@@ -76,7 +83,7 @@ export default function ViewInvoiceModal({ open, onOpenChange, invoice }: ViewIn
                   <span className="font-medium">{CURRENCY} {(parseFloat(invoice.totalAmount) - parseFloat(invoice.vatAmount)).toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-600">VAT ({invoice.sale.vatPercentage}%)</span>
+                  <span className="text-gray-600">VAT ({invoice.sale?.vatPercentage ?? "—"}%)</span>
                   <span className="font-medium">{CURRENCY} {parseFloat(invoice.vatAmount).toLocaleString()}</span>
                 </div>
                 <div className="border-t pt-3 mt-3 flex justify-between font-bold text-lg">
@@ -85,7 +92,7 @@ export default function ViewInvoiceModal({ open, onOpenChange, invoice }: ViewIn
                 </div>
                 <div className="flex justify-between text-red-600">
                   <span>Pending Amount</span>
-                  <span className="font-medium">{CURRENCY} {parseFloat((invoice as any).pendingAmount || invoice.sale.pendingAmount || "0").toLocaleString()}</span>
+                  <span className="font-medium">{CURRENCY} {parseFloat((invoice as any).pendingAmount || invoice.sale?.pendingAmount || "0").toLocaleString()}</span>
                 </div>
               </div>
             </CardContent>

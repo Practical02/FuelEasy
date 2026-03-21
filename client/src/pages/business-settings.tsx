@@ -45,7 +45,7 @@ export default function BusinessSettings() {
       companyWebsite: "",
       taxNumber: "",
       vatNumber: "",
-      invoicePrefix: "INV",
+      invoicePrefix: "ZDT/S20-",
       invoiceNumberStart: 1000,
       primaryColor: "#1976D2",
       secondaryColor: "#666666",
@@ -251,10 +251,10 @@ export default function BusinessSettings() {
                     <Input
                       id="invoicePrefix"
                       {...form.register("invoicePrefix")}
-                      placeholder="INV"
+                      placeholder="ZDT/S20-"
                     />
                     <p className="text-sm text-gray-500">
-                      Prefix for invoice numbers (e.g., INV-2024-001)
+                      Default prefix for new invoices (e.g. ZDT/S20-). Include a trailing hyphen if numbers follow directly. You can still edit the full invoice number when creating an invoice.
                     </p>
                   </div>
                   <div className="space-y-2">

@@ -16,7 +16,7 @@ const defaultBusinessSettings: BusinessSettings = {
   companyWebsite: '',
   taxNumber: '',
   vatNumber: '',
-  invoicePrefix: 'INV',
+  invoicePrefix: 'ZDT/S20-',
   invoiceNumberStart: 1000,
   primaryColor: '#1976D2',
   secondaryColor: '#666666',

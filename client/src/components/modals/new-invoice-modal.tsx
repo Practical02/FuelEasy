@@ -28,9 +28,25 @@ interface NewInvoiceModalProps {
   onOpenChange: (open: boolean) => void;
 }
 
+/** Combine settings prefix with LPO (prefix often ends with `-`, e.g. ZDT/S20-). */
+function suggestedInvoiceNumber(prefix: string | undefined, lpo: string) {
+  const p = (prefix ?? "ZDT/S20-").trim();
+  const l = (lpo ?? "").trim();
+  if (!l) return p;
+  if (!p) return l;
+  if (p.endsWith("-") || p.endsWith("/")) return `${p}${l}`;
+  return `${p}-${l}`;
+}
+
 export default function NewInvoiceModal({ open, onOpenChange }: NewInvoiceModalProps) {
   const isMobile = useIsMobile();
   const { toast } = useToast();
+
+  const { data: businessSettings } = useQuery({
+    queryKey: ["/api/business-settings"],
+    queryFn: async () => (await apiRequest("GET", "/api/business-settings")).json(),
+    enabled: open,
+  });
 
   const { data: salesResponse } = useQuery({
     queryKey: ["/api/sales", "status", "LPO Received"],
@@ -55,16 +71,21 @@ export default function NewInvoiceModal({ open, onOpenChange }: NewInvoiceModalP
   const selectedSaleId = form.watch("saleId");
   const selectedLpo = form.watch("lpoNumber");
 
+  const invoicePrefix = businessSettings?.invoicePrefix as string | undefined;
+
   useEffect(() => {
     if (mode === "single" && selectedSaleId) {
-      const sale = sales?.find(s => s.id === selectedSaleId);
+      const sale = sales?.find((s) => s.id === selectedSaleId);
       if (sale) {
-        form.setValue("invoiceNumber", `INV-${sale.lpoNumber || ""}`);
+        form.setValue(
+          "invoiceNumber",
+          suggestedInvoiceNumber(invoicePrefix, sale.lpoNumber || ""),
+        );
       }
     } else if (mode === "lpo" && selectedLpo) {
-      form.setValue("invoiceNumber", `INV-${selectedLpo}`);
+      form.setValue("invoiceNumber", suggestedInvoiceNumber(invoicePrefix, selectedLpo));
     }
-  }, [mode, selectedSaleId, selectedLpo, sales, form]);
+  }, [mode, selectedSaleId, selectedLpo, sales, form, invoicePrefix]);
 
   const createInvoiceMutation = useMutation({
     mutationFn: async (data: z.infer<typeof invoiceFormSchema>) => {
@@ -213,8 +234,15 @@ export default function NewInvoiceModal({ open, onOpenChange }: NewInvoiceModalP
                 <FormItem>
                   <FormLabel>Invoice Number</FormLabel>
                   <FormControl>
-                    <Input placeholder="e.g., INV-12345" {...field} />
+                    <Input
+                      placeholder="e.g., ZDT/S20-12345"
+                      autoComplete="off"
+                      {...field}
+                    />
                   </FormControl>
+                  <p className="text-sm text-muted-foreground">
+                    Suggested from Settings → Invoice prefix and LPO. Edit the full number anytime (prefix can change per invoice).
+                  </p>
                   <FormMessage />
                 </FormItem>
               )}

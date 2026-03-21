@@ -95,7 +95,7 @@ export default function EditInvoiceModal({ open, onOpenChange, invoice }: EditIn
                 <FormItem>
                   <FormLabel>Invoice Number</FormLabel>
                   <FormControl>
-                    <Input placeholder="e.g., INV-12345" {...field} />
+                    <Input placeholder="e.g., ZDT/S20-12345" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
