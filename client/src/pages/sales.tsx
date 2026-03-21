@@ -28,6 +28,16 @@ import { isInLocalYmdRange } from "@/lib/date-range";
 import { useToast } from "@/hooks/use-toast";
 import type { SaleWithClient, Client, Project } from "@shared/schema";
 
+/** LPO, else delivery note, else short id — never show the string "null". */
+function saleLabelForDelete(sale: SaleWithClient | undefined): string {
+  if (!sale) return "this sale";
+  const lpo = sale.lpoNumber?.trim();
+  if (lpo) return lpo;
+  const dn = String((sale as { deliveryNoteNumber?: string | null }).deliveryNoteNumber ?? "").trim();
+  if (dn) return dn;
+  return `${sale.id.slice(0, 8)}…`;
+}
+
 export default function Sales() {
   const [showNewSaleModal, setShowNewSaleModal] = useState(false);
   const [showEditSaleModal, setShowEditSaleModal] = useState(false);
@@ -680,9 +690,13 @@ export default function Sales() {
         }}
         title="Delete Sale"
         description={
-          saleIdToDelete && filteredSales.find(s => s.id === saleIdToDelete)
-            ? `Are you sure you want to delete the sale "${filteredSales.find(s => s.id === saleIdToDelete)?.lpoNumber}"? This action cannot be undone and will remove all associated payment records.`
-            : "Are you sure you want to delete this sale?"
+          (() => {
+            const pending = saleIdToDelete ? sales.find((s) => s.id === saleIdToDelete) : undefined;
+            if (!pending) {
+              return "Are you sure you want to delete this sale? This action cannot be undone and will remove all associated payment records.";
+            }
+            return `Are you sure you want to delete the sale "${saleLabelForDelete(pending)}"? This action cannot be undone and will remove all associated payment records.`;
+          })()
         }
         confirmText="Delete Sale"
         onConfirm={handleDeleteConfirm}

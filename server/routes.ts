@@ -18,6 +18,7 @@ import {
   insertBusinessSettingsSchema
 } from "@shared/schema";
 import "./types/session";
+import { applySchemaPatches } from "./schema-patches";
 
 // Simple in-memory cache for read operations
 const cache = new Map<string, { data: any; timestamp: number; ttl: number }>();
@@ -115,6 +116,8 @@ const loginSchema = z.object({
 });
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  await applySchemaPatches();
+
   // Rate limiters
   const loginLimiter = rateLimit({
     windowMs: 60 * 1000,
