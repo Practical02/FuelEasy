@@ -772,6 +772,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const requestData = {
         ...req.body,
         invoiceDate: new Date(req.body.invoiceDate),
+        ...(req.body.submissionDate != null && req.body.submissionDate !== ""
+          ? { submissionDate: new Date(req.body.submissionDate) }
+          : {}),
       };
       const invoiceData = insertInvoiceSchema.parse(requestData);
       const invoice = await storage.createInvoice(invoiceData);
@@ -791,7 +794,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // New route: create invoice by LPO number for multiple sales
   app.post("/api/invoices/by-lpo", requireAuth, writeLimiter, async (req, res) => {
     try {
-      const { lpoNumber, invoiceNumber, invoiceDate } = req.body || {};
+      const { lpoNumber, invoiceNumber, invoiceDate, submissionDate } = req.body || {};
       if (!lpoNumber || !invoiceNumber || !invoiceDate) {
         return res.status(400).json({ message: "lpoNumber, invoiceNumber and invoiceDate are required" });
       }
@@ -799,6 +802,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         lpoNumber,
         invoiceNumber,
         invoiceDate: new Date(invoiceDate),
+        ...(submissionDate != null && submissionDate !== ""
+          ? { submissionDate: new Date(submissionDate) }
+          : {}),
       });
       res.json(invoice);
     } catch (error) {
@@ -823,6 +829,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const requestData = {
         ...req.body,
         invoiceDate: new Date(req.body.invoiceDate),
+        ...(req.body.submissionDate === null || req.body.submissionDate === ""
+          ? { submissionDate: null }
+          : req.body.submissionDate != null
+            ? { submissionDate: new Date(req.body.submissionDate) }
+            : {}),
       };
       const invoiceData = insertInvoiceSchema.parse(requestData);
       const invoice = await storage.updateInvoice(req.params.id, invoiceData);

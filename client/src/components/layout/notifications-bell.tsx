@@ -15,7 +15,15 @@ type OverdueApi = {
   days: number;
   data: Array<{
     client: { id: string; name: string };
-    invoices: Array<{ id: string; invoiceNumber: string | null; invoiceDate: string | null; pendingAmount: number; totalAmount: number }>;
+    invoices: Array<{
+      id: string;
+      invoiceNumber: string | null;
+      invoiceDate: string | null;
+      submissionDate: string | null;
+      dueDate: string | null;
+      pendingAmount: number;
+      totalAmount: number;
+    }>;
     totalPending: number;
   }>;
 };
@@ -59,7 +67,8 @@ export default function NotificationsBell() {
                   {entry.invoices.slice(0, 3).map((inv) => (
                     <DropdownMenuItem key={inv.id} className="flex items-center justify-between">
                       <div className="text-xs text-gray-700 truncate">
-                        {inv.invoiceNumber || "Invoice"} · {inv.invoiceDate ? new Date(inv.invoiceDate).toLocaleDateString() : "—"}
+                        {inv.invoiceNumber || "Invoice"} · due{" "}
+                        {inv.dueDate ? new Date(inv.dueDate).toLocaleDateString() : "—"}
                       </div>
                       <div className="text-xs font-medium text-gray-900">
                         {CURRENCY} {inv.pendingAmount.toLocaleString()}

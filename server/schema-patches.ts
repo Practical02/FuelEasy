@@ -24,4 +24,13 @@ export async function applySchemaPatches(): Promise<void> {
     console.error("applySchemaPatches: failed to ensure invoices.due_date:", e);
     throw e;
   }
+
+  try {
+    await db.execute(
+      sql`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS submission_date TIMESTAMP`
+    );
+  } catch (e) {
+    console.error("applySchemaPatches: failed to ensure invoices.submission_date:", e);
+    throw e;
+  }
 }

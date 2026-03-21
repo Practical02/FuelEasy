@@ -40,6 +40,7 @@ export default function EditInvoiceModal({ open, onOpenChange, invoice }: EditIn
       form.reset({
         ...invoice,
         invoiceDate: new Date(invoice.invoiceDate),
+        submissionDate: invoice.submissionDate ? new Date(invoice.submissionDate) : undefined,
       });
     }
   }, [invoice, form]);
@@ -70,7 +71,10 @@ export default function EditInvoiceModal({ open, onOpenChange, invoice }: EditIn
   });
 
   const onSubmit = (data: z.infer<typeof editInvoiceFormSchema>) => {
-    updateInvoiceMutation.mutate(data);
+    updateInvoiceMutation.mutate({
+      ...data,
+      submissionDate: data.submissionDate ?? null,
+    });
   };
 
   if (!invoice) {
@@ -115,6 +119,29 @@ export default function EditInvoiceModal({ open, onOpenChange, invoice }: EditIn
                       onChange={(e) => field.onChange(new Date(e.target.value))}
                     />
                   </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="submissionDate"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Submission date (optional)</FormLabel>
+                  <FormControl>
+                    <Input
+                      type="date"
+                      value={field.value instanceof Date ? field.value.toISOString().split('T')[0] : ""}
+                      onChange={(e) =>
+                        field.onChange(e.target.value ? new Date(e.target.value) : null)
+                      }
+                    />
+                  </FormControl>
+                  <p className="text-sm text-muted-foreground">
+                    Clears to use invoice date for payment due. Due date updates to one month after submission or invoice date.
+                  </p>
                   <FormMessage />
                 </FormItem>
               )}

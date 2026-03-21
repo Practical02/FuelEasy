@@ -102,7 +102,9 @@ export const invoices = pgTable("invoices", {
   saleId: uuid("sale_id").references(() => sales.id).notNull(),
   invoiceNumber: text("invoice_number").notNull().unique(),
   invoiceDate: timestamp("invoice_date").notNull(),
-  dueDate: timestamp("due_date"), // 1 month from invoice date
+  /** When the invoice was sent/submitted to the client; used with payment terms for due date & reminders. */
+  submissionDate: timestamp("submission_date"),
+  dueDate: timestamp("due_date"), // typically 1 month from submission or invoice date
   // For multi-sale invoices issued per LPO
   lpoNumber: text("lpo_number"),
   totalAmount: decimal("total_amount", { precision: 12, scale: 2 }).notNull(),

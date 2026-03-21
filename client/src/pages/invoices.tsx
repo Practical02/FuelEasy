@@ -250,6 +250,7 @@ export default function Invoices() {
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Project</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">LPO Number</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Invoice Date</th>
+                    <th className="text-left py-3 px-4 font-medium text-gray-900">Submitted</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Amount</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Pending Amount</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Status</th>
@@ -259,7 +260,7 @@ export default function Invoices() {
                 <tbody>
                   {isLoading ? (
                     <tr>
-                      <td colSpan={9} className="py-8 text-center text-gray-500">
+                      <td colSpan={10} className="py-8 text-center text-gray-500">
                         Loading invoices...
                       </td>
                     </tr>
@@ -280,6 +281,11 @@ export default function Invoices() {
                         </td>
                         <td className="py-3 px-4 text-sm text-gray-900">
                           {new Date(invoice.invoiceDate).toLocaleDateString()}
+                        </td>
+                        <td className="py-3 px-4 text-sm text-gray-900">
+                          {invoice.submissionDate
+                            ? new Date(invoice.submissionDate).toLocaleDateString()
+                            : "—"}
                         </td>
                         <td className="py-3 px-4 text-sm font-medium text-gray-900">
                           {CURRENCY} {parseFloat(invoice.totalAmount).toLocaleString()}
@@ -331,7 +337,7 @@ export default function Invoices() {
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={9} className="py-8 text-center text-gray-500">
+                      <td colSpan={10} className="py-8 text-center text-gray-500">
                         {invoices.length === 0 ? "No active invoices found." : "No invoices match the current filters."}
                       </td>
                     </tr>

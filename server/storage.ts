@@ -64,6 +64,24 @@ function endOfDayFromYmd(ymd: string): Date {
   return new Date(y, m - 1, d, 23, 59, 59, 999);
 }
 
+/** Payment due = one calendar month after invoice/submission (matches legacy setMonth behavior). */
+function addOneMonth(d: Date): Date {
+  const x = new Date(d.getTime());
+  x.setMonth(x.getMonth() + 1);
+  return x;
+}
+
+function effectiveDueDateForInvoice(inv: {
+  dueDate: Date | null;
+  submissionDate: Date | null;
+  invoiceDate: Date | null;
+}): Date | null {
+  if (inv.dueDate) return new Date(inv.dueDate as Date);
+  const base = inv.submissionDate ?? inv.invoiceDate;
+  if (!base) return null;
+  return addOneMonth(new Date(base as Date));
+}
+
 /** Filters for `/api/sales` list (SQL WHERE + LIMIT/OFFSET). */
 export type SalesListFilters = {
   search?: string;
@@ -136,7 +154,12 @@ export interface IStorage {
   createInvoice(invoice: InsertInvoice): Promise<Invoice>;
   updateInvoice(id: string, invoice: InsertInvoice): Promise<Invoice | undefined>;
   deleteInvoice(id: string): Promise<boolean>;
-  createInvoiceForLPO(params: { lpoNumber: string; invoiceNumber: string; invoiceDate: Date }): Promise<Invoice>;
+  createInvoiceForLPO(params: {
+    lpoNumber: string;
+    invoiceNumber: string;
+    invoiceDate: Date;
+    submissionDate?: Date | null;
+  }): Promise<Invoice>;
   
   // Payment methods
   getPayments(): Promise<PaymentWithSaleAndClient[]>;
@@ -186,7 +209,15 @@ export interface IStorage {
   getClientPaymentHistory(clientId: string): Promise<CashbookEntry[]>;
   getOverdueClientPayments(daysThreshold: number): Promise<{
     client: Client;
-    invoices: Array<{ id: string; invoiceNumber: string | null; invoiceDate: Date | null; pendingAmount: number; totalAmount: number }>;
+    invoices: Array<{
+      id: string;
+      invoiceNumber: string | null;
+      invoiceDate: Date | null;
+      submissionDate: Date | null;
+      dueDate: Date | null;
+      pendingAmount: number;
+      totalAmount: number;
+    }>;
     totalPending: number;
   }[]>;
   
@@ -919,10 +950,10 @@ export class DatabaseStorage implements IStorage {
 
   async createInvoice(insertInvoice: InsertInvoice): Promise<Invoice> {
     const values = { ...insertInvoice } as Record<string, unknown>;
-    if (insertInvoice.invoiceDate) {
-      const d = new Date(insertInvoice.invoiceDate as any);
-      d.setMonth(d.getMonth() + 1);
-      values.dueDate = d;
+    if (insertInvoice.submissionDate) {
+      values.dueDate = addOneMonth(new Date(insertInvoice.submissionDate as Date));
+    } else if (insertInvoice.invoiceDate) {
+      values.dueDate = addOneMonth(new Date(insertInvoice.invoiceDate as Date));
     }
     const result = await db.insert(invoices).values(values as any).returning();
     const inv = result[0];
@@ -935,10 +966,10 @@ export class DatabaseStorage implements IStorage {
 
   async updateInvoice(id: string, insertInvoice: InsertInvoice): Promise<Invoice | undefined> {
     const updateData = { ...insertInvoice } as Record<string, unknown>;
-    if (insertInvoice.invoiceDate) {
-      const d = new Date(insertInvoice.invoiceDate as any);
-      d.setMonth(d.getMonth() + 1);
-      updateData.dueDate = d;
+    if (insertInvoice.submissionDate) {
+      updateData.dueDate = addOneMonth(new Date(insertInvoice.submissionDate as Date));
+    } else if (insertInvoice.invoiceDate) {
+      updateData.dueDate = addOneMonth(new Date(insertInvoice.invoiceDate as Date));
     }
     const result = await db
       .update(invoices)
@@ -948,7 +979,12 @@ export class DatabaseStorage implements IStorage {
     return result[0];
   }
 
-  async createInvoiceForLPO(params: { lpoNumber: string; invoiceNumber: string; invoiceDate: Date }): Promise<Invoice> {
+  async createInvoiceForLPO(params: {
+    lpoNumber: string;
+    invoiceNumber: string;
+    invoiceDate: Date;
+    submissionDate?: Date | null;
+  }): Promise<Invoice> {
     const { lpoNumber, invoiceNumber, invoiceDate } = params;
 
     // Find all sales with this LPO that are not yet invoiced or paid
@@ -965,15 +1001,16 @@ export class DatabaseStorage implements IStorage {
     const totalAmount = candidateSales.reduce((sum, s) => sum + parseFloat(s.totalAmount), 0);
     const vatAmount = candidateSales.reduce((sum, s) => sum + parseFloat(s.vatAmount), 0);
 
-    // Due date = 1 month from invoice date
-    const dueDate = new Date(invoiceDate);
-    dueDate.setMonth(dueDate.getMonth() + 1);
+    const dueDate = params.submissionDate
+      ? addOneMonth(new Date(params.submissionDate))
+      : addOneMonth(new Date(invoiceDate));
     // Create invoice row (pick first sale's id for legacy column, but will link all via invoice_sales)
     const baseSaleId = candidateSales[0].id;
     const invRows = await db.insert(invoices).values({
       saleId: baseSaleId,
       invoiceNumber,
       invoiceDate,
+      submissionDate: params.submissionDate ?? null,
       dueDate,
       lpoNumber,
       totalAmount: totalAmount.toFixed(2),
@@ -2121,10 +2158,19 @@ export class DatabaseStorage implements IStorage {
 
   async getOverdueClientPayments(daysThreshold: number): Promise<{
     client: Client;
-    invoices: Array<{ id: string; invoiceNumber: string | null; invoiceDate: Date | null; dueDate: Date | null; pendingAmount: number; totalAmount: number }>;
+    invoices: Array<{
+      id: string;
+      invoiceNumber: string | null;
+      invoiceDate: Date | null;
+      submissionDate: Date | null;
+      dueDate: Date | null;
+      pendingAmount: number;
+      totalAmount: number;
+    }>;
     totalPending: number;
   }[]> {
     const today = new Date();
+    const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
 
     // Fetch candidate invoices that are still not marked Paid
     const rows = await db
@@ -2137,20 +2183,36 @@ export class DatabaseStorage implements IStorage {
       .leftJoin(sales, eq(invoices.saleId, sales.id))
       .leftJoin(clients, eq(sales.clientId, clients.id));
 
-    // Compute pending amounts and filter: overdue = due date (1 month from invoice date) has passed
-    const perClient: Record<string, { client: Client; invoices: Array<{ id: string; invoiceNumber: string | null; invoiceDate: Date | null; dueDate: Date | null; pendingAmount: number; totalAmount: number }>; totalPending: number }>
-      = {};
+    // Overdue = unpaid with pending balance; due from stored due_date or submission/invoice + 1 month.
+    // Only clients overdue by *more than* daysThreshold calendar days past due date.
+    const perClient: Record<
+      string,
+      {
+        client: Client;
+        invoices: Array<{
+          id: string;
+          invoiceNumber: string | null;
+          invoiceDate: Date | null;
+          submissionDate: Date | null;
+          dueDate: Date | null;
+          pendingAmount: number;
+          totalAmount: number;
+        }>;
+        totalPending: number;
+      }
+    > = {};
 
     for (const r of rows) {
       if (!r.invoice || !r.sale || !r.client) continue;
       if (r.invoice.status === 'Paid') continue;
-      const invDate = r.invoice.invoiceDate ? new Date(r.invoice.invoiceDate as any) : null;
-      const dueDate = (r.invoice as any).dueDate
-        ? new Date((r.invoice as any).dueDate as any)
-        : invDate
-          ? (() => { const d = new Date(invDate); d.setMonth(d.getMonth() + 1); return d; })()
-          : null;
-      if (!dueDate || dueDate >= today) continue;
+      const invDate = r.invoice.invoiceDate ? new Date(r.invoice.invoiceDate as Date) : null;
+      const subDate = r.invoice.submissionDate ? new Date(r.invoice.submissionDate as Date) : null;
+      const dueDate = effectiveDueDateForInvoice(r.invoice);
+      if (!dueDate) continue;
+      const dueStart = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
+      if (dueStart >= todayStart) continue;
+      const daysPastDue = Math.floor((todayStart.getTime() - dueStart.getTime()) / 86400000);
+      if (daysPastDue <= daysThreshold) continue;
 
       const allocated = await this.getInvoiceAllocatedAmount(r.invoice.id);
       const totalAmt = parseFloat(r.invoice.totalAmount);
@@ -2165,6 +2227,7 @@ export class DatabaseStorage implements IStorage {
         id: r.invoice.id,
         invoiceNumber: r.invoice.invoiceNumber,
         invoiceDate: invDate,
+        submissionDate: subDate,
         dueDate,
         pendingAmount: parseFloat(pending.toFixed(2)),
         totalAmount: totalAmt,

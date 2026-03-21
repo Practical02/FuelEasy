@@ -21,6 +21,8 @@ const invoiceFormSchema = z.object({
   lpoNumber: z.string().optional(),
   invoiceNumber: z.string().min(1, "Invoice number is required"),
   invoiceDate: z.date(),
+  /** When the invoice was sent to the client; payment due is one month from this date when set. */
+  submissionDate: z.date().optional(),
 });
 
 interface NewInvoiceModalProps {
@@ -64,6 +66,7 @@ export default function NewInvoiceModal({ open, onOpenChange }: NewInvoiceModalP
       lpoNumber: "",
       invoiceNumber: "",
       invoiceDate: new Date(),
+      submissionDate: undefined,
     },
   });
 
@@ -89,10 +92,13 @@ export default function NewInvoiceModal({ open, onOpenChange }: NewInvoiceModalP
 
   const createInvoiceMutation = useMutation({
     mutationFn: async (data: z.infer<typeof invoiceFormSchema>) => {
-      const payload: any = {
+      const payload: Record<string, unknown> = {
         invoiceNumber: data.invoiceNumber,
         invoiceDate: data.invoiceDate,
       };
+      if (data.submissionDate) {
+        payload.submissionDate = data.submissionDate;
+      }
       let url = "/api/invoices";
       if (data.mode === "single") {
         payload.saleId = data.saleId;
@@ -261,6 +267,29 @@ export default function NewInvoiceModal({ open, onOpenChange }: NewInvoiceModalP
                       onChange={(e) => field.onChange(new Date(e.target.value))}
                     />
                   </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="submissionDate"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Submission date (optional)</FormLabel>
+                  <FormControl>
+                    <Input
+                      type="date"
+                      value={field.value instanceof Date ? field.value.toISOString().split('T')[0] : ""}
+                      onChange={(e) =>
+                        field.onChange(e.target.value ? new Date(e.target.value) : undefined)
+                      }
+                    />
+                  </FormControl>
+                  <p className="text-sm text-muted-foreground">
+                    When the invoice was sent to the client. Payment due and reminders use this date (one month) when set; otherwise invoice date.
+                  </p>
                   <FormMessage />
                 </FormItem>
               )}
