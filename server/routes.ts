@@ -826,9 +826,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/invoices/:id", requireAuth, writeLimiter, async (req, res) => {
     try {
+      // JSON gives ISO strings; drizzle-zod expects Date for timestamps and string for decimals.
       const requestData = {
         ...req.body,
         invoiceDate: new Date(req.body.invoiceDate),
+        dueDate:
+          req.body.dueDate === null || req.body.dueDate === ""
+            ? null
+            : req.body.dueDate != null
+              ? new Date(req.body.dueDate)
+              : undefined,
+        ...(req.body.totalAmount != null ? { totalAmount: String(req.body.totalAmount) } : {}),
+        ...(req.body.vatAmount != null ? { vatAmount: String(req.body.vatAmount) } : {}),
         ...(req.body.submissionDate === null || req.body.submissionDate === ""
           ? { submissionDate: null }
           : req.body.submissionDate != null
