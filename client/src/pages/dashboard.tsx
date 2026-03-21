@@ -25,7 +25,7 @@ import {
 } from "lucide-react";
 import { CURRENCY } from "@/lib/constants";
 import type { SaleWithClient } from "@shared/schema";
-import { SALES_ALL_QUERY_KEY, fetchAllSales, salesListFromResponse } from "@/lib/sales-query";
+import { fetchSalesList, salesListFromResponse } from "@/lib/sales-query";
 
 export default function Dashboard() {
   const [showNewSaleModal, setShowNewSaleModal] = useState(false);
@@ -53,12 +53,13 @@ export default function Dashboard() {
   });
 
   const { data: recentSalesResponse, isLoading: salesLoading } = useQuery({
-    queryKey: SALES_ALL_QUERY_KEY,
-    queryFn: fetchAllSales,
+    queryKey: ["/api/sales", "dashboard-recent", 5],
+    queryFn: () => fetchSalesList({ page: 1, limit: 5 }),
   });
   const recentSales: SaleWithClient[] = (salesListFromResponse(recentSalesResponse) as SaleWithClient[])
     .slice()
-    .sort((a, b) => new Date(b.saleDate).getTime() - new Date(a.saleDate).getTime());
+    .sort((a, b) => new Date(b.saleDate).getTime() - new Date(a.saleDate).getTime())
+    .slice(0, 3);
 
   const { data: clients, isLoading: clientsLoading } = useQuery({
     queryKey: ["/api/clients"],

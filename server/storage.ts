@@ -46,7 +46,7 @@ import {
 import { randomUUID } from "crypto";
 import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
-import { eq, desc, asc, sql, and, inArray, gte, lte } from "drizzle-orm";
+import { eq, desc, asc, sql, and, or, inArray, gte, lte, type SQL } from "drizzle-orm";
 
 // Initialize database connection
 const connectionString = process.env.DATABASE_URL || "";
@@ -63,6 +63,20 @@ function endOfDayFromYmd(ymd: string): Date {
   const [y, m, d] = ymd.split("-").map(Number);
   return new Date(y, m - 1, d, 23, 59, 59, 999);
 }
+
+/** Filters for `/api/sales` list (SQL WHERE + LIMIT/OFFSET). */
+export type SalesListFilters = {
+  search?: string;
+  statuses?: string[];
+  clientIds?: string[];
+  projectIds?: string[];
+  dateFrom?: string;
+  dateTo?: string;
+  minAmount?: number;
+  maxAmount?: number;
+  minQty?: number;
+  maxQty?: number;
+};
 
 export interface IStorage {
   // User methods
@@ -102,6 +116,11 @@ export interface IStorage {
   
   // Sale methods
   getSales(): Promise<SaleWithClient[]>;
+  /** Filtered list with optional SQL pagination (omit limit/offset to fetch all matches). */
+  listSalesFiltered(
+    filters: SalesListFilters,
+    options?: { limit?: number; offset?: number },
+  ): Promise<{ data: SaleWithClient[]; total: number }>;
   getSalesByClient(clientId: string): Promise<SaleWithClient[]>;
   getSalesByStatus(status: string): Promise<SaleWithClient[]>;
   getSale(id: string): Promise<SaleWithClient | undefined>;
@@ -618,116 +637,136 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getSalesByClient(clientId: string): Promise<SaleWithClient[]> {
-    const result = await db
-      .select({
-        id: sales.id,
-        clientId: sales.clientId,
-        projectId: sales.projectId,
-        saleDate: sales.saleDate,
-        quantityGallons: sales.quantityGallons,
-        salePricePerGallon: sales.salePricePerGallon,
-        purchasePricePerGallon: sales.purchasePricePerGallon,
-        lpoNumber: sales.lpoNumber,
-        deliveryNoteNumber: sales.deliveryNoteNumber,
-        lpoReceivedDate: sales.lpoReceivedDate,
-        invoiceDate: sales.invoiceDate,
-        saleStatus: sales.saleStatus,
-        vatPercentage: sales.vatPercentage,
-        subtotal: sales.subtotal,
-        vatAmount: sales.vatAmount,
-        totalAmount: sales.totalAmount,
-        cogs: sales.cogs,
-        grossProfit: sales.grossProfit,
-        createdAt: sales.createdAt,
-        client: clients,
-        project: projects
-      })
-      .from(sales)
-      .leftJoin(clients, eq(sales.clientId, clients.id))
-      .leftJoin(projects, eq(sales.projectId, projects.id))
-      .where(eq(sales.clientId, clientId))
-      .orderBy(desc(sales.createdAt));
-    
-    return result.map(r => ({
-      ...r,
-      client: r.client!,
-      project: r.project
-    }));
+    const { data } = await this.listSalesFiltered({ clientIds: [clientId] }, {});
+    return data;
   }
 
   async getSales(): Promise<SaleWithClient[]> {
-    const result = await db
-      .select({
-        id: sales.id,
-        clientId: sales.clientId,
-        projectId: sales.projectId,
-        saleDate: sales.saleDate,
-        quantityGallons: sales.quantityGallons,
-        salePricePerGallon: sales.salePricePerGallon,
-        purchasePricePerGallon: sales.purchasePricePerGallon,
-        lpoNumber: sales.lpoNumber,
-        deliveryNoteNumber: sales.deliveryNoteNumber,
-        lpoReceivedDate: sales.lpoReceivedDate,
-        invoiceDate: sales.invoiceDate,
-        saleStatus: sales.saleStatus,
-        vatPercentage: sales.vatPercentage,
-        subtotal: sales.subtotal,
-        vatAmount: sales.vatAmount,
-        totalAmount: sales.totalAmount,
-        cogs: sales.cogs,
-        grossProfit: sales.grossProfit,
-        createdAt: sales.createdAt,
-        client: clients,
-        project: projects
-      })
-      .from(sales)
-      .leftJoin(clients, eq(sales.clientId, clients.id))
-      .leftJoin(projects, eq(sales.projectId, projects.id))
-      .orderBy(desc(sales.createdAt));
-    
-    return result.map(r => ({
-      ...r,
-      client: r.client!,
-      project: r.project
-    }));
+    const { data } = await this.listSalesFiltered({}, {});
+    return data;
   }
 
   async getSalesByStatus(status: string): Promise<SaleWithClient[]> {
-    const result = await db
+    const { data } = await this.listSalesFiltered({ statuses: [status] }, {});
+    return data;
+  }
+
+  async listSalesFiltered(
+    filters: SalesListFilters,
+    options?: { limit?: number; offset?: number },
+  ): Promise<{ data: SaleWithClient[]; total: number }> {
+    const salesSelect = {
+      id: sales.id,
+      clientId: sales.clientId,
+      projectId: sales.projectId,
+      saleDate: sales.saleDate,
+      quantityGallons: sales.quantityGallons,
+      salePricePerGallon: sales.salePricePerGallon,
+      purchasePricePerGallon: sales.purchasePricePerGallon,
+      lpoNumber: sales.lpoNumber,
+      deliveryNoteNumber: sales.deliveryNoteNumber,
+      lpoReceivedDate: sales.lpoReceivedDate,
+      invoiceDate: sales.invoiceDate,
+      saleStatus: sales.saleStatus,
+      vatPercentage: sales.vatPercentage,
+      subtotal: sales.subtotal,
+      vatAmount: sales.vatAmount,
+      totalAmount: sales.totalAmount,
+      cogs: sales.cogs,
+      grossProfit: sales.grossProfit,
+      createdAt: sales.createdAt,
+      client: clients,
+      project: projects,
+    } as const;
+
+    const conditions: SQL[] = [];
+
+    const search = filters.search?.trim();
+    if (search) {
+      const pattern = `%${search}%`;
+      conditions.push(
+        or(
+          sql`COALESCE(${sales.lpoNumber}, '') ILIKE ${pattern}`,
+          sql`COALESCE(${sales.deliveryNoteNumber}, '') ILIKE ${pattern}`,
+          sql`${clients.name} ILIKE ${pattern}`,
+          sql`${clients.contactPerson} ILIKE ${pattern}`,
+          sql`COALESCE(${projects.name}, '') ILIKE ${pattern}`,
+        )!,
+      );
+    }
+
+    if (filters.statuses && filters.statuses.length > 0) {
+      conditions.push(inArray(sales.saleStatus, filters.statuses));
+    }
+
+    if (filters.clientIds && filters.clientIds.length > 0) {
+      conditions.push(inArray(sales.clientId, filters.clientIds));
+    }
+
+    if (filters.projectIds && filters.projectIds.length > 0) {
+      conditions.push(inArray(sales.projectId, filters.projectIds));
+    }
+
+    if (filters.dateFrom) {
+      conditions.push(gte(sales.saleDate, startOfDayFromYmd(filters.dateFrom)));
+    }
+    if (filters.dateTo) {
+      conditions.push(lte(sales.saleDate, endOfDayFromYmd(filters.dateTo)));
+    }
+
+    if (filters.minAmount != null && !Number.isNaN(filters.minAmount)) {
+      conditions.push(sql`(${sales.totalAmount})::numeric >= ${filters.minAmount}`);
+    }
+    if (filters.maxAmount != null && !Number.isNaN(filters.maxAmount)) {
+      conditions.push(sql`(${sales.totalAmount})::numeric <= ${filters.maxAmount}`);
+    }
+    if (filters.minQty != null && !Number.isNaN(filters.minQty)) {
+      conditions.push(sql`(${sales.quantityGallons})::numeric >= ${filters.minQty}`);
+    }
+    if (filters.maxQty != null && !Number.isNaN(filters.maxQty)) {
+      conditions.push(sql`(${sales.quantityGallons})::numeric <= ${filters.maxQty}`);
+    }
+
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const baseFrom = db
       .select({
-        id: sales.id,
-        clientId: sales.clientId,
-        projectId: sales.projectId,
-        saleDate: sales.saleDate,
-        quantityGallons: sales.quantityGallons,
-        salePricePerGallon: sales.salePricePerGallon,
-        purchasePricePerGallon: sales.purchasePricePerGallon,
-        lpoNumber: sales.lpoNumber,
-        deliveryNoteNumber: sales.deliveryNoteNumber,
-        lpoReceivedDate: sales.lpoReceivedDate,
-        invoiceDate: sales.invoiceDate,
-        saleStatus: sales.saleStatus,
-        vatPercentage: sales.vatPercentage,
-        subtotal: sales.subtotal,
-        vatAmount: sales.vatAmount,
-        totalAmount: sales.totalAmount,
-        cogs: sales.cogs,
-        grossProfit: sales.grossProfit,
-        createdAt: sales.createdAt,
-        client: clients,
-        project: projects
+        count: sql<number>`count(*)::int`,
       })
       .from(sales)
       .leftJoin(clients, eq(sales.clientId, clients.id))
+      .leftJoin(projects, eq(sales.projectId, projects.id));
+
+    const countRow = whereClause
+      ? await baseFrom.where(whereClause)
+      : await baseFrom;
+    const total = countRow[0]?.count ?? 0;
+
+    const limit = options?.limit;
+    const offset = options?.offset ?? 0;
+
+    let dataQuery = db
+      .select(salesSelect)
+      .from(sales)
+      .leftJoin(clients, eq(sales.clientId, clients.id))
       .leftJoin(projects, eq(sales.projectId, projects.id))
-      .where(eq(sales.saleStatus, status))
       .orderBy(desc(sales.createdAt));
-    
-    return result.map(r => ({
+
+    if (whereClause) {
+      dataQuery = dataQuery.where(whereClause) as typeof dataQuery;
+    }
+    if (limit != null && limit > 0) {
+      dataQuery = dataQuery.limit(limit).offset(offset) as typeof dataQuery;
+    }
+
+    const result = await dataQuery;
+    const data = result.map((r) => ({
       ...r,
       client: r.client!,
-      project: r.project
+      project: r.project,
     }));
+
+    return { data, total };
   }
 
   async getSale(id: string): Promise<SaleWithClient | undefined> {

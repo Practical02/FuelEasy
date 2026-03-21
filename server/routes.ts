@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
-import { storage } from "./storage";
+import { storage, type SalesListFilters } from "./storage";
 import { z } from "zod";
 import rateLimit from "express-rate-limit";
 import bcrypt from "bcryptjs";
@@ -114,6 +114,38 @@ const loginSchema = z.object({
   password: z.string().min(1, "Password is required"),
   rememberMe: z.boolean().optional().default(false),
 });
+
+function parseSalesListFilters(req: any): SalesListFilters {
+  const q = req.query ?? {};
+  const parseOptNum = (v: unknown): number | undefined => {
+    if (v === undefined || v === null || v === "") return undefined;
+    const n = parseFloat(String(v));
+    return Number.isFinite(n) ? n : undefined;
+  };
+  const splitCsv = (v: unknown) =>
+    v == null || v === ""
+      ? []
+      : String(v)
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+  const searchRaw = q.search != null ? String(q.search).trim() : "";
+  const statuses = splitCsv(q.statuses);
+  const clientIds = splitCsv(q.clientIds);
+  const projectIds = splitCsv(q.projectIds);
+  return {
+    search: searchRaw ? searchRaw : undefined,
+    statuses: statuses.length ? statuses : undefined,
+    clientIds: clientIds.length ? clientIds : undefined,
+    projectIds: projectIds.length ? projectIds : undefined,
+    dateFrom: q.dateFrom != null && String(q.dateFrom).trim() ? String(q.dateFrom).trim() : undefined,
+    dateTo: q.dateTo != null && String(q.dateTo).trim() ? String(q.dateTo).trim() : undefined,
+    minAmount: parseOptNum(q.minAmount),
+    maxAmount: parseOptNum(q.maxAmount),
+    minQty: parseOptNum(q.minQty),
+    maxQty: parseOptNum(q.maxQty),
+  };
+}
 
 export async function registerRoutes(app: Express): Promise<Server> {
   await applySchemaPatches();
@@ -454,23 +486,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       /** Max rows per page when paginating; omit limit (or limit=all) to return full list for Sales/Reports/etc. */
       const MAX_PAGE = 50_000;
 
-      const sales = status
-        ? await storage.getSalesByStatus(status as string)
-        : await storage.getSales();
-
-      // Status-filtered lists (e.g. LPO page): always every row for that status
+      // Status-filtered lists (e.g. LPO page): always every row for that status (SQL-filtered, no full-table scan)
       if (status) {
+        const { data, total } = await storage.listSalesFiltered(
+          { statuses: [status as string] },
+          {},
+        );
         res.json({
-          data: sales,
+          data,
           pagination: {
             page: 1,
-            limit: sales.length,
-            total: sales.length,
+            limit: total,
+            total,
             totalPages: 1,
           },
         });
         return;
       }
+
+      const filters = parseSalesListFilters(req);
 
       const limitStr = limit === undefined || limit === null ? "" : String(limit);
       const returnAll =
@@ -479,12 +513,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         limitStr === "0";
 
       if (returnAll) {
+        const { data, total } = await storage.listSalesFiltered(filters, {});
         res.json({
-          data: sales,
+          data,
           pagination: {
             page: 1,
-            limit: sales.length,
-            total: sales.length,
+            limit: total,
+            total,
             totalPages: 1,
           },
         });
@@ -492,17 +527,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const limitNum = Math.min(MAX_PAGE, Math.max(1, parseInt(limitStr, 10) || 50));
-      const startIndex = (pageNum - 1) * limitNum;
-      const endIndex = startIndex + limitNum;
-      const paginatedSales = sales.slice(startIndex, endIndex);
+      const offset = (pageNum - 1) * limitNum;
+      const { data, total } = await storage.listSalesFiltered(filters, {
+        limit: limitNum,
+        offset,
+      });
 
       res.json({
-        data: paginatedSales,
+        data,
         pagination: {
           page: pageNum,
           limit: limitNum,
-          total: sales.length,
-          totalPages: Math.ceil(sales.length / limitNum) || 1,
+          total,
+          totalPages: Math.ceil(total / limitNum) || 1,
         },
       });
     } catch (error) {

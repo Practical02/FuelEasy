@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Phone, Mail, MapPin, Receipt, TrendingUp, Calendar } from "lucide-react";
 import { CURRENCY } from "@/lib/constants";
 import type { Client, SaleWithClient } from "@shared/schema";
-import { SALES_ALL_QUERY_KEY, fetchAllSales, salesListFromResponse } from "@/lib/sales-query";
+import { apiRequest } from "@/lib/queryClient";
 
 interface ViewClientModalProps {
   open: boolean;
@@ -18,17 +18,16 @@ interface ViewClientModalProps {
 
 export default function ViewClientModal({ open, onOpenChange, client }: ViewClientModalProps) {
   const isMobile = useIsMobile();
-  const { data: salesResponse } = useQuery({
-    queryKey: SALES_ALL_QUERY_KEY,
-    queryFn: fetchAllSales,
-    enabled: !!client,
+  const { data: sales = [] } = useQuery<SaleWithClient[]>({
+    queryKey: ["/api/sales/by-client", client?.id],
+    queryFn: () => apiRequest("GET", `/api/sales/by-client/${client!.id}`).then((r) => r.json()),
+    enabled: !!client && open,
   });
-  const sales: SaleWithClient[] = salesListFromResponse(salesResponse) as SaleWithClient[];
 
   if (!client) return null;
 
   // Calculate client statistics
-  const clientSales = sales?.filter(sale => sale.clientId === client.id) || [];
+  const clientSales = sales ?? [];
   const totalSales = clientSales.reduce((sum, sale) => sum + parseFloat(sale.totalAmount), 0);
   const totalQuantity = clientSales.reduce((sum, sale) => sum + parseFloat(sale.quantityGallons), 0);
   const pendingSales = clientSales.filter(sale => sale.saleStatus !== "Paid");

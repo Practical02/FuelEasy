@@ -19,12 +19,11 @@ import { Edit, Eye, CreditCard, Trash2, Users, Fuel, LayoutGrid } from "lucide-r
 import { CURRENCY, SALE_STATUSES } from "@/lib/constants";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
-  SALES_ALL_QUERY_KEY,
   SALES_PAGE_SIZE,
-  fetchAllSales,
+  fetchSalesList,
   salesListFromResponse,
+  type SalesListQuery,
 } from "@/lib/sales-query";
-import { isInLocalYmdRange } from "@/lib/date-range";
 import { useToast } from "@/hooks/use-toast";
 import type { SaleWithClient, Client, Project } from "@shared/schema";
 
@@ -44,8 +43,6 @@ export default function Sales() {
   const [showViewSaleModal, setShowViewSaleModal] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  /** Separate from selectedSaleId so delete never mounts Edit/View/Payment dialogs (Radix can fire onOpenChange on mount and clear the shared id). */
-  const [saleIdToDelete, setSaleIdToDelete] = useState<string | null>(null);
   const [selectedSaleId, setSelectedSaleId] = useState<string>("");
   const { toast } = useToast();
 
@@ -63,13 +60,51 @@ export default function Sales() {
   const [maxQuantity, setMaxQuantity] = useState("");
   const [selectedProjects, setSelectedProjects] = useState<string[]>([]);
   const [salesPage, setSalesPage] = useState(1);
+  const [selectedSaleForModal, setSelectedSaleForModal] = useState<SaleWithClient | null>(null);
+  const [saleToDelete, setSaleToDelete] = useState<SaleWithClient | null>(null);
+
+  const salesListQuery: SalesListQuery = useMemo(
+    () => ({
+      page: salesPage,
+      limit: SALES_PAGE_SIZE,
+      search: searchTerm.trim() || undefined,
+      statuses: selectedStatuses.length ? [...selectedStatuses].sort() : undefined,
+      clientIds: selectedClients.length ? [...selectedClients].sort() : undefined,
+      projectIds: selectedProjects.length ? [...selectedProjects].sort() : undefined,
+      dateFrom: startDate || undefined,
+      dateTo: endDate || undefined,
+      minAmount: minAmount || undefined,
+      maxAmount: maxAmount || undefined,
+      minQty: minQuantity || undefined,
+      maxQty: maxQuantity || undefined,
+    }),
+    [
+      salesPage,
+      searchTerm,
+      selectedStatuses,
+      selectedClients,
+      selectedProjects,
+      startDate,
+      endDate,
+      minAmount,
+      maxAmount,
+      minQuantity,
+      maxQuantity,
+    ],
+  );
 
   const { data: salesResponse, isLoading } = useQuery({
-    queryKey: SALES_ALL_QUERY_KEY,
-    queryFn: fetchAllSales,
+    queryKey: ["/api/sales", "list", salesListQuery] as const,
+    queryFn: () => fetchSalesList(salesListQuery),
   });
 
-  const sales: SaleWithClient[] = salesListFromResponse(salesResponse) as SaleWithClient[];
+  const salesRows: SaleWithClient[] = salesListFromResponse(salesResponse) as SaleWithClient[];
+  const pagination = salesResponse && typeof salesResponse === "object" && "pagination" in salesResponse
+    ? (salesResponse as { pagination?: { total: number; totalPages: number; page: number; limit: number } }).pagination
+    : undefined;
+  const totalFiltered = pagination?.total ?? 0;
+  const totalPages = Math.max(1, pagination?.totalPages ?? 1);
+  const safePage = Math.min(salesPage, totalPages);
 
   const { data: clients } = useQuery<Client[]>({
     queryKey: ["/api/clients"],
@@ -116,7 +151,7 @@ export default function Sales() {
         description: "Sale has been deleted successfully.",
       });
       setShowDeleteDialog(false);
-      setSaleIdToDelete(null);
+      setSaleToDelete(null);
       setSelectedSaleId("");
     },
     onError: () => {
@@ -131,74 +166,6 @@ export default function Sales() {
   const handleStatusChange = (saleId: string, newStatus: string) => {
     updateStatusMutation.mutate({ saleId, status: newStatus });
   };
-
-  // Filtering logic
-  const filteredSales = useMemo(() => {
-    if (!sales) return [];
-
-    return sales.filter((sale) => {
-      // Search term filter (LPO number, client name, project name, delivery note)
-      if (searchTerm) {
-        const searchLower = searchTerm.toLowerCase();
-        const matchesLPO = sale.lpoNumber?.toLowerCase().includes(searchLower) || false;
-        const matchesClient = sale.client.name.toLowerCase().includes(searchLower);
-        const matchesContact = sale.client.contactPerson.toLowerCase().includes(searchLower);
-        const matchesProject = (sale as SaleWithClient).project?.name?.toLowerCase().includes(searchLower) || false;
-        const matchesDelivery = (sale as any).deliveryNoteNumber?.toLowerCase().includes(searchLower) || false;
-        if (!matchesLPO && !matchesClient && !matchesContact && !matchesProject && !matchesDelivery) {
-          return false;
-        }
-      }
-
-      // Status filter
-      if (selectedStatuses.length > 0 && !selectedStatuses.includes(sale.saleStatus)) {
-        return false;
-      }
-
-      // Client filter
-      if (selectedClients.length > 0 && !selectedClients.includes(sale.clientId)) {
-        return false;
-      }
-
-      // Project filter
-      if (selectedProjects.length > 0 && !selectedProjects.includes(sale.projectId)) {
-        return false;
-      }
-
-      // Date range filter (end date inclusive)
-      if (!isInLocalYmdRange(sale.saleDate, startDate || undefined, endDate || undefined)) {
-        return false;
-      }
-
-      // Amount range filter
-      const saleAmount = parseFloat(sale.totalAmount);
-      if (minAmount && saleAmount < parseFloat(minAmount)) {
-        return false;
-      }
-      if (maxAmount && saleAmount > parseFloat(maxAmount)) {
-        return false;
-      }
-
-      // Quantity range filter
-      const saleQuantity = parseFloat(sale.quantityGallons);
-      if (minQuantity && saleQuantity < parseFloat(minQuantity)) {
-        return false;
-      }
-      if (maxQuantity && saleQuantity > parseFloat(maxQuantity)) {
-        return false;
-      }
-
-      return true;
-    });
-  }, [sales, searchTerm, selectedStatuses, selectedClients, selectedProjects, startDate, endDate, minAmount, maxAmount, minQuantity, maxQuantity]);
-
-  const totalFiltered = filteredSales.length;
-  const totalPages = Math.max(1, Math.ceil(totalFiltered / SALES_PAGE_SIZE));
-  const safePage = Math.min(salesPage, totalPages);
-  const pagedSales = useMemo(() => {
-    const start = (safePage - 1) * SALES_PAGE_SIZE;
-    return filteredSales.slice(start, start + SALES_PAGE_SIZE);
-  }, [filteredSales, safePage]);
 
   useEffect(() => {
     setSalesPage(1);
@@ -216,8 +183,10 @@ export default function Sales() {
   ]);
 
   useEffect(() => {
-    setSalesPage((p) => Math.min(p, totalPages));
-  }, [totalPages]);
+    if (salesPage > totalPages) {
+      setSalesPage(Math.max(1, totalPages));
+    }
+  }, [salesPage, totalPages]);
 
   // Check if any filters are active
   const hasActiveFilters = useMemo(() => {
@@ -292,35 +261,38 @@ export default function Sales() {
 
 
 
-  const handleEditClick = (saleId: string) => {
-    setSelectedSaleId(saleId);
+  const handleEditClick = (sale: SaleWithClient) => {
+    setSelectedSaleForModal(sale);
+    setSelectedSaleId(sale.id);
     setShowPaymentModal(false);
+    setShowViewSaleModal(false);
     setShowEditSaleModal(true);
   };
 
-  const handleViewClick = (saleId: string) => {
-    setSelectedSaleId(saleId);
+  const handleViewClick = (sale: SaleWithClient) => {
+    setSelectedSaleForModal(sale);
+    setSelectedSaleId(sale.id);
     setShowPaymentModal(false);
+    setShowEditSaleModal(false);
     setShowViewSaleModal(true);
   };
 
-  const handleDeleteClick = (saleId: string) => {
-    setSaleIdToDelete(saleId);
+  const handleDeleteClick = (sale: SaleWithClient) => {
+    setSaleToDelete(sale);
     setShowDeleteDialog(true);
   };
 
   const handleDeleteConfirm = () => {
-    if (saleIdToDelete) {
-      deleteSaleMutation.mutate(saleIdToDelete);
+    if (saleToDelete) {
+      deleteSaleMutation.mutate(saleToDelete.id);
     }
   };
-
-
 
   const handleCloseModal = (setter: React.Dispatch<React.SetStateAction<boolean>>) => (open: boolean) => {
     setter(open);
     if (!open) {
       setSelectedSaleId("");
+      setSelectedSaleForModal(null);
     }
   };
 
@@ -419,8 +391,8 @@ export default function Sales() {
         <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <p className="text-sm text-gray-600">
             {totalFiltered === 0
-              ? `0 sales (of ${sales.length} loaded)`
-              : `Rows ${(safePage - 1) * SALES_PAGE_SIZE + 1}–${Math.min(safePage * SALES_PAGE_SIZE, totalFiltered)} of ${totalFiltered}${hasActiveFilters ? " filtered" : ""} · ${sales.length} total in system`}
+              ? "0 sales"
+              : `Rows ${(safePage - 1) * SALES_PAGE_SIZE + 1}–${Math.min(safePage * SALES_PAGE_SIZE, totalFiltered)} of ${totalFiltered}${hasActiveFilters ? " (filtered)" : ""}`}
           </p>
           {totalPages > 1 && (
             <div className="flex items-center gap-2">
@@ -476,7 +448,7 @@ export default function Sales() {
                       </td>
                     </tr>
                   ) : totalFiltered > 0 ? (
-                    pagedSales.map((sale) => (
+                    salesRows.map((sale) => (
                       <tr key={sale.id} className="border-b border-gray-100 hover:bg-gray-50">
                         <td className="py-3 px-4 text-sm text-gray-900">
                           {new Date(sale.saleDate).toLocaleDateString()}
@@ -501,7 +473,7 @@ export default function Sales() {
                             <Button 
                               variant="ghost" 
                               size="sm"
-                              onClick={() => handleEditClick(sale.id)}
+                              onClick={() => handleEditClick(sale)}
                               className="text-blue-600 hover:text-blue-800 hover:bg-blue-50"
                             >
                               <Edit className="w-4 h-4" />
@@ -509,7 +481,7 @@ export default function Sales() {
                             <Button 
                               variant="ghost" 
                               size="sm"
-                              onClick={() => handleViewClick(sale.id)}
+                              onClick={() => handleViewClick(sale)}
                               className="text-gray-600 hover:text-gray-800 hover:bg-gray-50"
                             >
                               <Eye className="w-4 h-4" />
@@ -527,7 +499,7 @@ export default function Sales() {
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => handleDeleteClick(sale.id)}
+                              onClick={() => handleDeleteClick(sale)}
                               className="text-red-600 hover:text-red-800 hover:bg-red-50"
                             >
                               <Trash2 className="w-4 h-4" />
@@ -557,7 +529,7 @@ export default function Sales() {
                   Loading sales...
                 </div>
               ) : totalFiltered > 0 ? (
-                pagedSales.map((sale) => (
+                salesRows.map((sale) => (
                   <Card key={sale.id} className="border border-gray-200">
                     <CardContent className="p-4">
                       <div className="flex justify-between items-start mb-3">
@@ -604,7 +576,7 @@ export default function Sales() {
                           <Button 
                             variant="outline" 
                             size="sm" 
-                            onClick={() => handleEditClick(sale.id)}
+                            onClick={() => handleEditClick(sale)}
                             className="flex-1 sm:flex-none"
                           >
                             <Edit className="w-4 h-4 mr-1" />
@@ -613,7 +585,7 @@ export default function Sales() {
                           <Button 
                             variant="outline" 
                             size="sm" 
-                            onClick={() => handleViewClick(sale.id)}
+                            onClick={() => handleViewClick(sale)}
                             className="flex-1 sm:flex-none"
                           >
                             <Eye className="w-4 h-4 mr-1" />
@@ -633,7 +605,7 @@ export default function Sales() {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => handleDeleteClick(sale.id)}
+                            onClick={() => handleDeleteClick(sale)}
                             className="flex-1 sm:flex-none bg-red-50 border-red-200 text-red-700 hover:bg-red-100"
                           >
                             <Trash2 className="w-4 h-4 mr-1" />
@@ -661,18 +633,18 @@ export default function Sales() {
         open={showNewSaleModal} 
         onOpenChange={(open) => handleCloseModal(setShowNewSaleModal)(open)} 
       />
-      {showEditSaleModal && selectedSaleId && (
+      {showEditSaleModal && selectedSaleForModal && (
         <EditSaleModal 
           open={showEditSaleModal} 
           onOpenChange={(open) => handleCloseModal(setShowEditSaleModal)(open)}
-          sale={filteredSales.find(s => s.id === selectedSaleId)!}
+          sale={selectedSaleForModal}
         />
       )}
-      {showViewSaleModal && selectedSaleId && (
+      {showViewSaleModal && selectedSaleForModal && (
         <ViewSaleModal 
           open={showViewSaleModal} 
           onOpenChange={(open) => handleCloseModal(setShowViewSaleModal)(open)}
-          sale={filteredSales.find(s => s.id === selectedSaleId) || null}
+          sale={selectedSaleForModal}
         />
       )}
       {showPaymentModal && (
@@ -686,12 +658,12 @@ export default function Sales() {
         open={showDeleteDialog}
         onOpenChange={(open) => {
           setShowDeleteDialog(open);
-          if (!open) setSaleIdToDelete(null);
+          if (!open) setSaleToDelete(null);
         }}
         title="Delete Sale"
         description={
           (() => {
-            const pending = saleIdToDelete ? sales.find((s) => s.id === saleIdToDelete) : undefined;
+            const pending = saleToDelete ?? undefined;
             if (!pending) {
               return "Are you sure you want to delete this sale? This action cannot be undone and will remove all associated payment records.";
             }

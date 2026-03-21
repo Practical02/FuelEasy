@@ -114,8 +114,12 @@ export default function Reports() {
   }, [selectedClient]);
 
   const { data: salesResponse } = useQuery({
-    queryKey: SALES_ALL_QUERY_KEY,
-    queryFn: fetchAllSales,
+    queryKey: ["/api/sales", "all", dateFrom, dateTo],
+    queryFn: () =>
+      fetchAllSales({
+        dateFrom: dateFrom || undefined,
+        dateTo: dateTo || undefined,
+      }),
   });
   const sales: SaleWithClient[] = salesListFromResponse(salesResponse) as SaleWithClient[];
 

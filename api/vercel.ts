@@ -12,14 +12,12 @@ async function getApp() {
       // Set environment variable to indicate serverless mode
       process.env.VERCEL = '1';
 
-      // Import the compiled server without triggering build-time deps
+      // Import the compiled server; wait until routes + static middleware are registered
       // prettier-ignore
       // @ts-ignore - compiled file, no types
-      const { app: expressApp } = await import('../dist/index.js');
-      
-      // Give it a moment to initialize
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
+      const { default: expressApp, initializeApp } = await import('../dist/index.js');
+      await initializeApp();
+
       app = expressApp;
       return app;
     })();

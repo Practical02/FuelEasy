@@ -127,7 +127,7 @@ app.use((req, res, next) => {
 // Initialize the app for serverless or regular mode
 let serverPromise: Promise<any> | null = null;
 
-async function initializeApp() {
+export async function initializeApp() {
   if (serverPromise) return serverPromise;
   
   serverPromise = (async () => {

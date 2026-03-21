@@ -12,7 +12,23 @@ vi.mock('@/hooks/use-toast', () => ({
   }),
 }));
 
-const queryClient = new QueryClient();
+function createTestQueryClient() {
+  return new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+        queryFn: async ({ queryKey }) => {
+          const url = queryKey[0] as string;
+          const res = await (apiRequest as unknown as (m: string, u: string) => Promise<Response>)(
+            "GET",
+            url,
+          );
+          return res.json();
+        },
+      },
+    },
+  });
+}
 
 const mockSales = [
   {
@@ -61,22 +77,32 @@ const mockClients = [
 ];
 
 describe('Sales Page', () => {
+  let queryClient: QueryClient;
+
   beforeEach(() => {
-    // Reset mocks before each test
     vi.clearAllMocks();
-// ...existing code...
+    queryClient = createTestQueryClient();
     (apiRequest as unknown as import('vitest').MockInstance<any>).mockImplementation((...args) => {
-      const [method, url] = args;
-      if (url === '/api/sales?limit=all' || url === '/api/sales') {
+      const [, url] = args;
+      if (typeof url === 'string' && url.includes('/api/notifications/overdue-clients')) {
+        return Promise.resolve({ json: () => Promise.resolve({ days: 30, data: [] }) });
+      }
+      if (typeof url === 'string' && url.startsWith('/api/sales?') && url.includes('page=')) {
         return Promise.resolve({
-          json: () => Promise.resolve({ data: mockSales, pagination: { total: mockSales.length, totalPages: 1, page: 1, limit: mockSales.length } }),
+          json: () =>
+            Promise.resolve({
+              data: mockSales,
+              pagination: { total: mockSales.length, totalPages: 1, page: 1, limit: 50 },
+            }),
         });
       }
       if (url === '/api/clients') {
         return Promise.resolve({ json: () => Promise.resolve(mockClients) });
       }
+      if (url === '/api/projects') {
+        return Promise.resolve({ json: () => Promise.resolve([]) });
+      }
       return Promise.reject(new Error('Unknown API route'));
-    });
     });
   });
 
@@ -84,7 +110,7 @@ describe('Sales Page', () => {
     render(
       <QueryClientProvider client={queryClient}>
         <Sales />
-      </QueryClientProvider>
+      </QueryClientProvider>,
     );
 
     const newSaleButton = screen.getByRole('button', { name: /New Sale/i });
@@ -194,3 +220,4 @@ describe('Sales Page', () => {
       expect(screen.queryByText('Record Payment')).not.toBeInTheDocument();
     });
   });
+});
