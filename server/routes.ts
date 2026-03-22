@@ -889,6 +889,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  const bulkPayInvoicesSchema = z.object({
+    invoiceIds: z.array(z.string().uuid()).min(1, "Select at least one invoice"),
+    paymentDate: z.coerce.date(),
+    paymentMethod: z.enum(["Cheque", "Bank Transfer", "Cash"]),
+    chequeNumber: z.string().optional().nullable(),
+  });
+
+  app.post("/api/invoices/bulk-pay", requireAuth, writeLimiter, async (req, res) => {
+    try {
+      const body = bulkPayInvoicesSchema.parse(req.body);
+      if (body.paymentMethod === "Cheque" && !String(body.chequeNumber ?? "").trim()) {
+        return res.status(400).json({ message: "Cheque number is required for cheque payments" });
+      }
+      const result = await storage.bulkPayInvoices({
+        invoiceIds: body.invoiceIds,
+        paymentDate: body.paymentDate,
+        paymentMethod: body.paymentMethod,
+        chequeNumber: body.chequeNumber,
+      });
+      res.json(result);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({
+          message: error.issues[0]?.message ?? "Invalid request",
+        });
+      }
+      res.status(400).json({
+        message: error instanceof Error ? error.message : "Failed to record bulk payment",
+      });
+    }
+  });
+
   app.get("/api/invoices/:id", requireAuth, async (req, res) => {
     try {
       const invoice = await storage.getInvoice(req.params.id);

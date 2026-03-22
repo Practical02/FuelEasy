@@ -6,6 +6,7 @@ import Header from "@/components/layout/header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -512,9 +513,8 @@ export default function BusinessSettings() {
               <form onSubmit={passwordForm.handleSubmit(onPasswordSubmit)} className="space-y-4 max-w-md">
                 <div className="space-y-2">
                   <Label htmlFor="currentPassword">Current password</Label>
-                  <Input
+                  <PasswordInput
                     id="currentPassword"
-                    type="password"
                     autoComplete="current-password"
                     {...passwordForm.register("currentPassword")}
                   />
@@ -526,9 +526,8 @@ export default function BusinessSettings() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="newPassword">New password</Label>
-                  <Input
+                  <PasswordInput
                     id="newPassword"
-                    type="password"
                     autoComplete="new-password"
                     {...passwordForm.register("newPassword")}
                   />
@@ -540,9 +539,8 @@ export default function BusinessSettings() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="confirmNewPassword">Confirm new password</Label>
-                  <Input
+                  <PasswordInput
                     id="confirmNewPassword"
-                    type="password"
                     autoComplete="new-password"
                     {...passwordForm.register("confirmNewPassword")}
                   />

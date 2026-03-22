@@ -166,6 +166,13 @@ export interface IStorage {
     invoiceDate: Date;
     submissionDate?: Date | null;
   }): Promise<Invoice>;
+  /** One cheque/payment covering multiple invoices (same client). Single cashbook inflow + allocations + sale payments. */
+  bulkPayInvoices(params: {
+    invoiceIds: string[];
+    paymentDate: Date;
+    paymentMethod: string;
+    chequeNumber?: string | null;
+  }): Promise<{ cashbookEntryId: string; totalAmount: string; paymentsCreated: number }>;
   
   // Payment methods
   getPayments(): Promise<PaymentWithSaleAndClient[]>;
@@ -1211,6 +1218,200 @@ export class DatabaseStorage implements IStorage {
     }
 
     return payment;
+  }
+
+  /** Sale IDs covered by an invoice (invoice_sales rows, or legacy invoices.saleId). */
+  private async getSaleIdsForInvoice(invoiceId: string): Promise<string[]> {
+    const links = await db
+      .select({ saleId: invoiceSales.saleId })
+      .from(invoiceSales)
+      .where(eq(invoiceSales.invoiceId, invoiceId));
+    if (links.length > 0) {
+      return Array.from(new Set(links.map((l) => l.saleId)));
+    }
+    const inv = await this.getInvoice(invoiceId);
+    return inv ? [inv.saleId] : [];
+  }
+
+  async bulkPayInvoices(params: {
+    invoiceIds: string[];
+    paymentDate: Date;
+    paymentMethod: string;
+    chequeNumber?: string | null;
+  }): Promise<{ cashbookEntryId: string; totalAmount: string; paymentsCreated: number }> {
+    const uniqueIds = Array.from(new Set(params.invoiceIds));
+    if (uniqueIds.length === 0) {
+      throw new Error("Select at least one invoice");
+    }
+
+    type Row = {
+      id: string;
+      inv: Invoice;
+      pending: number;
+      clientName: string;
+      saleIds: string[];
+      invoiceNumber: string;
+    };
+    const rows: Row[] = [];
+    let commonClientId: string | null = null;
+
+    for (const id of uniqueIds) {
+      const inv = await this.getInvoice(id);
+      if (!inv) {
+        throw new Error(`Invoice not found: ${id}`);
+      }
+      const allocated = await this.getInvoiceAllocatedAmount(id);
+      const pending = parseFloat(inv.totalAmount) - allocated;
+      if (pending <= 0.009) {
+        throw new Error(`Invoice ${inv.invoiceNumber} has no remaining balance to pay`);
+      }
+
+      const saleIds = await this.getSaleIdsForInvoice(id);
+      if (saleIds.length === 0) {
+        throw new Error(`Invoice ${inv.invoiceNumber} has no linked sales`);
+      }
+      const primarySale = await this.getSale(saleIds[0]);
+      if (!primarySale) {
+        throw new Error(`Cannot load sale for invoice ${inv.invoiceNumber}`);
+      }
+      const client = await this.getClient(primarySale.clientId);
+      const clientName = client?.name ?? "Client";
+      if (commonClientId === null) {
+        commonClientId = primarySale.clientId;
+      } else if (commonClientId !== primarySale.clientId) {
+        throw new Error("All selected invoices must be for the same client (one cheque per client)");
+      }
+
+      rows.push({
+        id,
+        inv,
+        pending,
+        clientName,
+        saleIds,
+        invoiceNumber: inv.invoiceNumber,
+      });
+    }
+
+    const total = rows.reduce((s, r) => s + r.pending, 0);
+
+    let clientAccountHead = await db
+      .select()
+      .from(accountHeads)
+      .where(eq(accountHeads.name, rows[0].clientName))
+      .limit(1);
+    if (clientAccountHead.length === 0) {
+      const created = await db
+        .insert(accountHeads)
+        .values({ name: rows[0].clientName, type: "Client" })
+        .returning();
+      clientAccountHead = created;
+    }
+
+    const detailLines = rows.map((r) => `${r.invoiceNumber} (${r.pending.toFixed(2)})`).join("; ");
+    const chequePart =
+      params.chequeNumber?.trim() && params.paymentMethod === "Cheque"
+        ? ` — Cheque #${params.chequeNumber.trim()}`
+        : params.paymentMethod
+          ? ` — ${params.paymentMethod}`
+          : "";
+    const description = `Payment received${chequePart} — ${detailLines}`.slice(0, 4000);
+    const notes = `Bulk payment: ${rows.length} invoice(s), total ${total.toFixed(2)}.`.slice(0, 4000);
+
+    const cashbookEntry = await this.createCashbookEntry({
+      transactionDate: params.paymentDate,
+      transactionType: "Invoice",
+      category: "Payment Received",
+      accountHeadId: clientAccountHead[0].id,
+      amount: total.toFixed(2),
+      isInflow: 1,
+      description,
+      counterparty: rows[0].clientName,
+      paymentMethod: params.paymentMethod,
+      referenceType: "bulk_invoice_payment",
+      isPending: 0,
+      notes,
+    });
+
+    for (const r of rows) {
+      await this.createCashbookPaymentAllocation({
+        cashbookEntryId: cashbookEntry.id,
+        invoiceId: r.id,
+        amountAllocated: r.pending.toFixed(2),
+      });
+    }
+
+    const processedSaleIds = new Set<string>();
+    let paymentsCreated = 0;
+    for (const r of rows) {
+      for (const saleId of r.saleIds) {
+        if (processedSaleIds.has(saleId)) continue;
+        processedSaleIds.add(saleId);
+        const sale = await this.getSale(saleId);
+        if (!sale) continue;
+        const existing = await this.getPaymentsBySale(saleId);
+        const paidSoFar = existing.reduce((s, p) => s + parseFloat(p.amountReceived), 0);
+        const need = parseFloat(sale.totalAmount) - paidSoFar;
+        if (need <= 0.009) continue;
+        await db.insert(payments).values({
+          saleId,
+          paymentDate: params.paymentDate,
+          amountReceived: need.toFixed(2),
+          paymentMethod: params.paymentMethod,
+          chequeNumber: params.chequeNumber?.trim() || null,
+        });
+        paymentsCreated += 1;
+        const newPaid = paidSoFar + need;
+        const saleTotal = parseFloat(sale.totalAmount);
+        let newStatus = sale.saleStatus;
+        if (newPaid >= saleTotal - 1e-6) {
+          newStatus = "Paid";
+        } else if (sale.saleStatus !== "Paid") {
+          newStatus = "Invoiced";
+        }
+        if (newStatus !== sale.saleStatus) {
+          await this.updateSaleStatus(saleId, newStatus);
+        }
+      }
+    }
+
+    try {
+      let remainingToSettle = total;
+      if (remainingToSettle > 0) {
+        const supplierDebts = await db
+          .select({
+            id: cashbook.id,
+            amount: cashbook.amount,
+            transactionDate: cashbook.transactionDate,
+            accountHead: accountHeads,
+          })
+          .from(cashbook)
+          .leftJoin(accountHeads, eq(cashbook.accountHeadId, accountHeads.id))
+          .where(and(eq(cashbook.isPending, 1), eq(accountHeads.type, "Supplier")))
+          .orderBy(cashbook.transactionDate);
+
+        for (const debt of supplierDebts) {
+          if (remainingToSettle <= 0) break;
+          const debtAmount = parseFloat(debt.amount);
+          if (remainingToSettle + 1e-6 >= debtAmount) {
+            await this.markDebtAsPaid(
+              debt.id,
+              debtAmount,
+              params.paymentMethod,
+              params.paymentDate instanceof Date ? params.paymentDate : new Date(params.paymentDate as unknown as string),
+            );
+            remainingToSettle -= debtAmount;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("Auto-settle supplier debts failed (bulk invoice pay):", e);
+    }
+
+    return {
+      cashbookEntryId: cashbookEntry.id,
+      totalAmount: total.toFixed(2),
+      paymentsCreated,
+    };
   }
 
   // Cashbook methods

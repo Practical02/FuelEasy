@@ -9,7 +9,8 @@ import { SearchInput } from "@/components/ui/search-input";
 import { FilterPanel } from "@/components/ui/filter-panel";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { MultiSelectFilter } from "@/components/ui/multi-select-filter";
-import { FileText, Trash2, Eye, PlusCircle, Pencil } from "lucide-react";
+import { FileText, Trash2, Eye, PlusCircle, Pencil, Banknote } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { CURRENCY } from "@/lib/constants";
 import { isInLocalYmdRange } from "@/lib/date-range";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -19,10 +20,19 @@ import type { Invoice, SaleWithClient } from "@shared/schema";
 import NewInvoiceModal from "@/components/modals/new-invoice-modal";
 import EditInvoiceModal from "@/components/modals/edit-invoice-modal";
 import ViewInvoiceModal from "@/components/modals/view-invoice-modal";
+import BulkInvoicePaymentModal from "@/components/modals/bulk-invoice-payment-modal";
 
 export type InvoiceWithSale = Invoice & {
   sale: SaleWithClient;
 };
+
+function invoicePendingAmount(inv: InvoiceWithSale): number {
+  return parseFloat((inv as { pendingAmount?: string }).pendingAmount || "0");
+}
+
+function isInvoicePayable(inv: InvoiceWithSale): boolean {
+  return invoicePendingAmount(inv) > 0.009;
+}
 
 const INVOICE_STATUS_OPTIONS = [
   { value: "Generated", label: "Generated" },
@@ -40,6 +50,11 @@ export default function Invoices() {
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [bulkPayOpen, setBulkPayOpen] = useState(false);
+  const [bulkPayRows, setBulkPayRows] = useState<
+    { id: string; invoiceNumber: string; pendingAmount?: string }[]
+  >([]);
   const { toast } = useToast();
 
   const { data: allInvoices, isLoading } = useQuery<InvoiceWithSale[]>({
@@ -66,6 +81,65 @@ export default function Invoices() {
       return true;
     });
   }, [invoices, searchTerm, selectedStatuses, startDate, endDate]);
+
+  const payableFiltered = useMemo(
+    () => filteredInvoices.filter(isInvoicePayable),
+    [filteredInvoices],
+  );
+
+  const allPayableSelected =
+    payableFiltered.length > 0 &&
+    payableFiltered.every((i) => selectedIds.has(i.id));
+
+  const toggleSelectAllPayable = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allPayableSelected) {
+        payableFiltered.forEach((i) => next.delete(i.id));
+      } else {
+        payableFiltered.forEach((i) => next.add(i.id));
+      }
+      return next;
+    });
+  };
+
+  const toggleRowSelected = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const openBulkPay = () => {
+    const list = invoices.filter((i) => selectedIds.has(i.id) && isInvoicePayable(i));
+    if (list.length === 0) {
+      toast({
+        title: "Nothing to pay",
+        description: "Select at least one invoice with a remaining balance.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const clientIds = new Set(list.map((i) => i.sale?.clientId).filter(Boolean));
+    if (clientIds.size !== 1) {
+      toast({
+        title: "Same client required",
+        description: "Use one payment for invoices from a single client only (e.g. one cheque).",
+        variant: "destructive",
+      });
+      return;
+    }
+    setBulkPayRows(
+      list.map((i) => ({
+        id: i.id,
+        invoiceNumber: i.invoiceNumber,
+        pendingAmount: (i as { pendingAmount?: string }).pendingAmount,
+      })),
+    );
+    setBulkPayOpen(true);
+  };
 
   const hasActiveFilters = !!(searchTerm || selectedStatuses.length > 0 || startDate || endDate);
   const clearAllFilters = () => {
@@ -141,7 +215,7 @@ export default function Invoices() {
     <>
       <Header
         title="Invoices"
-        description="Generate invoices from LPO(s). Set invoice number, date, and select LPO(s) for each invoice."
+        description="Generate invoices from LPO(s). Select several with a balance to record one cheque or transfer against them; cashbook shows all invoice numbers."
         primaryAction={{
           label: "Create Invoice",
           onClick: () => setIsNewInvoiceModalOpen(true),
@@ -180,6 +254,21 @@ export default function Invoices() {
             label="Invoice date range"
           />
         </FilterPanel>
+
+        {selectedIds.size > 0 && (
+          <div className="flex flex-wrap items-center gap-3 mb-4 p-3 rounded-lg border border-blue-200 bg-blue-50/80">
+            <span className="text-sm font-medium text-gray-800">
+              {selectedIds.size} invoice{selectedIds.size === 1 ? "" : "s"} selected
+            </span>
+            <Button type="button" size="sm" onClick={openBulkPay} className="gap-2">
+              <Banknote className="h-4 w-4" />
+              Record payment…
+            </Button>
+            <Button type="button" variant="ghost" size="sm" onClick={() => setSelectedIds(new Set())}>
+              Clear selection
+            </Button>
+          </div>
+        )}
 
         {/* Invoice Statistics */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
@@ -245,6 +334,15 @@ export default function Invoices() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-gray-200">
+                    <th className="w-10 py-3 px-2">
+                      {payableFiltered.length > 0 ? (
+                        <Checkbox
+                          checked={allPayableSelected}
+                          onCheckedChange={() => toggleSelectAllPayable()}
+                          aria-label="Select all invoices with a balance in this list"
+                        />
+                      ) : null}
+                    </th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Invoice Number</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Client</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Project</th>
@@ -260,13 +358,21 @@ export default function Invoices() {
                 <tbody>
                   {isLoading ? (
                     <tr>
-                      <td colSpan={10} className="py-8 text-center text-gray-500">
+                      <td colSpan={11} className="py-8 text-center text-gray-500">
                         Loading invoices...
                       </td>
                     </tr>
                   ) : filteredInvoices && filteredInvoices.length > 0 ? (
                     filteredInvoices.map((invoice) => (
                       <tr key={invoice.id} className="border-b border-gray-100 hover:bg-gray-50">
+                        <td className="py-3 px-2 align-middle">
+                          <Checkbox
+                            checked={selectedIds.has(invoice.id)}
+                            disabled={!isInvoicePayable(invoice)}
+                            onCheckedChange={() => toggleRowSelected(invoice.id)}
+                            aria-label={`Select invoice ${invoice.invoiceNumber}`}
+                          />
+                        </td>
                         <td className="py-3 px-4 text-sm font-medium text-gray-900">
                           {invoice.invoiceNumber}
                         </td>
@@ -337,7 +443,7 @@ export default function Invoices() {
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={10} className="py-8 text-center text-gray-500">
+                      <td colSpan={11} className="py-8 text-center text-gray-500">
                         {invoices.length === 0 ? "No active invoices found." : "No invoices match the current filters."}
                       </td>
                     </tr>
@@ -366,6 +472,16 @@ export default function Invoices() {
         open={isViewInvoiceModalOpen}
         onOpenChange={setIsViewInvoiceModalOpen}
         invoice={selectedInvoice}
+      />
+
+      <BulkInvoicePaymentModal
+        open={bulkPayOpen}
+        onOpenChange={setBulkPayOpen}
+        invoices={bulkPayRows}
+        onRecorded={() => {
+          setSelectedIds(new Set());
+          setBulkPayRows([]);
+        }}
       />
 
       <ConfirmationDialog
