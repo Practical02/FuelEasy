@@ -432,7 +432,6 @@ export default function Sales() {
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Sale Date</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Client</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Project</th>
-                    <th className="text-left py-3 px-4 font-medium text-gray-900">Project name</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Quantity</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Unit Price</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Total Amount</th>
@@ -444,7 +443,7 @@ export default function Sales() {
                 <tbody>
                   {isLoading ? (
                     <tr>
-                      <td colSpan={10} className="py-8 text-center text-gray-500">
+                      <td colSpan={9} className="py-8 text-center text-gray-500">
                         Loading sales...
                       </td>
                     </tr>
@@ -455,9 +454,6 @@ export default function Sales() {
                           {new Date(sale.saleDate).toLocaleDateString()}
                         </td>
                         <td className="py-3 px-4 text-sm text-gray-900">{sale.client.name}</td>
-                        <td className="py-3 px-4 text-sm text-gray-900">
-                          {sale.project?.location?.trim() || sale.project?.name || "—"}
-                        </td>
                         <td className="py-3 px-4 text-sm text-gray-900">
                           {sale.project?.name ?? "—"}
                         </td>
@@ -516,7 +512,7 @@ export default function Sales() {
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={10} className="py-8 text-center text-gray-500">
+                      <td colSpan={9} className="py-8 text-center text-gray-500">
                         {hasActiveFilters 
                           ? "No sales match your current filters. Try adjusting the filters or clearing them."
                           : "No sales recorded yet. Click 'New Sale' to get started."
@@ -565,12 +561,6 @@ export default function Sales() {
                         </div>
                         <div>
                           <span className="text-gray-500">Project:</span>
-                          <span className="ml-1 font-medium">
-                            {sale.project?.location?.trim() || sale.project?.name || "—"}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-gray-500">Project name:</span>
                           <span className="ml-1 font-medium">{sale.project?.name ?? "—"}</span>
                         </div>
                         <div>
