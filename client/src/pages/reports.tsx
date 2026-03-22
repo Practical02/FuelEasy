@@ -43,7 +43,7 @@ export default function Reports() {
   const [selectedProject, setSelectedProject] = useState<string>("all");
   const [dateFrom, setDateFrom] = useState<string>("");
   const [dateTo, setDateTo] = useState<string>("");
-  const [reportType, setReportType] = useState<string>("pending");
+  const [reportType, setReportType] = useState<string>("whole-sales");
   const [profitGranularity, setProfitGranularity] = useState<"monthly" | "annual">("monthly");
   const [vatGranularity, setVatGranularity] = useState<"monthly" | "annual">("monthly");
   const [showVatLineItems, setShowVatLineItems] = useState(false);
@@ -54,7 +54,7 @@ export default function Reports() {
 
   const { data: accountHeadsList = [] } = useQuery<AccountHead[]>({
     queryKey: ["/api/account-heads"],
-    enabled: reportType === "cashbook",
+    enabled: reportType === "cashbook" || reportType === "purchase",
   });
 
   const cashbookReportQueryKey = [
@@ -130,8 +130,14 @@ export default function Reports() {
   const { data: stockRows = [] } = useQuery<Stock[]>({
     queryKey: ["/api/stock"],
     queryFn: async () => (await apiRequest("GET", "/api/stock")).json(),
-    enabled: reportType === "vat",
+    enabled: reportType === "vat" || reportType === "purchase",
   });
+
+  const supplierNameById = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const h of accountHeadsList) m[h.id] = h.name;
+    return m;
+  }, [accountHeadsList]);
 
   // Map saleId -> { invoiceNumber, invoiceDate } for pending report
   const saleIdToInvoice = useMemo(() => {
@@ -167,7 +173,7 @@ export default function Reports() {
       return true; // All sales regardless of status
     } else if (reportType === "vat" || reportType === "profit") {
       return true;
-    } else if (reportType === "cashbook") {
+    } else if (reportType === "cashbook" || reportType === "purchase") {
       return false;
     }
 
@@ -266,6 +272,26 @@ export default function Reports() {
       isInLocalYmdRange(row.purchaseDate, dateFrom || undefined, dateTo || undefined)
     );
   }, [reportType, stockRows, dateFrom, dateTo]);
+
+  /** Fuel/stock purchases for Purchase report (date filter on purchase date). */
+  const filteredPurchaseStock = useMemo(() => {
+    if (reportType !== "purchase") return [] as Stock[];
+    return (stockRows || []).filter((row) =>
+      isInLocalYmdRange(row.purchaseDate, dateFrom || undefined, dateTo || undefined)
+    );
+  }, [reportType, stockRows, dateFrom, dateTo]);
+
+  const purchaseTotals = useMemo(() => {
+    if (reportType !== "purchase") return { quantity: 0, vatAmount: 0, totalCost: 0 };
+    return filteredPurchaseStock.reduce(
+      (acc, r) => ({
+        quantity: acc.quantity + parseFloat(r.quantityGallons),
+        vatAmount: acc.vatAmount + parseFloat(r.vatAmount),
+        totalCost: acc.totalCost + parseFloat(r.totalCost),
+      }),
+      { quantity: 0, vatAmount: 0, totalCost: 0 }
+    );
+  }, [reportType, filteredPurchaseStock]);
 
   const stockInputVatTotal = useMemo(
     () => filteredStock.reduce((s, r) => s + parseFloat(r.vatAmount), 0),
@@ -405,7 +431,9 @@ export default function Reports() {
         : reportType === "pending"
           ? "Pending LPO"
           : reportType === "whole-sales"
-            ? "Whole Sales"
+            ? "Sales Report"
+            : reportType === "purchase"
+              ? "Purchase Report"
             : reportType === "profit"
             ? "Profit Report"
             : reportType === "cashbook"
@@ -426,8 +454,8 @@ export default function Reports() {
       currentRow++;
     };
 
-    // Client name only; merged title row, left-aligned
-    if (selectedClientData) {
+    // Client name only; merged title row, left-aligned (not shown when client filter does not apply)
+    if (selectedClientData && reportType !== "purchase" && reportType !== "cashbook") {
       mergeTitleRow(`Client: ${selectedClientData.name}`, { size: 13 });
     }
 
@@ -437,7 +465,9 @@ export default function Reports() {
         : reportType === "pending"
           ? "Pending LPO Report"
           : reportType === "whole-sales"
-            ? "Whole Sales Report"
+            ? "Sales Report"
+            : reportType === "purchase"
+              ? "Purchase Report"
             : reportType === "profit"
               ? "Profit Report"
               : reportType === "cashbook"
@@ -602,8 +632,49 @@ export default function Reports() {
       worksheet.getCell(currentRow, 7).value = totals.subtotal;
       worksheet.getCell(currentRow, 8).value = totals.vatAmount;
       worksheet.getCell(currentRow, 9).value = totals.totalAmount;
+    } else if (reportType === "purchase") {
+      const headers = [
+        "Purchase date",
+        "Supplier",
+        "Quantity (gal)",
+        "Unit price (AED)",
+        "VAT %",
+        "VAT (AED)",
+        "Total cost (AED)",
+      ];
+      headers.forEach((header, index) => {
+        const cell = worksheet.getCell(currentRow, index + 1);
+        cell.value = header;
+        cell.font = { bold: true };
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE0E0E0" } };
+      });
+      currentRow++;
+      filteredPurchaseStock.forEach((row) => {
+        const supplier =
+          row.supplierAccountHeadId != null
+            ? supplierNameById[row.supplierAccountHeadId] ?? "—"
+            : "—";
+        [
+          new Date(row.purchaseDate).toLocaleDateString(),
+          supplier,
+          parseFloat(row.quantityGallons),
+          parseFloat(row.purchasePricePerGallon),
+          parseFloat(row.vatPercentage),
+          parseFloat(row.vatAmount),
+          parseFloat(row.totalCost),
+        ].forEach((value, index) => {
+          worksheet.getCell(currentRow, index + 1).value = value;
+        });
+        currentRow++;
+      });
+      currentRow++;
+      worksheet.getCell(currentRow, 1).value = "TOTALS:";
+      worksheet.getCell(currentRow, 1).font = { bold: true };
+      worksheet.getCell(currentRow, 3).value = purchaseTotals.quantity;
+      worksheet.getCell(currentRow, 6).value = purchaseTotals.vatAmount;
+      worksheet.getCell(currentRow, 7).value = purchaseTotals.totalCost;
     } else {
-      // VAT (and any other sales report): LPO + Delivery Note no. + invoice columns
+      // VAT / sales report: LPO + Delivery Note no. + invoice columns
       const headers = [
         "Date of Sale",
         "Client Name",
@@ -664,35 +735,37 @@ export default function Reports() {
       worksheet.getCell(currentRow, 11).value = totals.subtotal;
       worksheet.getCell(currentRow, 12).value = totals.vatAmount;
       worksheet.getCell(currentRow, 13).value = totals.totalAmount;
-      currentRow += 2;
-      mergeTitleRow("Stock purchases — input VAT (same date range)");
-      const stockHeaders = ["Purchase date", "Qty (gal)", "Input VAT (AED)", "Total cost (AED)"];
-      stockHeaders.forEach((header, index) => {
-        const cell = worksheet.getCell(currentRow, index + 1);
-        cell.value = header;
-        cell.font = { bold: true };
-        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE0E0E0" } };
-      });
-      currentRow++;
-      filteredStock.forEach((row) => {
-        [
-          new Date(row.purchaseDate).toLocaleDateString(),
-          parseFloat(row.quantityGallons),
-          parseFloat(row.vatAmount),
-          parseFloat(row.totalCost),
-        ].forEach((value, index) => {
-          worksheet.getCell(currentRow, index + 1).value = value;
+      if (reportType === "vat") {
+        currentRow += 2;
+        mergeTitleRow("Stock purchases — input VAT (same date range)");
+        const stockHeaders = ["Purchase date", "Qty (gal)", "Input VAT (AED)", "Total cost (AED)"];
+        stockHeaders.forEach((header, index) => {
+          const cell = worksheet.getCell(currentRow, index + 1);
+          cell.value = header;
+          cell.font = { bold: true };
+          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE0E0E0" } };
         });
         currentRow++;
-      });
-      currentRow++;
-      worksheet.getCell(currentRow, 1).value = "Stock input VAT total:";
-      worksheet.getCell(currentRow, 1).font = { bold: true };
-      worksheet.getCell(currentRow, 3).value = stockInputVatTotal;
-      currentRow++;
-      worksheet.getCell(currentRow, 1).value = "Net VAT (output − input):";
-      worksheet.getCell(currentRow, 1).font = { bold: true };
-      worksheet.getCell(currentRow, 3).value = totals.vatAmount - stockInputVatTotal;
+        filteredStock.forEach((row) => {
+          [
+            new Date(row.purchaseDate).toLocaleDateString(),
+            parseFloat(row.quantityGallons),
+            parseFloat(row.vatAmount),
+            parseFloat(row.totalCost),
+          ].forEach((value, index) => {
+            worksheet.getCell(currentRow, index + 1).value = value;
+          });
+          currentRow++;
+        });
+        currentRow++;
+        worksheet.getCell(currentRow, 1).value = "Stock input VAT total:";
+        worksheet.getCell(currentRow, 1).font = { bold: true };
+        worksheet.getCell(currentRow, 3).value = stockInputVatTotal;
+        currentRow++;
+        worksheet.getCell(currentRow, 1).value = "Net VAT (output − input):";
+        worksheet.getCell(currentRow, 1).font = { bold: true };
+        worksheet.getCell(currentRow, 3).value = totals.vatAmount - stockInputVatTotal;
+      }
     }
 
     // Compact column widths (only from table downward — ignores merged title rows)
@@ -789,6 +862,44 @@ export default function Reports() {
       });
       const csvContent = [headers, ...csvData]
         .map(row => row.map(cell => `"${cell}"`).join(","))
+        .join("\n");
+      const blob = new Blob([csvContent], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${reportType}_report_${dateStr}.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+      return;
+    }
+
+    if (reportType === "purchase") {
+      const headers = [
+        "Purchase date",
+        "Supplier",
+        "Quantity (gal)",
+        "Unit price (AED)",
+        "VAT %",
+        "VAT (AED)",
+        "Total cost (AED)",
+      ];
+      const csvData = filteredPurchaseStock.map((row) => {
+        const supplier =
+          row.supplierAccountHeadId != null
+            ? supplierNameById[row.supplierAccountHeadId] ?? "—"
+            : "—";
+        return [
+          new Date(row.purchaseDate).toLocaleDateString(),
+          supplier.replace(/"/g, '""'),
+          parseFloat(row.quantityGallons),
+          parseFloat(row.purchasePricePerGallon),
+          parseFloat(row.vatPercentage),
+          parseFloat(row.vatAmount),
+          parseFloat(row.totalCost),
+        ];
+      });
+      const csvContent = [headers, ...csvData]
+        .map((row) => row.map((cell) => `"${cell}"`).join(","))
         .join("\n");
       const blob = new Blob([csvContent], { type: "text/csv" });
       const url = URL.createObjectURL(blob);
@@ -913,8 +1024,9 @@ export default function Reports() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value="whole-sales">Sales Report</SelectItem>
+              <SelectItem value="purchase">Purchase report</SelectItem>
               <SelectItem value="pending">Pending LPO (Sales)</SelectItem>
-              <SelectItem value="whole-sales">Whole Sales report</SelectItem>
               <SelectItem value="pending-invoices">Pending Invoices</SelectItem>
               <SelectItem value="vat">VAT Report</SelectItem>
               <SelectItem value="profit">Profit report</SelectItem>
@@ -973,7 +1085,7 @@ export default function Reports() {
           </>
         )}
 
-        <div className={`space-y-2 min-w-[160px] ${reportType === "cashbook" ? "opacity-50 pointer-events-none" : ""}`}>
+        <div className={`space-y-2 min-w-[160px] ${reportType === "cashbook" || reportType === "purchase" ? "opacity-50 pointer-events-none" : ""}`}>
           <label className="text-sm font-medium text-gray-700">Client</label>
           <Select value={selectedClient} onValueChange={setSelectedClient}>
             <SelectTrigger>
@@ -990,14 +1102,14 @@ export default function Reports() {
           </Select>
         </div>
 
-        <div className="space-y-2 min-w-[160px]">
+        <div className={`space-y-2 min-w-[160px] ${reportType === "purchase" ? "opacity-50 pointer-events-none" : ""}`}>
           <label className="text-sm font-medium text-gray-700">Project</label>
           <Select
             value={selectedProject}
             onValueChange={setSelectedProject}
-            disabled={selectedClient === "all"}
+            disabled={selectedClient === "all" || reportType === "purchase"}
           >
-            <SelectTrigger className={selectedClient === "all" ? "opacity-70" : ""}>
+            <SelectTrigger className={selectedClient === "all" || reportType === "purchase" ? "opacity-70" : ""}>
               <SelectValue
                 placeholder={
                   selectedClient === "all"
@@ -1075,6 +1187,58 @@ export default function Reports() {
               <CardContent className="p-6">
                 <p className="text-sm font-medium text-gray-600">Net (in − out)</p>
                 <p className="text-2xl font-bold text-gray-900">{CURRENCY} {(cashbookTotals.inflow - cashbookTotals.outflow).toFixed(2)}</p>
+              </CardContent>
+            </Card>
+          </>
+        ) : reportType === "purchase" ? (
+          <>
+            <Card>
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">Purchases</p>
+                    <p className="text-2xl font-bold text-gray-900">{filteredPurchaseStock.length}</p>
+                  </div>
+                  <FileText className="h-8 w-8 text-blue-600" />
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">Total quantity</p>
+                    <p className="text-2xl font-bold text-gray-900">{purchaseTotals.quantity.toFixed(0)}</p>
+                    <p className="text-xs text-gray-500">gallons</p>
+                  </div>
+                  <Calendar className="h-8 w-8 text-green-600" />
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">Input VAT</p>
+                    <p className="text-2xl font-bold text-gray-900">{CURRENCY} {purchaseTotals.vatAmount.toFixed(2)}</p>
+                  </div>
+                  <div className="h-8 w-8 bg-orange-100 rounded-full flex items-center justify-center">
+                    <span className="text-sm font-bold text-orange-600">VAT</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">Total cost</p>
+                    <p className="text-2xl font-bold text-gray-900">{CURRENCY} {purchaseTotals.totalCost.toFixed(2)}</p>
+                  </div>
+                  <div className="h-8 w-8 bg-primary-100 rounded-full flex items-center justify-center">
+                    <span className="text-sm font-bold text-primary-600">₹</span>
+                  </div>
+                </div>
               </CardContent>
             </Card>
           </>
@@ -1218,6 +1382,110 @@ export default function Reports() {
                   </tbody>
                 </table>
               </div>
+            )}
+          </CardContent>
+        </Card>
+      ) : reportType === "purchase" ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Purchase report</CardTitle>
+            <p className="text-sm text-muted-foreground font-normal">
+              Fuel and stock purchases in the selected period (by purchase date). Client and project filters do not apply.
+            </p>
+          </CardHeader>
+          <CardContent>
+            {filteredPurchaseStock.length === 0 ? (
+              <p className="text-center py-8 text-gray-500">No stock purchases match the date range.</p>
+            ) : (
+              <>
+                <div className="hidden md:block overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-muted/50">
+                        <th className="text-left p-2 font-medium">Purchase date</th>
+                        <th className="text-left p-2 font-medium">Supplier</th>
+                        <th className="text-right p-2 font-medium">Qty (gal)</th>
+                        <th className="text-right p-2 font-medium">Unit price</th>
+                        <th className="text-right p-2 font-medium">VAT %</th>
+                        <th className="text-right p-2 font-medium">VAT</th>
+                        <th className="text-right p-2 font-medium">Total cost</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredPurchaseStock.map((row) => (
+                        <tr key={row.id} className="border-b">
+                          <td className="p-2">{new Date(row.purchaseDate).toLocaleDateString()}</td>
+                          <td className="p-2 font-medium">
+                            {row.supplierAccountHeadId != null
+                              ? supplierNameById[row.supplierAccountHeadId] ?? "—"
+                              : "—"}
+                          </td>
+                          <td className="p-2 text-right tabular-nums">{parseFloat(row.quantityGallons).toFixed(0)}</td>
+                          <td className="p-2 text-right tabular-nums">{CURRENCY} {parseFloat(row.purchasePricePerGallon).toFixed(3)}</td>
+                          <td className="p-2 text-right tabular-nums">{parseFloat(row.vatPercentage).toFixed(2)}%</td>
+                          <td className="p-2 text-right tabular-nums">{CURRENCY} {parseFloat(row.vatAmount).toFixed(2)}</td>
+                          <td className="p-2 text-right font-medium tabular-nums">{CURRENCY} {parseFloat(row.totalCost).toFixed(2)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="md:hidden space-y-3">
+                  {filteredPurchaseStock.map((row) => (
+                    <Card key={row.id}>
+                      <CardContent className="p-4 space-y-2 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Date</span>
+                          <span className="font-medium">{new Date(row.purchaseDate).toLocaleDateString()}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Supplier</span>
+                          <span className="font-medium text-right">
+                            {row.supplierAccountHeadId != null
+                              ? supplierNameById[row.supplierAccountHeadId] ?? "—"
+                              : "—"}
+                          </span>
+                        </div>
+                        <Separator />
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <span className="text-muted-foreground text-xs">Qty</span>
+                            <p className="font-medium">{parseFloat(row.quantityGallons).toFixed(0)} gal</p>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground text-xs">Unit price</span>
+                            <p className="font-medium">{CURRENCY} {parseFloat(row.purchasePricePerGallon).toFixed(3)}</p>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground text-xs">VAT</span>
+                            <p className="font-medium">{parseFloat(row.vatPercentage).toFixed(2)}% · {CURRENCY} {parseFloat(row.vatAmount).toFixed(2)}</p>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground text-xs">Total</span>
+                            <p className="font-semibold">{CURRENCY} {parseFloat(row.totalCost).toFixed(2)}</p>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+                <div className="mt-6 pt-4 border-t bg-gray-50 rounded-lg p-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                    <div className="flex justify-between">
+                      <span className="font-medium text-gray-700">Total quantity:</span>
+                      <span className="font-bold">{purchaseTotals.quantity.toFixed(0)} gal</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="font-medium text-gray-700">Total VAT:</span>
+                      <span className="font-bold">{CURRENCY} {purchaseTotals.vatAmount.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="font-medium text-gray-700">Total cost:</span>
+                      <span className="font-bold text-lg">{CURRENCY} {purchaseTotals.totalCost.toFixed(2)}</span>
+                    </div>
+                  </div>
+                </div>
+              </>
             )}
           </CardContent>
         </Card>
@@ -1390,7 +1658,7 @@ export default function Reports() {
       <Card>
         <CardHeader>
           <CardTitle>
-            {reportType === "pending" ? "Pending LPO Report" : reportType === "whole-sales" ? "Whole Sales Report" : reportType === "pending-invoices" ? "Pending Invoices Report" : "VAT Report"}
+            {reportType === "pending" ? "Pending LPO Report" : reportType === "whole-sales" ? "Sales Report" : reportType === "pending-invoices" ? "Pending Invoices Report" : "VAT Report"}
           </CardTitle>
         </CardHeader>
         <CardContent>
