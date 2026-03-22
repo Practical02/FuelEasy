@@ -33,4 +33,17 @@ export async function applySchemaPatches(): Promise<void> {
     console.error("applySchemaPatches: failed to ensure invoices.submission_date:", e);
     throw e;
   }
+
+  try {
+    await db.execute(sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS sales_delivery_note_unique_norm
+      ON sales (lower(trim(delivery_note_number)))
+      WHERE delivery_note_number IS NOT NULL AND trim(delivery_note_number) <> ''
+    `);
+  } catch (e) {
+    console.warn(
+      "applySchemaPatches: could not create unique index on delivery_note_number (duplicates in DB?). In-app checks still apply:",
+      e,
+    );
+  }
 }

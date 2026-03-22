@@ -557,6 +557,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         saleDate: new Date(req.body.saleDate),
       };
       const validatedData = apiInsertSaleSchema.parse(requestData);
+      const dnTrim = validatedData.deliveryNoteNumber.trim();
+      const dupId = await storage.findSaleIdByNormalizedDeliveryNote(dnTrim);
+      if (dupId) {
+        return res.status(409).json({
+          message: "This delivery note number is already used on another sale.",
+        });
+      }
       let purchasePrice = validatedData.purchasePricePerGallon;
       if (purchasePrice === undefined || purchasePrice === null) {
         const fifo = await storage.getFIFOPurchaseCostForQuantity(validatedData.quantityGallons);
@@ -567,6 +574,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const saleDataForStorage: InsertSale = {
         ...validatedData,
+        deliveryNoteNumber: dnTrim,
         quantityGallons: validatedData.quantityGallons.toString(),
         salePricePerGallon: validatedData.salePricePerGallon.toString(),
         purchasePricePerGallon: purchasePrice.toString(),
@@ -601,6 +609,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/sales/check-delivery-note", requireAuth, async (req, res) => {
+    try {
+      const q = typeof req.query.q === "string" ? req.query.q : "";
+      const excludeSaleId =
+        typeof req.query.excludeSaleId === "string" && req.query.excludeSaleId.trim()
+          ? req.query.excludeSaleId.trim()
+          : undefined;
+      const trimmed = q.trim();
+      if (!trimmed) {
+        return res.json({ taken: false });
+      }
+      const existingId = await storage.findSaleIdByNormalizedDeliveryNote(trimmed, excludeSaleId);
+      res.json({ taken: Boolean(existingId), existingSaleId: existingId });
+    } catch (error) {
+      res.status(500).json({
+        message: "Failed to check delivery note",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
   app.get("/api/sales/:id", requireAuth, async (req, res) => {
     try {
       const sale = await storage.getSale(req.params.id);
@@ -623,6 +652,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...(req.body.lpoReceivedDate && { lpoReceivedDate: new Date(req.body.lpoReceivedDate) }),
       };
       const validatedData = apiInsertSaleSchema.parse(requestData);
+      const dnTrim = validatedData.deliveryNoteNumber.trim();
+      const dupId = await storage.findSaleIdByNormalizedDeliveryNote(dnTrim, req.params.id);
+      if (dupId) {
+        return res.status(409).json({
+          message: "This delivery note number is already used on another sale.",
+        });
+      }
       // On update, require purchase price (FIFO is only used on create to avoid double-counting this sale)
       const purchasePrice = validatedData.purchasePricePerGallon;
       if (purchasePrice === undefined || purchasePrice === null) {
@@ -630,6 +666,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const saleDataForStorage: InsertSale = {
         ...validatedData,
+        deliveryNoteNumber: dnTrim,
         quantityGallons: validatedData.quantityGallons.toString(),
         salePricePerGallon: validatedData.salePricePerGallon.toString(),
         purchasePricePerGallon: purchasePrice.toString(),

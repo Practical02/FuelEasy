@@ -119,11 +119,16 @@ export default function Sidebar() {
             <div className="w-8 h-8 bg-gray-300 rounded-full flex items-center justify-center">
               <Users className="text-gray-600 w-4 h-4" />
             </div>
-            <div className="flex-1">
-              <p className="text-sm font-medium text-gray-900">Trading Manager</p>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-gray-900 truncate">{user?.username || "Trading Manager"}</p>
               <p className="text-xs text-gray-500">Diesel Operations</p>
             </div>
-            <button className="text-gray-400 hover:text-gray-600 p-1">
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100 shrink-0"
+              title="Log out"
+            >
               <LogOut className="w-4 h-4" />
             </button>
           </div>

@@ -46,7 +46,7 @@ import {
 import { randomUUID } from "crypto";
 import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
-import { eq, desc, asc, sql, and, or, inArray, gte, lte, type SQL } from "drizzle-orm";
+import { eq, ne, desc, asc, sql, and, or, inArray, gte, lte, type SQL } from "drizzle-orm";
 
 // Initialize database connection
 const connectionString = process.env.DATABASE_URL || "";
@@ -142,6 +142,11 @@ export interface IStorage {
   getSalesByClient(clientId: string): Promise<SaleWithClient[]>;
   getSalesByStatus(status: string): Promise<SaleWithClient[]>;
   getSale(id: string): Promise<SaleWithClient | undefined>;
+  /** If another sale already has this delivery note (trimmed, case-insensitive), returns that sale's id. */
+  findSaleIdByNormalizedDeliveryNote(
+    deliveryNoteNumber: string,
+    excludeSaleId?: string,
+  ): Promise<string | undefined>;
   createSale(sale: InsertSale): Promise<Sale>;
   updateSale(id: string, sale: InsertSale): Promise<Sale | undefined>;
   updateSaleStatus(id: string, status: string): Promise<Sale | undefined>;
@@ -839,6 +844,26 @@ export class DatabaseStorage implements IStorage {
       };
     }
     return undefined;
+  }
+
+  async findSaleIdByNormalizedDeliveryNote(
+    deliveryNoteNumber: string,
+    excludeSaleId?: string,
+  ): Promise<string | undefined> {
+    const n = deliveryNoteNumber.trim().toLowerCase();
+    if (!n) return undefined;
+    const conditions: SQL[] = [
+      sql`LOWER(TRIM(COALESCE(${sales.deliveryNoteNumber}, ''))) = ${n}`,
+    ];
+    if (excludeSaleId) {
+      conditions.push(ne(sales.id, excludeSaleId));
+    }
+    const result = await db
+      .select({ id: sales.id })
+      .from(sales)
+      .where(and(...conditions))
+      .limit(1);
+    return result[0]?.id;
   }
 
   async createSale(insertSale: InsertSale): Promise<Sale> {

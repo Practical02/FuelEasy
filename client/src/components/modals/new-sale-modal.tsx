@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { AlertTriangle } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Drawer, DrawerContent } from "@/components/ui/drawer";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -12,6 +13,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { insertSaleSchema } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { CURRENCY, VAT_PERCENTAGE } from "@/lib/constants";
 import { z } from "zod";
@@ -63,19 +65,50 @@ export default function NewSaleModal({ open, onOpenChange }: NewSaleModalProps) 
     enabled: !!selectedClientId,
   });
 
+  const rawDeliveryNote = form.watch("deliveryNoteNumber") ?? "";
+  const [debouncedDeliveryNote, setDebouncedDeliveryNote] = useState("");
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebouncedDeliveryNote(rawDeliveryNote.trim()), 400);
+    return () => window.clearTimeout(t);
+  }, [rawDeliveryNote]);
+
+  const { data: deliveryNoteCheck } = useQuery({
+    queryKey: ["/api/sales/check-delivery-note", debouncedDeliveryNote] as const,
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/sales/check-delivery-note?q=${encodeURIComponent(debouncedDeliveryNote)}`,
+        { credentials: "include" },
+      );
+      if (!res.ok) return { taken: false as const };
+      return res.json() as Promise<{ taken: boolean }>;
+    },
+    enabled: open && debouncedDeliveryNote.length > 0,
+    staleTime: 15_000,
+  });
+
+  const deliveryNoteTaken = deliveryNoteCheck?.taken === true;
+
   const createSaleMutation = useMutation({
     mutationFn: async (data: z.infer<typeof saleFormSchema>) => {
       const saleData: any = {
         ...data,
+        deliveryNoteNumber: data.deliveryNoteNumber.trim(),
         saleDate: new Date(data.saleDate).toISOString(),
       };
 
-      const response = await apiRequest("POST", "/api/sales", saleData);
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || "Failed to create sale");
+      const res = await fetch("/api/sales", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(saleData),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          typeof body.message === "string" ? body.message : "Failed to create sale",
+        );
       }
-      return response.json();
+      return body;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/sales"] });
@@ -88,10 +121,10 @@ export default function NewSaleModal({ open, onOpenChange }: NewSaleModalProps) 
       form.reset();
       onOpenChange(false);
     },
-    onError: () => {
+    onError: (err: Error) => {
       toast({
-        title: "Error",
-        description: "Failed to record sale. Please try again.",
+        title: "Could not record sale",
+        description: err.message || "Please try again.",
         variant: "destructive",
       });
     },
@@ -124,7 +157,7 @@ export default function NewSaleModal({ open, onOpenChange }: NewSaleModalProps) 
   useEffect(() => {
     if (!open || !quantity || quantity <= 0) return;
     let cancelled = false;
-    apiRequest("GET", `/api/stock/fifo-cost?quantity=${encodeURIComponent(quantity)}`)
+    fetch(`/api/stock/fifo-cost?quantity=${encodeURIComponent(quantity)}`, { credentials: "include" })
       .then((res) => {
         if (cancelled || !res.ok) return res.json().catch(() => ({}));
         return res.json();
@@ -240,6 +273,15 @@ export default function NewSaleModal({ open, onOpenChange }: NewSaleModalProps) 
                       <Input placeholder="e.g. DN-2025-001" {...field} value={field.value ?? ""} required />
                     </FormControl>
                     <FormMessage />
+                    {deliveryNoteTaken && (
+                      <Alert className="mt-2 border-amber-500/50 bg-amber-50 text-amber-950 dark:bg-amber-950/20 dark:text-amber-100 dark:border-amber-600/50">
+                        <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                        <AlertTitle className="text-amber-900 dark:text-amber-100">Delivery note already in use</AlertTitle>
+                        <AlertDescription>
+                          Another sale is using this number (matching is case-insensitive). Use a different delivery note or you cannot save.
+                        </AlertDescription>
+                      </Alert>
+                    )}
                   </FormItem>
                 )}
               />
@@ -322,7 +364,7 @@ export default function NewSaleModal({ open, onOpenChange }: NewSaleModalProps) 
               </Button>
               <Button 
                 type="submit" 
-                disabled={createSaleMutation.isPending}
+                disabled={createSaleMutation.isPending || deliveryNoteTaken}
                 className="w-full sm:w-auto bg-blue-600 text-white hover:bg-blue-700"
               >
                 {createSaleMutation.isPending ? "Recording..." : "Record Sale"}

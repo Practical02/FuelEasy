@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { AlertTriangle } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Drawer, DrawerContent } from "@/components/ui/drawer";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -11,6 +12,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { insertSaleSchema, type Client, type Sale, type Project } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { CURRENCY } from "@/lib/constants";
 import { z } from "zod";
@@ -59,6 +61,34 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
   const selectedClientId = form.watch("clientId");
   const lpoNumber = form.watch("lpoNumber");
   const saleStatus = form.watch("saleStatus");
+  const rawDeliveryNote = form.watch("deliveryNoteNumber") ?? "";
+  const [debouncedDeliveryNote, setDebouncedDeliveryNote] = useState("");
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebouncedDeliveryNote(rawDeliveryNote.trim()), 400);
+    return () => window.clearTimeout(t);
+  }, [rawDeliveryNote]);
+
+  const showDeliveryNoteField = sale?.saleStatus !== "Pending LPO";
+
+  const { data: deliveryNoteCheck } = useQuery({
+    queryKey: ["/api/sales/check-delivery-note", debouncedDeliveryNote, sale?.id] as const,
+    queryFn: async () => {
+      if (!sale?.id) return { taken: false as const };
+      const params = new URLSearchParams({
+        q: debouncedDeliveryNote,
+        excludeSaleId: sale.id,
+      });
+      const res = await fetch(`/api/sales/check-delivery-note?${params}`, {
+        credentials: "include",
+      });
+      if (!res.ok) return { taken: false as const };
+      return res.json() as Promise<{ taken: boolean }>;
+    },
+    enabled: open && showDeliveryNoteField && debouncedDeliveryNote.length > 0 && Boolean(sale?.id),
+    staleTime: 15_000,
+  });
+
+  const deliveryNoteTaken = deliveryNoteCheck?.taken === true;
   const { data: projects = [] } = useQuery<Project[]>({
     queryKey: ["projects", "by-client", selectedClientId],
     queryFn: () => apiRequest("GET", `/api/projects/by-client/${selectedClientId}`).then(res => res.json()),
@@ -100,20 +130,34 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
       }
 
       const { lpoReceivedDate: lpoDateInput, ...rest } = data;
+      const dn =
+        data.deliveryNoteNumber?.trim() ||
+        String((sale as any).deliveryNoteNumber ?? "").trim();
       const saleData: any = {
         ...rest,
         saleDate: new Date(data.saleDate).toISOString(),
         invoiceDate: data.saleStatus === "Invoiced" || data.saleStatus === "Paid" 
           ? new Date().toISOString() 
           : null,
-        deliveryNoteNumber: (data.deliveryNoteNumber?.trim() || (sale as any).deliveryNoteNumber || ""),
+        deliveryNoteNumber: dn,
         lpoReceivedDate: lpoDateInput?.trim()
           ? new Date(`${lpoDateInput.trim()}T12:00:00`).toISOString()
           : null,
       };
 
-      const response = await apiRequest("PATCH", `/api/sales/${sale.id}`, saleData);
-      return response.json();
+      const res = await fetch(`/api/sales/${sale.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(saleData),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          typeof body.message === "string" ? body.message : "Failed to update sale",
+        );
+      }
+      return body;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/sales"] });
@@ -126,10 +170,10 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
       });
       onOpenChange(false);
     },
-    onError: () => {
+    onError: (err: Error) => {
       toast({
-        title: "Error",
-        description: "Failed to update sale. Please try again.",
+        title: "Could not update sale",
+        description: err.message || "Please try again.",
         variant: "destructive",
       });
     },
@@ -320,6 +364,15 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
                         <Input placeholder="e.g. DN-2025-001" {...field} value={field.value ?? ""} />
                       </FormControl>
                       <FormMessage />
+                      {deliveryNoteTaken && (
+                        <Alert className="mt-2 border-amber-500/50 bg-amber-50 text-amber-950 dark:bg-amber-950/20 dark:text-amber-100 dark:border-amber-600/50">
+                          <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                          <AlertTitle className="text-amber-900 dark:text-amber-100">Delivery note already in use</AlertTitle>
+                          <AlertDescription>
+                            Another sale is using this number (matching is case-insensitive). Use a different delivery note or you cannot save.
+                          </AlertDescription>
+                        </Alert>
+                      )}
                     </FormItem>
                   )}
                 />
@@ -444,7 +497,7 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
               </Button>
               <Button 
                 type="submit" 
-                disabled={updateSaleMutation.isPending}
+                disabled={updateSaleMutation.isPending || (showDeliveryNoteField && deliveryNoteTaken)}
                 className="w-full sm:w-auto bg-blue-600 text-white hover:bg-blue-700"
               >
                 {updateSaleMutation.isPending ? "Updating..." : "Update Sale"}
