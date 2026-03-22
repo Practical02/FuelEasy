@@ -12,15 +12,29 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { Building2, Palette, FileText, CreditCard, Save } from "lucide-react";
+import { Building2, Palette, FileText, CreditCard, Save, KeyRound } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/lib/auth";
 import type { BusinessSettings, InsertBusinessSettings } from "@shared/schema";
 import { insertBusinessSettingsSchema } from "@shared/schema";
+import { z } from "zod";
+
+const changePasswordFormSchema = z
+  .object({
+    currentPassword: z.string().min(1, "Current password is required"),
+    newPassword: z.string().min(8, "New password must be at least 8 characters"),
+    confirmNewPassword: z.string().min(1, "Confirm your new password"),
+  })
+  .refine((data) => data.newPassword === data.confirmNewPassword, {
+    message: "Passwords do not match",
+    path: ["confirmNewPassword"],
+  });
 
 
 export default function BusinessSettings() {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState("company");
 
   const { data: settings, isLoading } = useQuery({
@@ -84,6 +98,52 @@ export default function BusinessSettings() {
     updateMutation.mutate(data);
   };
 
+  const passwordForm = useForm<z.infer<typeof changePasswordFormSchema>>({
+    resolver: zodResolver(changePasswordFormSchema),
+    defaultValues: {
+      currentPassword: "",
+      newPassword: "",
+      confirmNewPassword: "",
+    },
+  });
+
+  const changePasswordMutation = useMutation({
+    mutationFn: async (data: z.infer<typeof changePasswordFormSchema>) => {
+      const res = await fetch("/api/auth/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          currentPassword: data.currentPassword,
+          newPassword: data.newPassword,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof body.message === "string" ? body.message : "Failed to change password");
+      }
+      return body;
+    },
+    onSuccess: () => {
+      passwordForm.reset();
+      toast({
+        title: "Password updated",
+        description: "Your password has been changed. Use it next time you sign in.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Could not change password",
+        description: error.message || "Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const onPasswordSubmit = (data: z.infer<typeof changePasswordFormSchema>) => {
+    changePasswordMutation.mutate(data);
+  };
+
   // PDF preview removed
 
   if (isLoading) {
@@ -103,31 +163,35 @@ export default function BusinessSettings() {
     <div className="p-6 max-w-6xl mx-auto">
       <Header
         title="Settings"
-        description="Company details, invoice templates, and preferences"
+        description="Company details, invoices, branding, payments, and your account password"
       />
 
-      <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-6">
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="company" className="flex items-center gap-2">
-              <Building2 className="w-4 h-4" />
-              Company
-            </TabsTrigger>
-            <TabsTrigger value="invoice" className="flex items-center gap-2">
-              <FileText className="w-4 h-4" />
-              Invoice
-            </TabsTrigger>
-            <TabsTrigger value="design" className="flex items-center gap-2">
-              <Palette className="w-4 h-4" />
-              Design
-            </TabsTrigger>
-            <TabsTrigger value="payment" className="flex items-center gap-2">
-              <CreditCard className="w-4 h-4" />
-              Payment
-            </TabsTrigger>
-          </TabsList>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full space-y-6">
+        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-1 h-auto p-1">
+          <TabsTrigger value="company" className="flex items-center gap-2">
+            <Building2 className="w-4 h-4 shrink-0" />
+            Company
+          </TabsTrigger>
+          <TabsTrigger value="invoice" className="flex items-center gap-2">
+            <FileText className="w-4 h-4 shrink-0" />
+            Invoice
+          </TabsTrigger>
+          <TabsTrigger value="design" className="flex items-center gap-2">
+            <Palette className="w-4 h-4 shrink-0" />
+            Design
+          </TabsTrigger>
+          <TabsTrigger value="payment" className="flex items-center gap-2">
+            <CreditCard className="w-4 h-4 shrink-0" />
+            Payment
+          </TabsTrigger>
+          <TabsTrigger value="account" className="flex items-center gap-2 col-span-2 sm:col-span-1 lg:col-span-1">
+            <KeyRound className="w-4 h-4 shrink-0" />
+            Account
+          </TabsTrigger>
+        </TabsList>
 
-          <TabsContent value="company" className="space-y-6">
+        <form id="business-settings-form" onSubmit={form.handleSubmit(handleSubmit)} className="space-y-6">
+          <TabsContent value="company" className="space-y-6 mt-0">
             <Card>
               <CardHeader>
                 <CardTitle>Company Information</CardTitle>
@@ -432,21 +496,87 @@ export default function BusinessSettings() {
               </CardContent>
             </Card>
           </TabsContent>
-        </Tabs>
+        </form>
+
+        <TabsContent value="account" className="space-y-6 mt-0">
+          <Card>
+            <CardHeader>
+              <CardTitle>Change password</CardTitle>
+              <CardDescription>
+                You are signed in as{" "}
+                <span className="font-medium text-foreground">{user?.username ?? "—"}</span>.
+                Enter your current password, then choose a new one (at least 8 characters).
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={passwordForm.handleSubmit(onPasswordSubmit)} className="space-y-4 max-w-md">
+                <div className="space-y-2">
+                  <Label htmlFor="currentPassword">Current password</Label>
+                  <Input
+                    id="currentPassword"
+                    type="password"
+                    autoComplete="current-password"
+                    {...passwordForm.register("currentPassword")}
+                  />
+                  {passwordForm.formState.errors.currentPassword && (
+                    <p className="text-sm text-destructive">
+                      {passwordForm.formState.errors.currentPassword.message}
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="newPassword">New password</Label>
+                  <Input
+                    id="newPassword"
+                    type="password"
+                    autoComplete="new-password"
+                    {...passwordForm.register("newPassword")}
+                  />
+                  {passwordForm.formState.errors.newPassword && (
+                    <p className="text-sm text-destructive">
+                      {passwordForm.formState.errors.newPassword.message}
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="confirmNewPassword">Confirm new password</Label>
+                  <Input
+                    id="confirmNewPassword"
+                    type="password"
+                    autoComplete="new-password"
+                    {...passwordForm.register("confirmNewPassword")}
+                  />
+                  {passwordForm.formState.errors.confirmNewPassword && (
+                    <p className="text-sm text-destructive">
+                      {passwordForm.formState.errors.confirmNewPassword.message}
+                    </p>
+                  )}
+                </div>
+                <Button type="submit" disabled={changePasswordMutation.isPending}>
+                  {changePasswordMutation.isPending ? "Updating…" : "Update password"}
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         <div className="flex items-center justify-between pt-6 border-t">
-          {/* PDF preview removed */}
-
+          <p className="text-sm text-muted-foreground hidden sm:block">
+            {activeTab === "account"
+              ? "Use Update password above for your account."
+              : "Save company, invoice, design, and payment settings."}
+          </p>
           <Button
             type="submit"
-            disabled={updateMutation.isPending}
+            form="business-settings-form"
+            disabled={updateMutation.isPending || activeTab === "account"}
             className="flex items-center gap-2"
           >
             <Save className="w-4 h-4" />
             {updateMutation.isPending ? "Saving..." : "Save Settings"}
           </Button>
         </div>
-      </form>
+      </Tabs>
     </div>
   );
 }

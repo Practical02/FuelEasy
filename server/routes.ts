@@ -298,6 +298,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     });
   });
+
+  const changePasswordSchema = z.object({
+    currentPassword: z.string().min(1, "Current password is required"),
+    newPassword: z.string().min(8, "New password must be at least 8 characters"),
+  });
+
+  app.post("/api/auth/change-password", requireAuth, writeLimiter, async (req, res) => {
+    try {
+      const body = changePasswordSchema.parse(req.body);
+      const userId = req.session!.userId as string;
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+      const currentOk = await bcrypt.compare(body.currentPassword, user.password);
+      if (!currentOk) {
+        return res.status(400).json({ message: "Current password is incorrect" });
+      }
+      const sameAsOld = await bcrypt.compare(body.newPassword, user.password);
+      if (sameAsOld) {
+        return res.status(400).json({ message: "New password must be different from your current password" });
+      }
+      const hash = await bcrypt.hash(body.newPassword, 10);
+      const updated = await storage.updateUserPassword(userId, hash);
+      if (!updated) {
+        return res.status(500).json({ message: "Failed to update password" });
+      }
+      res.json({ message: "Password updated successfully" });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({
+          message: error.issues[0]?.message ?? "Invalid request",
+        });
+      }
+      res.status(500).json({
+        message: "Failed to change password",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
   
   // Stock routes
   app.get("/api/stock", requireAuth, cacheMiddleware(2 * 60 * 1000), async (req, res) => {

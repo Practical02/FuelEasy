@@ -101,6 +101,7 @@ export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+  updateUserPassword(userId: string, passwordHash: string): Promise<boolean>;
   
   // Stock methods
   getStock(): Promise<Stock[]>;
@@ -259,6 +260,15 @@ export class DatabaseStorage implements IStorage {
   async createUser(insertUser: InsertUser): Promise<User> {
     const result = await db.insert(users).values(insertUser).returning();
     return result[0];
+  }
+
+  async updateUserPassword(userId: string, passwordHash: string): Promise<boolean> {
+    const result = await db
+      .update(users)
+      .set({ password: passwordHash })
+      .where(eq(users.id, userId))
+      .returning({ id: users.id });
+    return result.length > 0;
   }
 
   async getStock(): Promise<Stock[]> {
