@@ -1014,14 +1014,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         grossProfit, 
         currentStock,
         pendingLPOCount,
-        pendingLPOValue
+        pendingLPOValue,
+        totalSoldQuantity,
+        totalPurchaseCostExVat,
       ] = await Promise.all([
         storage.getTotalRevenue(),
         storage.getTotalCOGS(),
         storage.getGrossProfit(),
         storage.getCurrentStockLevel(),
         storage.getPendingLPOCount(),
-        storage.getPendingLPOValue()
+        storage.getPendingLPOValue(),
+        storage.getTotalSoldQuantity(),
+        storage.getTotalPurchaseCostExVat(),
       ]);
 
       res.json({
@@ -1031,6 +1035,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         currentStock,
         pendingLPOCount,
         pendingLPOValue, // excludes VAT
+        totalSoldQuantity, // gallons, all sales
+        totalPurchaseCostExVat, // stock purchases, ex VAT
         grossMargin: totalRevenue > 0 ? (grossProfit / totalRevenue) * 100 : 0
       });
     } catch (error) {

@@ -350,7 +350,6 @@ export default function Invoices() {
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Invoice Date</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Date sent</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Amount</th>
-                    <th className="text-left py-3 px-4 font-medium text-gray-900">Pending Amount</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Status</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Actions</th>
                   </tr>
@@ -358,7 +357,7 @@ export default function Invoices() {
                 <tbody>
                   {isLoading ? (
                     <tr>
-                      <td colSpan={11} className="py-8 text-center text-gray-500">
+                      <td colSpan={10} className="py-8 text-center text-gray-500">
                         Loading invoices...
                       </td>
                     </tr>
@@ -395,9 +394,6 @@ export default function Invoices() {
                         </td>
                         <td className="py-3 px-4 text-sm font-medium text-gray-900">
                           {CURRENCY} {parseFloat(invoice.totalAmount).toLocaleString()}
-                        </td>
-                        <td className="py-3 px-4 text-sm font-medium text-red-600">
-                          {CURRENCY} {parseFloat((invoice as any).pendingAmount || "0").toLocaleString()}
                         </td>
                         <td className="py-3 px-4">
                           <Badge
@@ -443,7 +439,7 @@ export default function Invoices() {
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={11} className="py-8 text-center text-gray-500">
+                      <td colSpan={10} className="py-8 text-center text-gray-500">
                         {invoices.length === 0 ? "No active invoices found." : "No invoices match the current filters."}
                       </td>
                     </tr>

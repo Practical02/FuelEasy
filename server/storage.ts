@@ -294,6 +294,10 @@ export interface IStorage {
   getGrossProfit(): Promise<number>;
   getPendingLPOCount(): Promise<number>;
   getPendingLPOValue(): Promise<number>;
+  /** Lifetime total gallons sold (all sales rows). */
+  getTotalSoldQuantity(): Promise<number>;
+  /** Lifetime stock purchases: sum of (total cost − VAT) across all batches. */
+  getTotalPurchaseCostExVat(): Promise<number>;
   getPendingBusinessReport(clientId?: string, dateFrom?: string, dateTo?: string): Promise<SaleWithClient[]>;
   getVATReport(clientId?: string, dateFrom?: string, dateTo?: string): Promise<SaleWithClient[]>;
   
@@ -2136,6 +2140,20 @@ export class DatabaseStorage implements IStorage {
     }).from(sales).where(
       sql`${sales.saleStatus} IN ('Pending LPO', 'LPO Received')`
     );
+    return result[0]?.total || 0;
+  }
+
+  async getTotalSoldQuantity(): Promise<number> {
+    const result = await db.select({
+      total: sql<number>`COALESCE(SUM(${sales.quantityGallons}::numeric), 0)`,
+    }).from(sales);
+    return result[0]?.total || 0;
+  }
+
+  async getTotalPurchaseCostExVat(): Promise<number> {
+    const result = await db.select({
+      total: sql<number>`COALESCE(SUM((${stock.totalCost}::numeric - ${stock.vatAmount}::numeric)), 0)`,
+    }).from(stock);
     return result[0]?.total || 0;
   }
 

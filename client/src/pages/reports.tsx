@@ -2,7 +2,7 @@ import { useMemo, useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import Header from "@/components/layout/header";
-import { Calendar, Download, FileText, FileSpreadsheet, TrendingUp, Wallet, Percent, BarChart3 } from "lucide-react";
+import { Calendar, Download, FileText, FileSpreadsheet, TrendingUp, TrendingDown, Wallet, Percent, BarChart3, Package, Hash } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FilterPanel } from "@/components/ui/filter-panel";
@@ -21,9 +21,11 @@ import {
   ChartTooltipContent,
 } from "@/components/ui/chart";
 import {
+  Area,
   Bar,
   BarChart,
   CartesianGrid,
+  ComposedChart,
   Legend,
   Line,
   LineChart,
@@ -56,7 +58,6 @@ export default function Reports() {
   const [profitGranularity, setProfitGranularity] = useState<"monthly" | "annual">("monthly");
   const [vatGranularity, setVatGranularity] = useState<"monthly" | "annual">("monthly");
   const [showVatLineItems, setShowVatLineItems] = useState(false);
-  const [showProfitTable, setShowProfitTable] = useState(false);
   const [cashbookAccountHeadId, setCashbookAccountHeadId] = useState<string>("all");
   const [cashbookFlow, setCashbookFlow] = useState<string>("all");
   const [cashbookTxnType, setCashbookTxnType] = useState<string>("all");
@@ -291,14 +292,20 @@ export default function Reports() {
   }, [reportType, stockRows, dateFrom, dateTo]);
 
   const purchaseTotals = useMemo(() => {
-    if (reportType !== "purchase") return { quantity: 0, vatAmount: 0, totalCost: 0 };
+    if (reportType !== "purchase")
+      return { quantity: 0, vatAmount: 0, totalCost: 0, costExVat: 0 };
     return filteredPurchaseStock.reduce(
-      (acc, r) => ({
-        quantity: acc.quantity + parseFloat(r.quantityGallons),
-        vatAmount: acc.vatAmount + parseFloat(r.vatAmount),
-        totalCost: acc.totalCost + parseFloat(r.totalCost),
-      }),
-      { quantity: 0, vatAmount: 0, totalCost: 0 }
+      (acc, r) => {
+        const total = parseFloat(r.totalCost);
+        const vat = parseFloat(r.vatAmount);
+        return {
+          quantity: acc.quantity + parseFloat(r.quantityGallons),
+          vatAmount: acc.vatAmount + vat,
+          totalCost: acc.totalCost + total,
+          costExVat: acc.costExVat + (total - vat),
+        };
+      },
+      { quantity: 0, vatAmount: 0, totalCost: 0, costExVat: 0 }
     );
   }, [reportType, filteredPurchaseStock]);
 
@@ -375,17 +382,74 @@ export default function Reports() {
   }, [reportType, vatByYear, stockVatByYear]);
 
   const profitTotals = useMemo(() => {
-    if (reportType !== "profit") return { revenue: 0, cogs: 0, grossProfit: 0, marginPct: 0 };
+    if (reportType !== "profit")
+      return {
+        revenue: 0,
+        cogs: 0,
+        grossProfit: 0,
+        marginPct: 0,
+        saleCount: 0,
+        totalGallons: 0,
+        avgProfitPerSale: 0,
+      };
     const revenue = filteredSales.reduce((s, x) => s + parseFloat(x.subtotal), 0);
     const cogs = filteredSales.reduce((s, x) => s + parseFloat(x.cogs), 0);
     const grossProfit = filteredSales.reduce((s, x) => s + parseFloat(x.grossProfit), 0);
+    const saleCount = filteredSales.length;
+    const totalGallons = filteredSales.reduce((s, x) => s + parseFloat(x.quantityGallons), 0);
     return {
       revenue,
       cogs,
       grossProfit,
       marginPct: revenue > 0 ? (grossProfit / revenue) * 100 : 0,
+      saleCount,
+      totalGallons,
+      avgProfitPerSale: saleCount > 0 ? grossProfit / saleCount : 0,
     };
   }, [reportType, filteredSales]);
+
+  /** Unified rows for profit chart (month or year label on X). */
+  const profitTimeSeries = useMemo(() => {
+    if (reportType !== "profit") return [];
+    if (profitGranularity === "monthly") {
+      return monthlyProfitData.map((r) => ({
+        label: r.monthLabel,
+        grossProfit: r.grossProfit,
+        revenue: r.revenue,
+        cogs: r.cogs,
+        marginPct: r.marginPct,
+        count: r.count,
+      }));
+    }
+    return annualProfitData.map((r) => ({
+      label: r.period,
+      grossProfit: r.grossProfit,
+      revenue: r.revenue,
+      cogs: r.cogs,
+      marginPct: r.marginPct,
+      count: r.count,
+    }));
+  }, [reportType, profitGranularity, monthlyProfitData, annualProfitData]);
+
+  const profitInsights = useMemo(() => {
+    if (reportType !== "profit" || profitTimeSeries.length === 0) return null;
+    const rows = profitTimeSeries;
+    let bestI = 0;
+    let worstI = 0;
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i].grossProfit > rows[bestI].grossProfit) bestI = i;
+      if (rows[i].grossProfit < rows[worstI].grossProfit) worstI = i;
+    }
+    const first = rows[0];
+    const last = rows[rows.length - 1];
+    const trend = last.grossProfit - first.grossProfit;
+    return {
+      best: rows[bestI],
+      worst: rows[worstI],
+      trend,
+      periodCount: rows.length,
+    };
+  }, [reportType, profitTimeSeries]);
 
   const pendingInvoices = useMemo(() => {
     if (reportType !== "pending-invoices") return [] as any[];
@@ -648,6 +712,7 @@ export default function Reports() {
         "Quantity (gal)",
         "Unit price (AED)",
         "VAT %",
+        "Amount ex VAT (AED)",
         "VAT (AED)",
         "Total cost (AED)",
       ];
@@ -663,12 +728,14 @@ export default function Reports() {
           row.supplierAccountHeadId != null
             ? supplierNameById[row.supplierAccountHeadId] ?? "—"
             : "—";
+        const exVat = parseFloat(row.totalCost) - parseFloat(row.vatAmount);
         [
           new Date(row.purchaseDate).toLocaleDateString(),
           supplier,
           parseFloat(row.quantityGallons),
           parseFloat(row.purchasePricePerGallon),
           parseFloat(row.vatPercentage),
+          exVat,
           parseFloat(row.vatAmount),
           parseFloat(row.totalCost),
         ].forEach((value, index) => {
@@ -680,8 +747,9 @@ export default function Reports() {
       worksheet.getCell(currentRow, 1).value = "TOTALS:";
       worksheet.getCell(currentRow, 1).font = { bold: true };
       worksheet.getCell(currentRow, 3).value = purchaseTotals.quantity;
-      worksheet.getCell(currentRow, 6).value = purchaseTotals.vatAmount;
-      worksheet.getCell(currentRow, 7).value = purchaseTotals.totalCost;
+      worksheet.getCell(currentRow, 6).value = purchaseTotals.costExVat;
+      worksheet.getCell(currentRow, 7).value = purchaseTotals.vatAmount;
+      worksheet.getCell(currentRow, 8).value = purchaseTotals.totalCost;
     } else {
       // VAT / sales report: LPO + Delivery Note no. + invoice columns
       const headers = [
@@ -889,6 +957,7 @@ export default function Reports() {
         "Quantity (gal)",
         "Unit price (AED)",
         "VAT %",
+        "Amount ex VAT (AED)",
         "VAT (AED)",
         "Total cost (AED)",
       ];
@@ -897,12 +966,14 @@ export default function Reports() {
           row.supplierAccountHeadId != null
             ? supplierNameById[row.supplierAccountHeadId] ?? "—"
             : "—";
+        const exVat = parseFloat(row.totalCost) - parseFloat(row.vatAmount);
         return [
           new Date(row.purchaseDate).toLocaleDateString(),
           supplier.replace(/"/g, '""'),
           parseFloat(row.quantityGallons),
           parseFloat(row.purchasePricePerGallon),
           parseFloat(row.vatPercentage),
+          exVat,
           parseFloat(row.vatAmount),
           parseFloat(row.totalCost),
         ];
@@ -1171,7 +1242,17 @@ export default function Reports() {
       </FilterPanel>
 
       {/* Summary Cards */}
-      <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 ${reportType === "vat" ? "lg:grid-cols-3 xl:grid-cols-6" : reportType === "profit" ? "lg:grid-cols-4" : "lg:grid-cols-4"}`}>
+      <div
+        className={`grid grid-cols-1 md:grid-cols-2 gap-6 ${
+          reportType === "vat"
+            ? "lg:grid-cols-3 xl:grid-cols-6"
+            : reportType === "profit"
+              ? "lg:grid-cols-4"
+              : reportType === "purchase"
+                ? "lg:grid-cols-3 xl:grid-cols-5"
+                : "lg:grid-cols-4"
+        }`}
+      >
         {reportType === "profit" ? null : reportType === "cashbook" ? (
           <>
             <Card>
@@ -1221,6 +1302,20 @@ export default function Reports() {
                     <p className="text-xs text-gray-500">gallons</p>
                   </div>
                   <Calendar className="h-8 w-8 text-green-600" />
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">Amount (ex VAT)</p>
+                    <p className="text-2xl font-bold text-gray-900">{CURRENCY} {purchaseTotals.costExVat.toFixed(2)}</p>
+                    <p className="text-xs text-gray-500">VAT-free purchase value</p>
+                  </div>
+                  <div className="h-8 w-8 bg-slate-100 rounded-full flex items-center justify-center">
+                    <span className="text-sm font-bold text-slate-600">Σ</span>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -1416,6 +1511,7 @@ export default function Reports() {
                         <th className="text-right p-2 font-medium">Qty (gal)</th>
                         <th className="text-right p-2 font-medium">Unit price</th>
                         <th className="text-right p-2 font-medium">VAT %</th>
+                        <th className="text-right p-2 font-medium">Amount (ex VAT)</th>
                         <th className="text-right p-2 font-medium">VAT</th>
                         <th className="text-right p-2 font-medium">Total cost</th>
                       </tr>
@@ -1432,6 +1528,10 @@ export default function Reports() {
                           <td className="p-2 text-right tabular-nums">{parseFloat(row.quantityGallons).toFixed(0)}</td>
                           <td className="p-2 text-right tabular-nums">{CURRENCY} {parseFloat(row.purchasePricePerGallon).toFixed(SALE_PURCHASE_PPG_DECIMAL_PLACES)}</td>
                           <td className="p-2 text-right tabular-nums">{parseFloat(row.vatPercentage).toFixed(2)}%</td>
+                          <td className="p-2 text-right tabular-nums">
+                            {CURRENCY}{" "}
+                            {(parseFloat(row.totalCost) - parseFloat(row.vatAmount)).toFixed(2)}
+                          </td>
                           <td className="p-2 text-right tabular-nums">{CURRENCY} {parseFloat(row.vatAmount).toFixed(2)}</td>
                           <td className="p-2 text-right font-medium tabular-nums">{CURRENCY} {parseFloat(row.totalCost).toFixed(2)}</td>
                         </tr>
@@ -1466,10 +1566,17 @@ export default function Reports() {
                             <p className="font-medium">{CURRENCY} {parseFloat(row.purchasePricePerGallon).toFixed(SALE_PURCHASE_PPG_DECIMAL_PLACES)}</p>
                           </div>
                           <div>
+                            <span className="text-muted-foreground text-xs">Ex VAT</span>
+                            <p className="font-medium">
+                              {CURRENCY}{" "}
+                              {(parseFloat(row.totalCost) - parseFloat(row.vatAmount)).toFixed(2)}
+                            </p>
+                          </div>
+                          <div>
                             <span className="text-muted-foreground text-xs">VAT</span>
                             <p className="font-medium">{parseFloat(row.vatPercentage).toFixed(2)}% · {CURRENCY} {parseFloat(row.vatAmount).toFixed(2)}</p>
                           </div>
-                          <div>
+                          <div className="col-span-2">
                             <span className="text-muted-foreground text-xs">Total</span>
                             <p className="font-semibold">{CURRENCY} {parseFloat(row.totalCost).toFixed(2)}</p>
                           </div>
@@ -1479,10 +1586,14 @@ export default function Reports() {
                   ))}
                 </div>
                 <div className="mt-6 pt-4 border-t bg-gray-50 rounded-lg p-4">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
                     <div className="flex justify-between">
                       <span className="font-medium text-gray-700">Total quantity:</span>
                       <span className="font-bold">{purchaseTotals.quantity.toFixed(0)} gal</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="font-medium text-gray-700">Total (ex VAT):</span>
+                      <span className="font-bold">{CURRENCY} {purchaseTotals.costExVat.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="font-medium text-gray-700">Total VAT:</span>
@@ -1499,169 +1610,231 @@ export default function Reports() {
           </CardContent>
         </Card>
       ) : reportType === "profit" ? (
-        <div className="rounded-2xl border border-zinc-200 bg-white shadow-sm overflow-hidden">
-          <div className="bg-zinc-900 text-zinc-50 px-5 py-6 sm:px-8 sm:py-8">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="space-y-6">
+          <Card>
+            <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between space-y-0 pb-2">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400/90">Analytics</p>
-                <h2 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">Profit report</h2>
-                <p className="mt-2 max-w-xl text-sm text-zinc-400">
-                  Revenue (excl. VAT), cost of goods sold, and gross profit for the filtered period. Switch between monthly and yearly rollups.
+                <CardTitle>Profit report</CardTitle>
+                <p className="text-sm text-muted-foreground font-normal mt-1.5">
+                  Gross profit over time for the filtered period. Revenue and COGS exclude VAT; figures respect client, project, and date filters above.
+                </p>
+                <p className="text-xs text-muted-foreground mt-2">
+                  {dateFrom || "Start"} → {dateTo || "End"}
+                  {selectedClient !== "all" && clients.find((c) => c.id === selectedClient) && (
+                    <> · {clients.find((c) => c.id === selectedClient)!.name}</>
+                  )}
                 </p>
               </div>
-              <div className="flex shrink-0 rounded-lg bg-zinc-800 p-1">
-                <button
+              <div className="flex rounded-lg border border-border bg-muted/30 p-1 shrink-0">
+                <Button
                   type="button"
+                  variant={profitGranularity === "monthly" ? "secondary" : "ghost"}
+                  size="sm"
+                  className="h-8 px-3"
                   onClick={() => setProfitGranularity("monthly")}
-                  className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${profitGranularity === "monthly" ? "bg-zinc-50 text-zinc-900 shadow" : "text-zinc-400 hover:text-white"}`}
                 >
                   Monthly
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
+                  variant={profitGranularity === "annual" ? "secondary" : "ghost"}
+                  size="sm"
+                  className="h-8 px-3"
                   onClick={() => setProfitGranularity("annual")}
-                  className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${profitGranularity === "annual" ? "bg-zinc-50 text-zinc-900 shadow" : "text-zinc-400 hover:text-white"}`}
                 >
                   Annual
-                </button>
+                </Button>
               </div>
-            </div>
-            <p className="mt-4 text-xs text-zinc-500">
-              Period: {dateFrom || "…"} → {dateTo || "…"}
-              {selectedClient !== "all" && clients.find((c) => c.id === selectedClient) && (
-                <> · Client: {clients.find((c) => c.id === selectedClient)!.name}</>
-              )}
-            </p>
-          </div>
-
-          {monthlyProfitData.length === 0 ? (
-            <div className="px-6 py-16 text-center">
-              <BarChart3 className="mx-auto h-12 w-12 text-zinc-300" />
-              <p className="mt-4 font-medium text-zinc-700">No sales in this period</p>
-              <p className="mt-1 text-sm text-zinc-500">Widen the date range or clear filters to see profit charts.</p>
-            </div>
-          ) : (
-            <div className="space-y-0">
-              <div className="grid gap-px bg-zinc-200 sm:grid-cols-2 lg:grid-cols-4">
-                {[
-                  { label: "Revenue (excl. VAT)", value: profitTotals.revenue, valueDecimals: 2 as const, icon: TrendingUp, accent: "text-sky-700 bg-sky-50" },
-                  { label: "COGS", value: profitTotals.cogs, valueDecimals: SALE_COGS_DECIMAL_PLACES, icon: Wallet, accent: "text-amber-800 bg-amber-50" },
-                  { label: "Gross profit", value: profitTotals.grossProfit, valueDecimals: SALE_COGS_DECIMAL_PLACES, icon: BarChart3, accent: "text-emerald-800 bg-emerald-50" },
-                  { label: "Margin", sub: profitGranularity === "annual" ? `${annualProfitData.length} year(s)` : `${monthlyProfitData.length} month(s)`, valueLabel: `${profitTotals.marginPct.toFixed(1)}%`, icon: Percent, accent: "text-violet-800 bg-violet-50" },
-                ].map((k) => (
-                  <div key={k.label} className="flex gap-4 bg-white p-5 sm:p-6">
-                    <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${k.accent}`}>
-                      <k.icon className="h-5 w-5" aria-hidden />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">{k.label}</p>
-                      <p className="mt-1 truncate text-xl font-bold tabular-nums text-zinc-900 sm:text-2xl">
-                        {"value" in k && k.value !== undefined ? `${CURRENCY} ${k.value.toFixed(2)}` : "valueLabel" in k ? k.valueLabel : "—"}
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {profitTimeSeries.length === 0 ? (
+                <div className="py-16 text-center border border-dashed rounded-lg bg-muted/20">
+                  <BarChart3 className="mx-auto h-10 w-10 text-muted-foreground/50" />
+                  <p className="mt-3 font-medium text-foreground">No sales in this period</p>
+                  <p className="mt-1 text-sm text-muted-foreground">Adjust the date range or filters to see profit.</p>
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                    <div className="rounded-lg border border-emerald-200/80 bg-emerald-50/40 p-4 col-span-2 md:col-span-1 lg:col-span-2">
+                      <p className="text-xs font-medium text-muted-foreground">Gross profit</p>
+                      <p className="mt-1 text-xl font-bold tabular-nums text-emerald-900">
+                        {CURRENCY} {profitTotals.grossProfit.toFixed(SALE_COGS_DECIMAL_PLACES)}
                       </p>
-                      {k.sub && <p className="mt-0.5 text-xs text-zinc-500">{k.sub}</p>}
+                      <p className="text-xs text-emerald-800/80 mt-0.5">After COGS (excl. VAT)</p>
+                    </div>
+                    <div className="rounded-lg border bg-card p-4">
+                      <p className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                        <TrendingUp className="h-3 w-3" /> Revenue
+                      </p>
+                      <p className="mt-1 text-lg font-semibold tabular-nums">{CURRENCY} {profitTotals.revenue.toFixed(2)}</p>
+                      <p className="text-xs text-muted-foreground">excl. VAT</p>
+                    </div>
+                    <div className="rounded-lg border bg-card p-4">
+                      <p className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                        <Wallet className="h-3 w-3" /> COGS
+                      </p>
+                      <p className="mt-1 text-lg font-semibold tabular-nums">{CURRENCY} {profitTotals.cogs.toFixed(SALE_COGS_DECIMAL_PLACES)}</p>
+                    </div>
+                    <div className="rounded-lg border bg-card p-4">
+                      <p className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                        <Percent className="h-3 w-3" /> Margin
+                      </p>
+                      <p className="mt-1 text-lg font-semibold tabular-nums">{profitTotals.marginPct.toFixed(1)}%</p>
+                    </div>
+                    <div className="rounded-lg border bg-card p-4">
+                      <p className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                        <Hash className="h-3 w-3" /> Sales
+                      </p>
+                      <p className="mt-1 text-lg font-semibold tabular-nums">{profitTotals.saleCount}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {CURRENCY} {profitTotals.avgProfitPerSale.toFixed(0)} avg profit
+                      </p>
+                    </div>
+                    <div className="rounded-lg border bg-card p-4">
+                      <p className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                        <Package className="h-3 w-3" /> Volume
+                      </p>
+                      <p className="mt-1 text-lg font-semibold tabular-nums">{profitTotals.totalGallons.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
+                      <p className="text-xs text-muted-foreground">gallons sold</p>
                     </div>
                   </div>
-                ))}
-              </div>
 
-              <div className="border-t border-zinc-200 bg-zinc-50/80 p-5 sm:p-8">
-                <div className={`grid gap-8 ${profitGranularity === "monthly" ? "lg:grid-cols-3" : ""}`}>
-                  <div className={profitGranularity === "monthly" ? "lg:col-span-2" : ""}>
-                    <div className="mb-3 flex items-center justify-between">
-                      <h3 className="text-sm font-semibold text-zinc-800">
-                        {profitGranularity === "monthly" ? "Revenue, COGS & gross profit by month" : "By calendar year"}
-                      </h3>
-                    </div>
-                    <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
-                      <ChartContainer
-                        config={{
-                          revenue: { label: "Revenue", color: "hsl(200 55% 42%)" },
-                          cogs: { label: "COGS", color: "hsl(32 90% 45%)" },
-                          grossProfit: { label: "Gross profit", color: "hsl(152 55% 36%)" },
-                          marginPct: { label: "Margin %", color: "hsl(280 45% 48%)" },
-                        }}
-                        className="h-[320px] w-full sm:h-[360px]"
-                      >
-                        {profitGranularity === "monthly" ? (
-                          <BarChart data={monthlyProfitData} margin={{ top: 12, right: 12, left: 4, bottom: 8 }}>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-zinc-200" />
-                            <XAxis dataKey="monthLabel" tick={{ fontSize: 10, fill: "#71717a" }} interval={0} angle={-40} textAnchor="end" height={72} />
-                            <YAxis tick={{ fontSize: 10, fill: "#71717a" }} tickFormatter={(v) => (v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `${(v / 1e3).toFixed(0)}k` : String(v))} width={48} />
-                            <ChartTooltip content={<ChartTooltipContent formatter={(v) => [`${CURRENCY} ${Number(v).toFixed(2)}`, ""]} />} />
-                            <Legend wrapperStyle={{ paddingTop: 8 }} />
-                            <Bar dataKey="revenue" name="Revenue" fill="var(--color-revenue)" radius={[4, 4, 0, 0]} maxBarSize={28} />
-                            <Bar dataKey="cogs" name="COGS" fill="var(--color-cogs)" radius={[4, 4, 0, 0]} maxBarSize={28} />
-                            <Bar dataKey="grossProfit" name="Gross profit" fill="var(--color-grossProfit)" radius={[4, 4, 0, 0]} maxBarSize={28} />
-                          </BarChart>
+                  {profitInsights && profitInsights.periodCount > 1 && (
+                    <div className="flex flex-wrap gap-3 text-sm rounded-lg border bg-muted/30 px-4 py-3">
+                      <span className="text-muted-foreground">
+                        <span className="font-medium text-foreground">Best:</span>{" "}
+                        {profitInsights.best.label} ({CURRENCY} {profitInsights.best.grossProfit.toFixed(0)})
+                      </span>
+                      <span className="text-muted-foreground hidden sm:inline">·</span>
+                      <span className="text-muted-foreground">
+                        <span className="font-medium text-foreground">Lowest:</span>{" "}
+                        {profitInsights.worst.label} ({CURRENCY} {profitInsights.worst.grossProfit.toFixed(0)})
+                      </span>
+                      <span className="text-muted-foreground hidden sm:inline">·</span>
+                      <span className={`inline-flex items-center gap-1 font-medium ${profitInsights.trend >= 0 ? "text-emerald-700" : "text-amber-800"}`}>
+                        {profitInsights.trend >= 0 ? (
+                          <TrendingUp className="h-4 w-4" />
                         ) : (
-                          <BarChart data={annualProfitData} margin={{ top: 12, right: 12, left: 4, bottom: 8 }}>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-zinc-200" />
-                            <XAxis dataKey="period" tick={{ fontSize: 11, fill: "#71717a" }} />
-                            <YAxis tick={{ fontSize: 10, fill: "#71717a" }} tickFormatter={(v) => (v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `${(v / 1e3).toFixed(0)}k` : String(v))} width={48} />
-                            <ChartTooltip content={<ChartTooltipContent formatter={(v) => [`${CURRENCY} ${Number(v).toFixed(2)}`, ""]} />} />
-                            <Legend wrapperStyle={{ paddingTop: 8 }} />
-                            <Bar dataKey="revenue" name="Revenue" fill="var(--color-revenue)" radius={[4, 4, 0, 0]} maxBarSize={36} />
-                            <Bar dataKey="cogs" name="COGS" fill="var(--color-cogs)" radius={[4, 4, 0, 0]} maxBarSize={36} />
-                            <Bar dataKey="grossProfit" name="Gross profit" fill="var(--color-grossProfit)" radius={[4, 4, 0, 0]} maxBarSize={36} />
-                          </BarChart>
+                          <TrendingDown className="h-4 w-4" />
                         )}
-                      </ChartContainer>
-                    </div>
-                  </div>
-                  {profitGranularity === "monthly" && (
-                    <div>
-                      <h3 className="mb-3 text-sm font-semibold text-zinc-800">Margin % trend</h3>
-                      <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
-                        <ChartContainer config={{ marginPct: { label: "Margin %", color: "hsl(280 45% 48%)" } }} className="h-[320px] w-full sm:h-[360px]">
-                          <LineChart data={monthlyProfitData} margin={{ top: 12, right: 12, left: 4, bottom: 8 }}>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-zinc-200" />
-                            <XAxis dataKey="monthLabel" tick={{ fontSize: 10, fill: "#71717a" }} interval={0} angle={-40} textAnchor="end" height={72} />
-                            <YAxis tick={{ fontSize: 10, fill: "#71717a" }} unit="%" width={36} />
-                            <ChartTooltip content={<ChartTooltipContent formatter={(v) => [`${Number(v).toFixed(1)}%`, "Margin"]} />} />
-                            <Line type="monotone" dataKey="marginPct" name="Margin %" stroke="var(--color-marginPct)" strokeWidth={2.5} dot={{ r: 4, fill: "var(--color-marginPct)" }} activeDot={{ r: 6 }} />
-                          </LineChart>
-                        </ChartContainer>
-                      </div>
+                        {profitInsights.trend >= 0 ? "Up" : "Down"}{" "}
+                        {CURRENCY} {Math.abs(profitInsights.trend).toFixed(0)} from first to last period
+                      </span>
                     </div>
                   )}
-                </div>
 
-                <Collapsible open={showProfitTable} onOpenChange={setShowProfitTable} className="mt-8">
-                  <CollapsibleTrigger asChild>
-                    <Button variant="outline" size="sm" type="button" className="border-zinc-300">
-                      {showProfitTable ? "Hide" : "Show"} period breakdown table
-                    </Button>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="mt-4 overflow-hidden rounded-xl border border-zinc-200 bg-white">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b border-zinc-200 bg-zinc-50">
-                          <th className="px-4 py-3 text-left font-semibold text-zinc-700">Period</th>
-                          <th className="px-4 py-3 text-right font-semibold text-zinc-700">Revenue</th>
-                          <th className="px-4 py-3 text-right font-semibold text-zinc-700">COGS</th>
-                          <th className="px-4 py-3 text-right font-semibold text-zinc-700">Gross profit</th>
-                          <th className="px-4 py-3 text-right font-semibold text-zinc-700">Margin</th>
-                          <th className="px-4 py-3 text-right font-semibold text-zinc-700">Sales</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {monthlyProfitData.map((row) => (
-                          <tr key={row.month} className="border-b border-zinc-100 hover:bg-zinc-50/80">
-                            <td className="px-4 py-2.5 font-medium text-zinc-900">{row.monthLabel}</td>
-                            <td className="px-4 py-2.5 text-right tabular-nums text-zinc-700">{CURRENCY} {row.revenue.toFixed(2)}</td>
-                            <td className="px-4 py-2.5 text-right tabular-nums text-zinc-700">{CURRENCY} {row.cogs.toFixed(SALE_COGS_DECIMAL_PLACES)}</td>
-                            <td className="px-4 py-2.5 text-right tabular-nums font-medium text-emerald-800">{CURRENCY} {row.grossProfit.toFixed(SALE_COGS_DECIMAL_PLACES)}</td>
-                            <td className="px-4 py-2.5 text-right tabular-nums text-zinc-700">{row.marginPct.toFixed(1)}%</td>
-                            <td className="px-4 py-2.5 text-right text-zinc-600">{row.count}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </CollapsibleContent>
-                </Collapsible>
-              </div>
-            </div>
-          )}
+                  <div>
+                    <h3 className="text-sm font-semibold text-foreground mb-3">Gross profit over time</h3>
+                    <div className="rounded-lg border bg-card p-4">
+                      <ChartContainer
+                        config={{
+                          grossProfit: { label: "Gross profit", color: "hsl(142 55% 36%)" },
+                          revenue: { label: "Revenue (excl. VAT)", color: "hsl(214 60% 48%)" },
+                        }}
+                        className="h-[min(380px,55vh)] w-full"
+                      >
+                        <ComposedChart data={profitTimeSeries} margin={{ top: 8, right: 12, left: 8, bottom: profitGranularity === "monthly" ? 56 : 24 }}>
+                          <defs>
+                            <linearGradient id="profitAreaFill" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor="hsl(142 55% 36%)" stopOpacity={0.35} />
+                              <stop offset="100%" stopColor="hsl(142 55% 36%)" stopOpacity={0} />
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-border" />
+                          <XAxis
+                            dataKey="label"
+                            tick={{ fontSize: 11 }}
+                            tickLine={false}
+                            axisLine={false}
+                            interval={profitGranularity === "monthly" ? "preserveStartEnd" : 0}
+                            angle={profitGranularity === "monthly" ? -35 : 0}
+                            textAnchor={profitGranularity === "monthly" ? "end" : "middle"}
+                            height={profitGranularity === "monthly" ? 52 : 28}
+                          />
+                          <YAxis
+                            tick={{ fontSize: 11 }}
+                            tickLine={false}
+                            axisLine={false}
+                            width={52}
+                            tickFormatter={(v) =>
+                              v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `${(v / 1e3).toFixed(0)}k` : String(v)
+                            }
+                          />
+                          <ChartTooltip
+                            content={
+                              <ChartTooltipContent
+                                formatter={(value) => (
+                                  <span className="font-mono tabular-nums">
+                                    {typeof value === "number" ? `${CURRENCY} ${value.toFixed(2)}` : String(value)}
+                                  </span>
+                                )}
+                              />
+                            }
+                          />
+                          <Legend wrapperStyle={{ paddingTop: 12 }} />
+                          <Area
+                            type="monotone"
+                            dataKey="grossProfit"
+                            name="Gross profit"
+                            stroke="hsl(142 55% 36%)"
+                            strokeWidth={2}
+                            fill="url(#profitAreaFill)"
+                          />
+                          <Line
+                            type="monotone"
+                            dataKey="revenue"
+                            name="Revenue (excl. VAT)"
+                            stroke="hsl(214 60% 48%)"
+                            strokeWidth={1.5}
+                            strokeDasharray="6 4"
+                            dot={false}
+                          />
+                        </ComposedChart>
+                      </ChartContainer>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Solid area = gross profit each {profitGranularity === "monthly" ? "month" : "year"}. Dashed line = revenue (excl. VAT) for scale context.
+                    </p>
+                  </div>
+
+                  <div>
+                    <h3 className="text-sm font-semibold text-foreground mb-3">Period breakdown</h3>
+                    <div className="rounded-lg border overflow-hidden">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b bg-muted/50">
+                              <th className="px-4 py-3 text-left font-medium">Period</th>
+                              <th className="px-4 py-3 text-right font-medium">Revenue</th>
+                              <th className="px-4 py-3 text-right font-medium">COGS</th>
+                              <th className="px-4 py-3 text-right font-medium">Gross profit</th>
+                              <th className="px-4 py-3 text-right font-medium">Margin</th>
+                              <th className="px-4 py-3 text-right font-medium">Sales</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(profitGranularity === "monthly" ? monthlyProfitData : annualProfitData).map((row) => (
+                              <tr key={"month" in row ? row.month : row.period} className="border-b last:border-0 hover:bg-muted/30">
+                                <td className="px-4 py-2.5 font-medium">{"monthLabel" in row ? row.monthLabel : row.period}</td>
+                                <td className="px-4 py-2.5 text-right tabular-nums">{CURRENCY} {row.revenue.toFixed(2)}</td>
+                                <td className="px-4 py-2.5 text-right tabular-nums">{CURRENCY} {row.cogs.toFixed(SALE_COGS_DECIMAL_PLACES)}</td>
+                                <td className="px-4 py-2.5 text-right tabular-nums font-medium text-emerald-800">
+                                  {CURRENCY} {row.grossProfit.toFixed(SALE_COGS_DECIMAL_PLACES)}
+                                </td>
+                                <td className="px-4 py-2.5 text-right tabular-nums">{row.marginPct.toFixed(1)}%</td>
+                                <td className="px-4 py-2.5 text-right text-muted-foreground">{row.count}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
         </div>
       ) : (
       <Card>

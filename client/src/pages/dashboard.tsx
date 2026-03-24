@@ -21,7 +21,9 @@ import {
   CreditCard,
   AlertTriangle,
   Eye,
-  Edit
+  Edit,
+  BarChart3,
+  ShoppingCart,
 } from "lucide-react";
 import { CURRENCY } from "@/lib/constants";
 import type { SaleWithClient } from "@shared/schema";
@@ -48,6 +50,8 @@ export default function Dashboard() {
     pendingLPOCount: number;
     pendingLPOValue: number;
     grossMargin: number;
+    totalSoldQuantity: number;
+    totalPurchaseCostExVat: number;
   }>({
     queryKey: ["/api/reports/overview"],
   });
@@ -136,7 +140,7 @@ export default function Dashboard() {
 
       <div className="p-4 md:p-6">
         {/* Key Metrics */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6 mb-6 lg:mb-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-6 mb-6 lg:mb-8">
           <Card>
             <CardContent className="p-4 lg:p-6">
               <div className="flex items-center justify-between">
@@ -206,6 +210,46 @@ export default function Dashboard() {
                 </div>
                 <div className="w-10 h-10 lg:w-12 lg:h-12 bg-green-100 rounded-lg flex items-center justify-center">
                   <DollarSign className="text-green-600 w-5 h-5 lg:w-6 lg:h-6" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-4 lg:p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-gray-500 text-sm font-medium">Total sold</p>
+                  <p className="text-2xl lg:text-3xl font-bold text-gray-900">
+                    {(overview?.totalSoldQuantity ?? 0).toLocaleString(undefined, {
+                      maximumFractionDigits: 0,
+                    })}
+                  </p>
+                  <p className="text-sm text-gray-600">Gallons (all sales)</p>
+                </div>
+                <div className="w-10 h-10 lg:w-12 lg:h-12 bg-indigo-100 rounded-lg flex items-center justify-center">
+                  <BarChart3 className="text-indigo-600 w-5 h-5 lg:w-6 lg:h-6" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-4 lg:p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-gray-500 text-sm font-medium">Purchase cost (ex VAT)</p>
+                  <p className="text-2xl lg:text-3xl font-bold text-gray-900">
+                    {CURRENCY}{" "}
+                    {(overview?.totalPurchaseCostExVat ?? 0).toLocaleString(undefined, {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
+                  </p>
+                  <p className="text-sm text-gray-600">All stock purchases</p>
+                </div>
+                <div className="w-10 h-10 lg:w-12 lg:h-12 bg-amber-100 rounded-lg flex items-center justify-center">
+                  <ShoppingCart className="text-amber-700 w-5 h-5 lg:w-6 lg:h-6" />
                 </div>
               </div>
             </CardContent>
