@@ -41,7 +41,9 @@ import {
   businessSettings,
   invoiceSales,
   supplierAdvanceAllocations,
-  paymentProjects
+  paymentProjects,
+  SALE_COGS_DECIMAL_PLACES,
+  SALE_PURCHASE_PPG_DECIMAL_PLACES,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { drizzle } from "drizzle-orm/neon-http";
@@ -64,11 +66,31 @@ function endOfDayFromYmd(ymd: string): Date {
   return new Date(y, m - 1, d, 23, 59, 59, 999);
 }
 
+/** Round FIFO layer total once; derive stored ppg from cogs/qty (avoids qty × round(ppg) drift). */
+function cogsAndPpgFromFifoRawTotal(rawTotalCost: number, qty: number): {
+  cogs: number;
+  pricePerGallon: number;
+} {
+  const cogsFactor = 10 ** SALE_COGS_DECIMAL_PLACES;
+  const cogs = Math.round(rawTotalCost * cogsFactor) / cogsFactor;
+  const ppgFactor = 10 ** SALE_PURCHASE_PPG_DECIMAL_PLACES;
+  const pricePerGallon = qty > 0 ? Math.round((cogs / qty) * ppgFactor) / ppgFactor : 0;
+  return { cogs, pricePerGallon };
+}
+
 /** Payment due = one calendar month after invoice/submission (matches legacy setMonth behavior). */
 function addOneMonth(d: Date): Date {
   const x = new Date(d.getTime());
   x.setMonth(x.getMonth() + 1);
   return x;
+}
+
+/**
+ * Open (unpaid) invoices: Generated = not yet submitted to client; Sent = submission date set.
+ * Paid is only set when cashbook allocations cover the full amount (see updateInvoiceStatusIfPaid).
+ */
+function deriveOpenInvoiceStatus(submissionDate: Date | null | undefined): "Generated" | "Sent" {
+  return submissionDate ? "Sent" : "Generated";
 }
 
 function effectiveDueDateForInvoice(inv: {
@@ -110,7 +132,14 @@ export interface IStorage {
   deleteStock(id: string): Promise<boolean>;
   getCurrentStockLevel(): Promise<number>;
   /** FIFO: mix-and-match cost for next quantity gallons (oldest stock first). Returns null if insufficient stock. */
-  getFIFOPurchaseCostForQuantity(quantityGallons: number): Promise<{ pricePerGallon: number; totalCost: number; breakdown?: Array<{ gallons: number; pricePerGallon: number; cost: number }> } | null>;
+  getFIFOPurchaseCostForQuantity(
+    quantityGallons: number,
+    options?: { excludeSaleId?: string },
+  ): Promise<{
+    pricePerGallon: number;
+    totalCost: number;
+    breakdown?: Array<{ gallons: number; pricePerGallon: number; cost: number }>;
+  } | null>;
   /** Stock list with remaining gallons per batch (FIFO consumption). */
   getStockWithBalance(): Promise<(Stock & { remainingGallons: number })[]>;
   
@@ -153,7 +182,31 @@ export interface IStorage {
   updateSaleStatus(id: string, status: string): Promise<Sale | undefined>;
   bulkRecordLPO(params: { saleIds: string[]; lpoNumber: string; lpoReceivedDate?: Date }): Promise<{ updated: number; errors: string[] }>;
   deleteSale(id: string): Promise<boolean>;
-  
+  /** Replay FIFO and rewrite every sale's purchase cost fields (repair / after deletes). */
+  reapplyFIFOCostsToAllSales(): Promise<void>;
+  /** Diagnostics: stored COGS vs FIFO replay, inventory identity check, optional sale-date window. */
+  getCostReconciliationSnapshot(opts?: {
+    saleDateFrom?: string;
+    saleDateTo?: string;
+  }): Promise<{
+    sumOriginalBatchPurchaseCost: number;
+    sumEndingInventoryAtFifoCost: number;
+    sumStoredCogsAllSales: number;
+    sumQtyTimesStoredPurchasePpgAllSales: number;
+    sumReplayedCogsDryRunAllSales: number;
+    driftStoredCogsMinusReplayed: number;
+    driftStoredCogsMinusQtyTimesPpg: number;
+    inventoryIdentityResidual: number;
+    saleWindow?: {
+      from: string;
+      to: string;
+      sumStoredCogs: number;
+      sumQtyTimesPurchasePpg: number;
+      sumReplayedCogs: number;
+      driftStoredMinusReplayed: number;
+    };
+  }>;
+
   // Invoice methods
   getInvoices(): Promise<any[]>;
   getInvoice(id: string): Promise<Invoice | undefined>;
@@ -380,7 +433,10 @@ export class DatabaseStorage implements IStorage {
    * => first 100 @ 9, next 50 @ 10 => totalCost 900+500=1400, pricePerGallon 1400/150 ≈ 9.33.
    * Returns null if there is insufficient stock.
    */
-  async getFIFOPurchaseCostForQuantity(quantityGallons: number): Promise<{
+  async getFIFOPurchaseCostForQuantity(
+    quantityGallons: number,
+    options?: { excludeSaleId?: string },
+  ): Promise<{
     pricePerGallon: number;
     totalCost: number;
     breakdown?: Array<{ gallons: number; pricePerGallon: number; cost: number }>;
@@ -391,7 +447,7 @@ export class DatabaseStorage implements IStorage {
       .from(stock)
       .orderBy(asc(stock.purchaseDate), asc(stock.createdAt));
     const salesList = await db
-      .select({ quantityGallons: sales.quantityGallons })
+      .select({ id: sales.id, quantityGallons: sales.quantityGallons })
       .from(sales)
       .orderBy(asc(sales.saleDate), asc(sales.id));
 
@@ -400,6 +456,7 @@ export class DatabaseStorage implements IStorage {
       remaining.set(b.id, parseFloat(b.quantityGallons));
     }
     for (const s of salesList) {
+      if (options?.excludeSaleId && s.id === options.excludeSaleId) continue;
       let q = parseFloat(s.quantityGallons);
       for (const b of batches) {
         if (q <= 0) break;
@@ -427,10 +484,10 @@ export class DatabaseStorage implements IStorage {
       }
     }
     if (need > 0) return null;
-    const pricePerGallon = totalCost / quantityGallons;
+    const { cogs, pricePerGallon } = cogsAndPpgFromFifoRawTotal(totalCost, quantityGallons);
     return {
-      pricePerGallon: Math.round(pricePerGallon * 100) / 100,
-      totalCost: Math.round(totalCost * 100) / 100,
+      pricePerGallon,
+      totalCost: cogs,
       breakdown,
     };
   }
@@ -468,6 +525,212 @@ export class DatabaseStorage implements IStorage {
         new Date(b.purchaseDate).getTime() - new Date(a.purchaseDate).getTime() ||
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
+  }
+
+  /**
+   * Dry-run FIFO replay: same layer consumption and rounding as createSale / reapply.
+   * Map omits sales with non-positive quantity.
+   */
+  private async computeReplayedFifoCostsForAllSales(): Promise<
+    Map<string, { cogs: number; pricePerGallon: number }>
+  > {
+    const batches = await db
+      .select({
+        id: stock.id,
+        quantityGallons: stock.quantityGallons,
+        purchasePricePerGallon: stock.purchasePricePerGallon,
+      })
+      .from(stock)
+      .orderBy(asc(stock.purchaseDate), asc(stock.createdAt));
+
+    const salesList = await db
+      .select()
+      .from(sales)
+      .orderBy(asc(sales.saleDate), asc(sales.id));
+
+    const remaining = new Map<string, number>();
+    for (const b of batches) {
+      remaining.set(b.id, parseFloat(b.quantityGallons));
+    }
+
+    const replayById = new Map<string, { cogs: number; pricePerGallon: number }>();
+
+    for (const sale of salesList) {
+      const qty = parseFloat(sale.quantityGallons);
+      if (!Number.isFinite(qty) || qty <= 0) continue;
+
+      let need = qty;
+      let totalCost = 0;
+      for (const b of batches) {
+        if (need <= 0) break;
+        const rem = remaining.get(b.id) ?? 0;
+        const take = Math.min(rem, need);
+        if (take > 0) {
+          const price = parseFloat(b.purchasePricePerGallon);
+          totalCost += take * price;
+          remaining.set(b.id, rem - take);
+          need -= take;
+        }
+      }
+
+      const { cogs, pricePerGallon } = cogsAndPpgFromFifoRawTotal(totalCost, qty);
+      replayById.set(sale.id, { cogs, pricePerGallon });
+    }
+
+    return replayById;
+  }
+
+  /**
+   * Replay FIFO in sale-date order: each sale consumes from batch layers, then we
+   * rewrite purchasePricePerGallon, cogs, and grossProfit to match. Stock
+   * "remaining" already recomputes from all sales, but those stored fields do not —
+   * after deleting a sale (or stock batch), other rows would otherwise keep stale costs.
+   */
+  async reapplyFIFOCostsToAllSales(): Promise<void> {
+    const replayById = await this.computeReplayedFifoCostsForAllSales();
+    const salesList = await db
+      .select()
+      .from(sales)
+      .orderBy(asc(sales.saleDate), asc(sales.id));
+
+    for (const sale of salesList) {
+      const rec = replayById.get(sale.id);
+      if (!rec) continue;
+
+      const subtotal = parseFloat(sale.subtotal);
+      const grossProfit = subtotal - rec.cogs;
+
+      await db
+        .update(sales)
+        .set({
+          purchasePricePerGallon: rec.pricePerGallon.toFixed(SALE_PURCHASE_PPG_DECIMAL_PLACES),
+          cogs: rec.cogs.toFixed(SALE_COGS_DECIMAL_PLACES),
+          grossProfit: grossProfit.toFixed(SALE_COGS_DECIMAL_PLACES),
+        })
+        .where(eq(sales.id, sale.id));
+    }
+  }
+
+  /**
+   * Explain COGS vs inventory-value gaps: stored aggregates vs a full FIFO replay,
+   * and the stock identity (purchases ≈ COGS + ending) when opening inventory was zero.
+   */
+  async getCostReconciliationSnapshot(opts?: {
+    saleDateFrom?: string;
+    saleDateTo?: string;
+  }): Promise<{
+    sumOriginalBatchPurchaseCost: number;
+    sumEndingInventoryAtFifoCost: number;
+    sumStoredCogsAllSales: number;
+    sumQtyTimesStoredPurchasePpgAllSales: number;
+    sumReplayedCogsDryRunAllSales: number;
+    driftStoredCogsMinusReplayed: number;
+    driftStoredCogsMinusQtyTimesPpg: number;
+    /** batchPurchaseCost - storedCogs - endingInventory (≈0 if no opening stock, no deleted batches, stored COGS correct) */
+    inventoryIdentityResidual: number;
+    saleWindow?: {
+      from: string;
+      to: string;
+      sumStoredCogs: number;
+      sumQtyTimesPurchasePpg: number;
+      sumReplayedCogs: number;
+      driftStoredMinusReplayed: number;
+    };
+  }> {
+    const [batchRow] = await db
+      .select({
+        total: sql<string>`COALESCE(SUM(${stock.quantityGallons}::numeric * ${stock.purchasePricePerGallon}::numeric), 0)`,
+      })
+      .from(stock);
+
+    const withBal = await this.getStockWithBalance();
+    const sumEndingInventoryAtFifoCost = withBal.reduce(
+      (s, b) => s + b.remainingGallons * parseFloat(b.purchasePricePerGallon),
+      0,
+    );
+
+    const [saleAgg] = await db
+      .select({
+        stored: sql<string>`COALESCE(SUM(${sales.cogs}::numeric), 0)`,
+        qtyPpg: sql<string>`COALESCE(SUM(${sales.quantityGallons}::numeric * ${sales.purchasePricePerGallon}::numeric), 0)`,
+      })
+      .from(sales);
+
+    const replayById = await this.computeReplayedFifoCostsForAllSales();
+    let sumReplayedCogsDryRunAllSales = 0;
+    for (const { cogs } of Array.from(replayById.values())) {
+      sumReplayedCogsDryRunAllSales += cogs;
+    }
+
+    const sumOriginalBatchPurchaseCost = parseFloat(batchRow?.total ?? "0");
+    const sumStoredCogsAllSales = parseFloat(saleAgg?.stored ?? "0");
+    const sumQtyTimesStoredPurchasePpgAllSales = parseFloat(saleAgg?.qtyPpg ?? "0");
+
+    const driftStoredCogsMinusReplayed = sumStoredCogsAllSales - sumReplayedCogsDryRunAllSales;
+    const driftStoredCogsMinusQtyTimesPpg =
+      sumStoredCogsAllSales - sumQtyTimesStoredPurchasePpgAllSales;
+    const inventoryIdentityResidual =
+      sumOriginalBatchPurchaseCost - sumStoredCogsAllSales - sumEndingInventoryAtFifoCost;
+
+    const round4 = (n: number) => Math.round(n * 10000) / 10000;
+
+    let saleWindow: {
+      from: string;
+      to: string;
+      sumStoredCogs: number;
+      sumQtyTimesPurchasePpg: number;
+      sumReplayedCogs: number;
+      driftStoredMinusReplayed: number;
+    } | undefined;
+
+    if (opts?.saleDateFrom && opts?.saleDateTo) {
+      const fromMs = startOfDayFromYmd(opts.saleDateFrom).getTime();
+      const toMs = endOfDayFromYmd(opts.saleDateTo).getTime();
+      const salesRows = await db
+        .select({
+          id: sales.id,
+          saleDate: sales.saleDate,
+          cogs: sales.cogs,
+          quantityGallons: sales.quantityGallons,
+          purchasePricePerGallon: sales.purchasePricePerGallon,
+        })
+        .from(sales);
+
+      let sumStoredCogs = 0;
+      let sumQtyTimesPurchasePpg = 0;
+      let sumReplayedCogs = 0;
+
+      for (const row of salesRows) {
+        const t = new Date(row.saleDate as Date).getTime();
+        if (t < fromMs || t > toMs) continue;
+        sumStoredCogs += parseFloat(row.cogs);
+        sumQtyTimesPurchasePpg +=
+          parseFloat(row.quantityGallons) * parseFloat(row.purchasePricePerGallon);
+        const replay = replayById.get(row.id);
+        if (replay) sumReplayedCogs += replay.cogs;
+      }
+
+      saleWindow = {
+        from: opts.saleDateFrom,
+        to: opts.saleDateTo,
+        sumStoredCogs: round4(sumStoredCogs),
+        sumQtyTimesPurchasePpg: round4(sumQtyTimesPurchasePpg),
+        sumReplayedCogs: round4(sumReplayedCogs),
+        driftStoredMinusReplayed: round4(sumStoredCogs - sumReplayedCogs),
+      };
+    }
+
+    return {
+      sumOriginalBatchPurchaseCost: round4(sumOriginalBatchPurchaseCost),
+      sumEndingInventoryAtFifoCost: round4(sumEndingInventoryAtFifoCost),
+      sumStoredCogsAllSales: round4(sumStoredCogsAllSales),
+      sumQtyTimesStoredPurchasePpgAllSales: round4(sumQtyTimesStoredPurchasePpgAllSales),
+      sumReplayedCogsDryRunAllSales: round4(sumReplayedCogsDryRunAllSales),
+      driftStoredCogsMinusReplayed: round4(driftStoredCogsMinusReplayed),
+      driftStoredCogsMinusQtyTimesPpg: round4(driftStoredCogsMinusQtyTimesPpg),
+      inventoryIdentityResidual: round4(inventoryIdentityResidual),
+      ...(saleWindow ? { saleWindow } : {}),
+    };
   }
 
   async getClients(): Promise<Client[]> {
@@ -893,7 +1156,19 @@ export class DatabaseStorage implements IStorage {
     const subtotal = quantity * salePrice;
     const vatAmount = subtotal * (vatPercentage / 100);
     const totalAmount = subtotal + vatAmount;
-    const cogs = quantity * purchasePrice;
+
+    const fifo = await this.getFIFOPurchaseCostForQuantity(quantity);
+    let cogs: number;
+    let purchasePriceStored: number;
+    if (fifo) {
+      cogs = fifo.totalCost;
+      purchasePriceStored = fifo.pricePerGallon;
+    } else {
+      const cf = 10 ** SALE_COGS_DECIMAL_PLACES;
+      const pf = 10 ** SALE_PURCHASE_PPG_DECIMAL_PLACES;
+      cogs = Math.round(quantity * purchasePrice * cf) / cf;
+      purchasePriceStored = Math.round(purchasePrice * pf) / pf;
+    }
     const grossProfit = subtotal - cogs; // Exclude VAT for GP
     
     const saleData = {
@@ -903,8 +1178,9 @@ export class DatabaseStorage implements IStorage {
       subtotal: subtotal.toFixed(2),
       vatAmount: vatAmount.toFixed(2),
       totalAmount: totalAmount.toFixed(2),
-      cogs: cogs.toFixed(2),
-      grossProfit: grossProfit.toFixed(2)
+      purchasePricePerGallon: purchasePriceStored.toFixed(SALE_PURCHASE_PPG_DECIMAL_PLACES),
+      cogs: cogs.toFixed(SALE_COGS_DECIMAL_PLACES),
+      grossProfit: grossProfit.toFixed(SALE_COGS_DECIMAL_PLACES)
     };
     
     const result = await db.insert(sales).values(saleData).returning();
@@ -923,7 +1199,7 @@ export class DatabaseStorage implements IStorage {
         referenceType: "sale",
         referenceId: result[0].id,
         isPending: 0,
-        notes: `Sale at ${salePrice}/gallon, Purchase at ${purchasePrice}/gallon`
+        notes: `Sale at ${salePrice}/gallon, Purchase at ${purchasePriceStored}/gallon`
       });
     }
     
@@ -997,6 +1273,7 @@ export class DatabaseStorage implements IStorage {
     } else if (insertInvoice.invoiceDate) {
       values.dueDate = addOneMonth(new Date(insertInvoice.invoiceDate as Date));
     }
+    values.status = deriveOpenInvoiceStatus(insertInvoice.submissionDate ?? null);
     const result = await db.insert(invoices).values(values as any).returning();
     const inv = result[0];
     // Link the single sale in invoice_sales for consistency
@@ -1007,18 +1284,37 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateInvoice(id: string, insertInvoice: InsertInvoice): Promise<Invoice | undefined> {
-    const updateData = { ...insertInvoice } as Record<string, unknown>;
-    if (insertInvoice.submissionDate) {
-      updateData.dueDate = addOneMonth(new Date(insertInvoice.submissionDate as Date));
+    const existing = await this.getInvoice(id);
+    if (!existing) return undefined;
+
+    const submissionResolved =
+      insertInvoice.submissionDate === undefined
+        ? existing.submissionDate
+        : insertInvoice.submissionDate;
+
+    const updateData = {
+      ...insertInvoice,
+      submissionDate: submissionResolved,
+    } as Record<string, unknown>;
+
+    if (submissionResolved) {
+      updateData.dueDate = addOneMonth(new Date(submissionResolved as Date));
     } else if (insertInvoice.invoiceDate) {
       updateData.dueDate = addOneMonth(new Date(insertInvoice.invoiceDate as Date));
     }
+
+    updateData.status =
+      existing.status === "Paid"
+        ? "Paid"
+        : deriveOpenInvoiceStatus(submissionResolved);
+
     const result = await db
       .update(invoices)
       .set(updateData as any)
       .where(eq(invoices.id, id))
       .returning();
-    return result[0];
+    await this.updateInvoiceStatusIfPaid(id);
+    return (await this.getInvoice(id)) ?? result[0];
   }
 
   async createInvoiceForLPO(params: {
@@ -1048,16 +1344,17 @@ export class DatabaseStorage implements IStorage {
       : addOneMonth(new Date(invoiceDate));
     // Create invoice row (pick first sale's id for legacy column, but will link all via invoice_sales)
     const baseSaleId = candidateSales[0].id;
+    const submissionDate = params.submissionDate ?? null;
     const invRows = await db.insert(invoices).values({
       saleId: baseSaleId,
       invoiceNumber,
       invoiceDate,
-      submissionDate: params.submissionDate ?? null,
+      submissionDate,
       dueDate,
       lpoNumber,
       totalAmount: totalAmount.toFixed(2),
       vatAmount: vatAmount.toFixed(2),
-      status: "Generated",
+      status: deriveOpenInvoiceStatus(submissionDate),
     }).returning();
     const invoice = invRows[0];
 
@@ -1810,9 +2107,9 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getTotalCOGS(): Promise<number> {
-    // COGS should be computed from sales only (quantity * purchase price per sale)
+    // Align with profit reports and per-sale gross profit (stored cogs at sale time)
     const result = await db.select({
-      total: sql<number>`COALESCE(SUM(${sales.quantityGallons}::numeric * ${sales.purchasePricePerGallon}::numeric), 0)`
+      total: sql<number>`COALESCE(SUM(${sales.cogs}::numeric), 0)`
     }).from(sales);
     return result[0]?.total || 0;
   }
@@ -1852,7 +2149,19 @@ export class DatabaseStorage implements IStorage {
     const subtotal = quantity * pricePerGallon;
     const vatAmount = subtotal * (vatPercentage / 100);
     const totalAmount = subtotal + vatAmount;
-    const cogs = quantity * purchasePricePerGallon;
+
+    const fifo = await this.getFIFOPurchaseCostForQuantity(quantity, { excludeSaleId: id });
+    let cogs: number;
+    let purchasePriceStored: number;
+    if (fifo) {
+      cogs = fifo.totalCost;
+      purchasePriceStored = fifo.pricePerGallon;
+    } else {
+      const cf = 10 ** SALE_COGS_DECIMAL_PLACES;
+      const pf = 10 ** SALE_PURCHASE_PPG_DECIMAL_PLACES;
+      cogs = Math.round(quantity * purchasePricePerGallon * cf) / cf;
+      purchasePriceStored = Math.round(purchasePricePerGallon * pf) / pf;
+    }
     const grossProfit = subtotal - cogs; // Exclude VAT for GP
 
     // Auto-set invoice date when status changes to "Invoiced"/"Paid"
@@ -1883,8 +2192,9 @@ export class DatabaseStorage implements IStorage {
       subtotal: subtotal.toFixed(2),
       vatAmount: vatAmount.toFixed(2),
       totalAmount: totalAmount.toFixed(2),
-      cogs: cogs.toFixed(2),
-      grossProfit: grossProfit.toFixed(2),
+      purchasePricePerGallon: purchasePriceStored.toFixed(SALE_PURCHASE_PPG_DECIMAL_PLACES),
+      cogs: cogs.toFixed(SALE_COGS_DECIMAL_PLACES),
+      grossProfit: grossProfit.toFixed(SALE_COGS_DECIMAL_PLACES),
     };
 
     const result = await db
@@ -2186,7 +2496,11 @@ export class DatabaseStorage implements IStorage {
       .leftJoin(sales, eq(invoices.saleId, sales.id))
       .leftJoin(clients, eq(sales.clientId, clients.id))
       .leftJoin(projects, eq(sales.projectId, projects.id))
-      .where(clientId ? and(eq(invoices.status, "Generated"), eq(sales.clientId, clientId)) : eq(invoices.status, "Generated"));
+      .where(
+        clientId
+          ? and(inArray(invoices.status, ["Generated", "Sent"]), eq(sales.clientId, clientId))
+          : inArray(invoices.status, ["Generated", "Sent"]),
+      );
 
     // Calculate allocated amounts and build final result
     const invoicesWithAllocations = await Promise.all(
@@ -2511,7 +2825,10 @@ export class DatabaseStorage implements IStorage {
       .delete(stock)
       .where(eq(stock.id, id))
       .returning();
-    
+
+    if (result.length > 0) {
+      await this.reapplyFIFOCostsToAllSales();
+    }
     return result.length > 0;
   }
 
@@ -2587,8 +2904,15 @@ export class DatabaseStorage implements IStorage {
         .where(eq(sales.id, id))
         .returning();
 
-      console.log(`Sale deletion completed: ${result.length > 0 ? 'SUCCESS' : 'FAILED'}`);
-      return result.length > 0;
+      if (result.length === 0) {
+        console.log(`Sale deletion completed: FAILED`);
+        return false;
+      }
+
+      await this.reapplyFIFOCostsToAllSales();
+
+      console.log(`Sale deletion completed: SUCCESS`);
+      return true;
     } catch (error) {
       console.error("Error deleting sale:", error);
       throw error;

@@ -42,13 +42,27 @@ export default function Stock() {
     staleTime: 0,
   });
 
-  const totalStockValue = stock?.reduce((sum, entry) => 
-    sum + (parseFloat(entry.quantityGallons) * parseFloat(entry.purchasePricePerGallon)), 0
-  ) || 0;
+  const totalRemainingGallons =
+    stock?.reduce((sum, entry) => {
+      const rem =
+        entry.remainingGallons != null
+          ? Number(entry.remainingGallons)
+          : parseFloat(entry.quantityGallons);
+      return sum + (Number.isFinite(rem) ? rem : 0);
+    }, 0) ?? 0;
 
-  const avgCostPerGallon = stock?.length 
-    ? totalStockValue / stock.reduce((sum, entry) => sum + parseFloat(entry.quantityGallons), 0)
-    : 0;
+  const totalStockValue =
+    stock?.reduce((sum, entry) => {
+      const rem =
+        entry.remainingGallons != null
+          ? Number(entry.remainingGallons)
+          : parseFloat(entry.quantityGallons);
+      const gallons = Number.isFinite(rem) ? rem : 0;
+      return sum + gallons * parseFloat(entry.purchasePricePerGallon);
+    }, 0) ?? 0;
+
+  const avgCostPerGallon =
+    totalRemainingGallons > 0 ? totalStockValue / totalRemainingGallons : 0;
 
   const deleteStockMutation = useMutation({
     mutationFn: async (stockId: string) => {

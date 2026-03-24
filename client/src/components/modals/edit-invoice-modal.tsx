@@ -5,13 +5,23 @@ import { Drawer, DrawerContent } from "@/components/ui/drawer";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import type { InsertInvoice, Invoice } from "@shared/schema";
-import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { CURRENCY } from "@/lib/constants";
 import { z } from "zod";
+
+/** List row shape includes joined `sale` and `pendingAmount`; core invoice fields drive the form. */
+export type InvoiceEditContext = Invoice & {
+  sale?: {
+    client?: { name?: string } | null;
+    project?: { name?: string | null } | null;
+  } | null;
+  pendingAmount?: string;
+};
 
 /** Only fields we edit — full `insertInvoiceSchema` fails validation when reset from API (date/decimal shapes, id/createdAt). */
 const editInvoiceFormSchema = z.object({
@@ -23,7 +33,7 @@ const editInvoiceFormSchema = z.object({
 interface EditInvoiceModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  invoice: Invoice | null;
+  invoice: InvoiceEditContext | null;
 }
 
 export default function EditInvoiceModal({ open, onOpenChange, invoice }: EditInvoiceModalProps) {
@@ -55,8 +65,38 @@ export default function EditInvoiceModal({ open, onOpenChange, invoice }: EditIn
       if (!invoice) {
         throw new Error("No invoice to update");
       }
-      const response = await apiRequest("PATCH", `/api/invoices/${invoice.id}`, payload);
-      return response.json();
+      const res = await fetch(`/api/invoices/${invoice.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          ...payload,
+          invoiceDate: payload.invoiceDate instanceof Date ? payload.invoiceDate.toISOString() : payload.invoiceDate,
+          submissionDate:
+            payload.submissionDate === null || payload.submissionDate === undefined
+              ? payload.submissionDate
+              : payload.submissionDate instanceof Date
+                ? payload.submissionDate.toISOString()
+                : payload.submissionDate,
+          dueDate:
+            payload.dueDate === null || payload.dueDate === undefined
+              ? payload.dueDate
+              : payload.dueDate instanceof Date
+                ? payload.dueDate.toISOString()
+                : payload.dueDate,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg =
+          typeof body.message === "string"
+            ? body.message
+            : typeof body.error === "string"
+              ? body.error
+              : "Failed to update invoice";
+        throw new Error(msg);
+      }
+      return body;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
@@ -66,10 +106,10 @@ export default function EditInvoiceModal({ open, onOpenChange, invoice }: EditIn
       });
       onOpenChange(false);
     },
-    onError: () => {
+    onError: (error: Error) => {
       toast({
         title: "Error",
-        description: "Failed to update invoice. Please try again.",
+        description: error.message || "Failed to update invoice. Please try again.",
         variant: "destructive",
       });
     },
@@ -91,25 +131,77 @@ export default function EditInvoiceModal({ open, onOpenChange, invoice }: EditIn
       submissionDate,
       dueDate: invoice.dueDate ?? null,
       lpoNumber: invoice.lpoNumber ?? null,
-      totalAmount: invoice.totalAmount,
-      vatAmount: invoice.vatAmount,
-      status: invoice.status,
+      totalAmount: String(invoice.totalAmount),
+      vatAmount: String(invoice.vatAmount),
+      status:
+        invoice.status === "Paid"
+          ? "Paid"
+          : submissionDate
+            ? "Sent"
+            : "Generated",
     };
     updateInvoiceMutation.mutate(payload);
   };
 
-  if (!invoice) {
-    return null;
-  }
+  const show = open && !!invoice;
+  const inv = invoice;
 
-  const body = (
+  const body = inv ? (
     <>
       <DialogHeader>
-        <DialogTitle>Edit Invoice - {invoice.invoiceNumber}</DialogTitle>
+        <DialogTitle>Edit Invoice</DialogTitle>
         <DialogDescription>
-          Edit the details of this invoice.
+          Status follows the workflow: <strong>Generated</strong> until you set a submission date, then <strong>Sent</strong>. Clearing the submission date returns it to Generated (unless already <strong>Paid</strong>). Paid is set when payments fully cover the invoice.
         </DialogDescription>
       </DialogHeader>
+
+      <div className="rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm space-y-1.5 mb-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="font-medium text-foreground">{inv.invoiceNumber}</p>
+          <Badge
+            className={
+              inv.status === "Paid"
+                ? "bg-green-100 text-green-600"
+                : inv.status === "Sent"
+                  ? "bg-blue-100 text-blue-600"
+                  : "bg-gray-100 text-gray-600"
+            }
+          >
+            {inv.status}
+          </Badge>
+        </div>
+        <div className="grid gap-1 text-muted-foreground sm:grid-cols-2">
+          <p>
+            <span className="text-foreground/80">Client:</span>{" "}
+            {inv.sale?.client?.name ?? "—"}
+          </p>
+          <p>
+            <span className="text-foreground/80">Project:</span>{" "}
+            {inv.sale?.project?.name ?? "—"}
+          </p>
+          {inv.lpoNumber ? (
+            <p className="sm:col-span-2">
+              <span className="text-foreground/80">LPO:</span> {inv.lpoNumber}
+            </p>
+          ) : null}
+          <p>
+            <span className="text-foreground/80">Total:</span>{" "}
+            {CURRENCY} {parseFloat(String(inv.totalAmount)).toLocaleString()}
+          </p>
+          {inv.pendingAmount != null ? (
+            <p>
+              <span className="text-foreground/80">Pending:</span>{" "}
+              {CURRENCY} {parseFloat(inv.pendingAmount).toLocaleString()}
+            </p>
+          ) : null}
+          {inv.dueDate ? (
+            <p className="sm:col-span-2">
+              <span className="text-foreground/80">Due (current):</span>{" "}
+              {new Date(inv.dueDate).toLocaleDateString()}
+            </p>
+          ) : null}
+        </div>
+      </div>
 
       <Form {...form}>
         <form
@@ -159,7 +251,7 @@ export default function EditInvoiceModal({ open, onOpenChange, invoice }: EditIn
               name="submissionDate"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Submission date (optional)</FormLabel>
+                  <FormLabel>Date sent to client (optional)</FormLabel>
                   <FormControl>
                     <Input
                       type="date"
@@ -170,7 +262,7 @@ export default function EditInvoiceModal({ open, onOpenChange, invoice }: EditIn
                     />
                   </FormControl>
                   <p className="text-sm text-muted-foreground">
-                    Clears to use invoice date for payment due. Due date updates to one month after submission or invoice date.
+                    Setting this date marks the invoice <strong>Sent</strong>. Clear it to return to <strong>Generated</strong> (not applicable if status is already Paid).
                   </p>
                   <FormMessage />
                 </FormItem>
@@ -197,11 +289,11 @@ export default function EditInvoiceModal({ open, onOpenChange, invoice }: EditIn
           </form>
         </Form>
     </>
-  );
+  ) : null;
 
   if (isMobile) {
     return (
-      <Drawer open={open} onOpenChange={onOpenChange}>
+      <Drawer open={show} onOpenChange={onOpenChange}>
         <DrawerContent>
           <div className="p-6 max-h-[90vh] overflow-y-auto">
             {body}
@@ -212,7 +304,7 @@ export default function EditInvoiceModal({ open, onOpenChange, invoice }: EditIn
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={show} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         {body}
       </DialogContent>

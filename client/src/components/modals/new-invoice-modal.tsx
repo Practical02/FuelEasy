@@ -21,7 +21,7 @@ const invoiceFormSchema = z.object({
   lpoNumber: z.string().optional(),
   invoiceNumber: z.string().min(1, "Invoice number is required"),
   invoiceDate: z.date(),
-  /** When the invoice was sent to the client; payment due is one month from this date when set. */
+  /** When set, invoice is Sent and payment due is one month from this date. */
   submissionDate: z.date().optional(),
 });
 
@@ -100,13 +100,14 @@ export default function NewInvoiceModal({ open, onOpenChange }: NewInvoiceModalP
         payload.submissionDate = data.submissionDate;
       }
       let url = "/api/invoices";
+      const hasSubmission = Boolean(data.submissionDate);
       if (data.mode === "single") {
         payload.saleId = data.saleId;
         const sale = sales.find(s => s.id === data.saleId);
         if (!sale) throw new Error("Selected sale not found");
         payload.totalAmount = sale.totalAmount;
         payload.vatAmount = sale.vatAmount;
-        payload.status = "Generated";
+        payload.status = hasSubmission ? "Sent" : "Generated";
       } else {
         url = "/api/invoices/by-lpo";
         payload.lpoNumber = data.lpoNumber;
@@ -153,7 +154,7 @@ export default function NewInvoiceModal({ open, onOpenChange }: NewInvoiceModalP
       <DialogHeader>
         <DialogTitle>Create New Invoice</DialogTitle>
         <DialogDescription>
-          Create an invoice for a single sale or for all sales under an LPO.
+          Create a draft invoice (Generated), or set the date you sent it to the client to mark it Sent and set payment due from that date. Record payment from the Invoices list when the client pays—status becomes Paid when the invoice is fully covered.
         </DialogDescription>
       </DialogHeader>
 
@@ -277,7 +278,7 @@ export default function NewInvoiceModal({ open, onOpenChange }: NewInvoiceModalP
               name="submissionDate"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Submission date (optional)</FormLabel>
+                  <FormLabel>Date sent to client (optional)</FormLabel>
                   <FormControl>
                     <Input
                       type="date"
@@ -288,7 +289,7 @@ export default function NewInvoiceModal({ open, onOpenChange }: NewInvoiceModalP
                     />
                   </FormControl>
                   <p className="text-sm text-muted-foreground">
-                    When the invoice was sent to the client. Payment due and reminders use this date (one month) when set; otherwise invoice date.
+                    If set, the invoice is marked <strong>Sent</strong> and payment due is one month from this date. Leave empty to keep it <strong>Generated</strong> (draft); due date then follows invoice date.
                   </p>
                   <FormMessage />
                 </FormItem>

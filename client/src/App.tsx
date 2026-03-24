@@ -9,6 +9,7 @@ import { AuthProvider, ProtectedRoute, useAuth } from "@/lib/auth";
 import Sidebar from "@/components/layout/sidebar";
 import MobileNav from "@/components/layout/mobile-nav";
 import { cn } from "@/lib/utils";
+import { PwaInstallBanner } from "@/components/pwa-install-banner";
 
 // Lazy load pages for better performance
 const Dashboard = lazy(() => import("@/pages/dashboard"));
@@ -101,6 +102,7 @@ function App() {
       <AuthProvider>
         <TooltipProvider>
           <Toaster />
+          <PwaInstallBanner />
           <Router />
         </TooltipProvider>
       </AuthProvider>

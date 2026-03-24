@@ -28,13 +28,5 @@
   "screenshots": [],
   "shortcuts": [],
   "related_applications": [],
-  "prefer_related_applications": false,
-  "serviceworker": {
-    "src": "/sw.js",
-    "scope": "/",
-    "update_via_cache": "imports"
-  },
-  "edge_side_panel": {},
-  "launch_handler": {},
-  "protocol_handlers": []
+  "prefer_related_applications": false
 }

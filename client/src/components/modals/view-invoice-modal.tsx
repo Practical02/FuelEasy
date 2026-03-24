@@ -29,7 +29,7 @@ export default function ViewInvoiceModal({ open, onOpenChange, invoice }: ViewIn
       <DialogHeader>
         <DialogTitle className="text-2xl">Invoice Details</DialogTitle>
         <DialogDescription>
-          Viewing invoice {invoice.invoiceNumber}
+          Viewing invoice {invoice.invoiceNumber}. Flow: Generated (draft) → Sent once a submission date is set → Paid when recorded payments cover the total.
         </DialogDescription>
       </DialogHeader>
 
@@ -53,7 +53,7 @@ export default function ViewInvoiceModal({ open, onOpenChange, invoice }: ViewIn
               <div className="flex items-center space-x-3">
                 <CalendarClock className="w-5 h-5 text-gray-500" />
                 <div>
-                  <p className="text-sm text-gray-500">Submission Date</p>
+                  <p className="text-sm text-gray-500">Date sent to client</p>
                   <p className="font-medium">
                     {invoice.submissionDate
                       ? new Date(invoice.submissionDate).toLocaleDateString()

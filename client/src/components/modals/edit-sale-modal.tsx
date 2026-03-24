@@ -413,7 +413,7 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
                   <FormItem>
                     <FormLabel>Purchase Price per Gallon ({CURRENCY})</FormLabel>
                     <FormControl>
-                      <Input type="number" step="0.001" placeholder="0.000" {...field} value={field.value || ''} />
+                      <Input type="number" step="0.000001" placeholder="0.000000" {...field} value={field.value || ''} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

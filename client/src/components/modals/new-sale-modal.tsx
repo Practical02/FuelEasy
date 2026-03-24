@@ -325,7 +325,7 @@ export default function NewSaleModal({ open, onOpenChange }: NewSaleModalProps) 
                   <FormItem>
                     <FormLabel>Purchase Price ({CURRENCY}/Gallon)</FormLabel>
                     <FormControl>
-                      <Input type="number" step="0.001" placeholder="0.000" {...field} />
+                      <Input type="number" step="0.000001" placeholder="0.000000" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

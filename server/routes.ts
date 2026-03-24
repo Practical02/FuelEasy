@@ -746,6 +746,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  /** One-shot: realign all sales' COGS / purchase price with FIFO (fixes drift after past sale deletes). */
+  app.post("/api/sales/reconcile-fifo-costs", requireAuth, writeLimiter, async (_req, res) => {
+    try {
+      await storage.reapplyFIFOCostsToAllSales();
+      clearCachePattern("/api/sales");
+      clearCachePattern("/api/reports/overview");
+      res.json({ message: "FIFO costs reconciled for all sales" });
+    } catch (error) {
+      res.status(500).json({
+        message: "Failed to reconcile FIFO costs",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
   app.delete("/api/sales/:id", requireAuth, writeLimiter, async (req, res) => {
     try {
       clearCachePattern('/api/sales');
@@ -1020,6 +1035,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch report data", error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  /**
+   * Read-only: where COGS / stock value differ — stored vs FIFO replay, rounding (cogs vs qty×ppg),
+   * and inventory identity (Σ batch purchase cost − Σ cogs − ending FIFO value).
+   * Optional: ?saleDateFrom=YYYY-MM-DD&saleDateTo=YYYY-MM-DD for month-level saleWindow slice.
+   */
+  app.get("/api/reports/cost-reconciliation", requireAuth, async (req, res) => {
+    try {
+      const q = req.query;
+      const saleDateFrom = typeof q.saleDateFrom === "string" ? q.saleDateFrom : undefined;
+      const saleDateTo = typeof q.saleDateTo === "string" ? q.saleDateTo : undefined;
+      const data = await storage.getCostReconciliationSnapshot(
+        saleDateFrom && saleDateTo ? { saleDateFrom, saleDateTo } : {},
+      );
+      res.json(data);
+    } catch (error) {
+      res.status(500).json({
+        message: "Failed to compute cost reconciliation",
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   });
 

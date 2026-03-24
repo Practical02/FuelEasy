@@ -32,7 +32,16 @@ import {
 } from "recharts";
 import { CURRENCY, STATUS_COLORS } from "@/lib/constants";
 import { SALES_ALL_QUERY_KEY, fetchAllSales, salesListFromResponse } from "@/lib/sales-query";
-import type { Sale, Client, Invoice, Stock, AccountHead, CashbookEntryWithAccountHead } from "@shared/schema";
+import {
+  type Sale,
+  type Client,
+  type Invoice,
+  type Stock,
+  type AccountHead,
+  type CashbookEntryWithAccountHead,
+  SALE_COGS_DECIMAL_PLACES,
+  SALE_PURCHASE_PPG_DECIMAL_PLACES,
+} from "@shared/schema";
 import ExcelJS from 'exceljs';
 import { isInLocalYmdRange } from "@/lib/date-range";
 
@@ -1421,7 +1430,7 @@ export default function Reports() {
                               : "—"}
                           </td>
                           <td className="p-2 text-right tabular-nums">{parseFloat(row.quantityGallons).toFixed(0)}</td>
-                          <td className="p-2 text-right tabular-nums">{CURRENCY} {parseFloat(row.purchasePricePerGallon).toFixed(3)}</td>
+                          <td className="p-2 text-right tabular-nums">{CURRENCY} {parseFloat(row.purchasePricePerGallon).toFixed(SALE_PURCHASE_PPG_DECIMAL_PLACES)}</td>
                           <td className="p-2 text-right tabular-nums">{parseFloat(row.vatPercentage).toFixed(2)}%</td>
                           <td className="p-2 text-right tabular-nums">{CURRENCY} {parseFloat(row.vatAmount).toFixed(2)}</td>
                           <td className="p-2 text-right font-medium tabular-nums">{CURRENCY} {parseFloat(row.totalCost).toFixed(2)}</td>
@@ -1454,7 +1463,7 @@ export default function Reports() {
                           </div>
                           <div>
                             <span className="text-muted-foreground text-xs">Unit price</span>
-                            <p className="font-medium">{CURRENCY} {parseFloat(row.purchasePricePerGallon).toFixed(3)}</p>
+                            <p className="font-medium">{CURRENCY} {parseFloat(row.purchasePricePerGallon).toFixed(SALE_PURCHASE_PPG_DECIMAL_PLACES)}</p>
                           </div>
                           <div>
                             <span className="text-muted-foreground text-xs">VAT</span>
@@ -1535,9 +1544,9 @@ export default function Reports() {
             <div className="space-y-0">
               <div className="grid gap-px bg-zinc-200 sm:grid-cols-2 lg:grid-cols-4">
                 {[
-                  { label: "Revenue (excl. VAT)", value: profitTotals.revenue, icon: TrendingUp, accent: "text-sky-700 bg-sky-50" },
-                  { label: "COGS", value: profitTotals.cogs, icon: Wallet, accent: "text-amber-800 bg-amber-50" },
-                  { label: "Gross profit", value: profitTotals.grossProfit, icon: BarChart3, accent: "text-emerald-800 bg-emerald-50" },
+                  { label: "Revenue (excl. VAT)", value: profitTotals.revenue, valueDecimals: 2 as const, icon: TrendingUp, accent: "text-sky-700 bg-sky-50" },
+                  { label: "COGS", value: profitTotals.cogs, valueDecimals: SALE_COGS_DECIMAL_PLACES, icon: Wallet, accent: "text-amber-800 bg-amber-50" },
+                  { label: "Gross profit", value: profitTotals.grossProfit, valueDecimals: SALE_COGS_DECIMAL_PLACES, icon: BarChart3, accent: "text-emerald-800 bg-emerald-50" },
                   { label: "Margin", sub: profitGranularity === "annual" ? `${annualProfitData.length} year(s)` : `${monthlyProfitData.length} month(s)`, valueLabel: `${profitTotals.marginPct.toFixed(1)}%`, icon: Percent, accent: "text-violet-800 bg-violet-50" },
                 ].map((k) => (
                   <div key={k.label} className="flex gap-4 bg-white p-5 sm:p-6">
@@ -1640,8 +1649,8 @@ export default function Reports() {
                           <tr key={row.month} className="border-b border-zinc-100 hover:bg-zinc-50/80">
                             <td className="px-4 py-2.5 font-medium text-zinc-900">{row.monthLabel}</td>
                             <td className="px-4 py-2.5 text-right tabular-nums text-zinc-700">{CURRENCY} {row.revenue.toFixed(2)}</td>
-                            <td className="px-4 py-2.5 text-right tabular-nums text-zinc-700">{CURRENCY} {row.cogs.toFixed(2)}</td>
-                            <td className="px-4 py-2.5 text-right tabular-nums font-medium text-emerald-800">{CURRENCY} {row.grossProfit.toFixed(2)}</td>
+                            <td className="px-4 py-2.5 text-right tabular-nums text-zinc-700">{CURRENCY} {row.cogs.toFixed(SALE_COGS_DECIMAL_PLACES)}</td>
+                            <td className="px-4 py-2.5 text-right tabular-nums font-medium text-emerald-800">{CURRENCY} {row.grossProfit.toFixed(SALE_COGS_DECIMAL_PLACES)}</td>
                             <td className="px-4 py-2.5 text-right tabular-nums text-zinc-700">{row.marginPct.toFixed(1)}%</td>
                             <td className="px-4 py-2.5 text-right text-zinc-600">{row.count}</td>
                           </tr>

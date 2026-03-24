@@ -215,7 +215,7 @@ export default function Invoices() {
     <>
       <Header
         title="Invoices"
-        description="Generate invoices from LPO(s). Select several with a balance to record one cheque or transfer against them; cashbook shows all invoice numbers."
+        description="Create invoices (Generated). Add the date you sent each one to the client to mark it Sent and set payment due. Record payment from the list—status becomes Paid when fully covered."
         primaryAction={{
           label: "Create Invoice",
           onClick: () => setIsNewInvoiceModalOpen(true),
@@ -348,7 +348,7 @@ export default function Invoices() {
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Project</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">LPO Number</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Invoice Date</th>
-                    <th className="text-left py-3 px-4 font-medium text-gray-900">Submitted</th>
+                    <th className="text-left py-3 px-4 font-medium text-gray-900">Date sent</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Amount</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Pending Amount</th>
                     <th className="text-left py-3 px-4 font-medium text-gray-900">Status</th>

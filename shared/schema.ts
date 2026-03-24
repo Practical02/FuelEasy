@@ -72,7 +72,8 @@ export const sales = pgTable("sales", {
   saleDate: timestamp("sale_date").notNull(),
   quantityGallons: decimal("quantity_gallons", { precision: 10, scale: 2 }).notNull(),
   salePricePerGallon: decimal("sale_price_per_gallon", { precision: 8, scale: 3 }).notNull(),
-  purchasePricePerGallon: decimal("purchase_price_per_gallon", { precision: 8, scale: 3 }).notNull(),
+  /** Weighted FIFO cost / gal; extra decimals reduce COGS drift vs batch totals. */
+  purchasePricePerGallon: decimal("purchase_price_per_gallon", { precision: 12, scale: 6 }).notNull(),
   lpoNumber: text("lpo_number"),
   deliveryNoteNumber: text("delivery_note_number"),
   lpoReceivedDate: timestamp("lpo_received_date"),
@@ -82,10 +83,15 @@ export const sales = pgTable("sales", {
   subtotal: decimal("subtotal", { precision: 12, scale: 2 }).notNull(),
   vatAmount: decimal("vat_amount", { precision: 12, scale: 2 }).notNull(),
   totalAmount: decimal("total_amount", { precision: 12, scale: 2 }).notNull(),
-  cogs: decimal("cogs", { precision: 12, scale: 2 }).notNull(), // Cost of Goods Sold
-  grossProfit: decimal("gross_profit", { precision: 12, scale: 2 }).notNull(),
+  cogs: decimal("cogs", { precision: 16, scale: 4 }).notNull(), // Cost of Goods Sold (internal precision)
+  grossProfit: decimal("gross_profit", { precision: 16, scale: 4 }).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+/** Must match `sales.cogs` / `gross_profit` scale; keep in sync with server `toFixed` / rounding. */
+export const SALE_COGS_DECIMAL_PLACES = 4;
+/** Must match `sales.purchase_price_per_gallon` scale. */
+export const SALE_PURCHASE_PPG_DECIMAL_PLACES = 6;
 
 export const payments = pgTable("payments", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -109,6 +115,7 @@ export const invoices = pgTable("invoices", {
   lpoNumber: text("lpo_number"),
   totalAmount: decimal("total_amount", { precision: 12, scale: 2 }).notNull(),
   vatAmount: decimal("vat_amount", { precision: 12, scale: 2 }).notNull(),
+  /** Generated = no submission date yet; Sent = submitted to client (submission_date set); Paid = fully allocated in cashbook. */
   status: text("status").notNull().default("Generated"), // "Generated", "Sent", "Paid"
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

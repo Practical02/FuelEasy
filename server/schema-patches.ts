@@ -46,4 +46,30 @@ export async function applySchemaPatches(): Promise<void> {
       e,
     );
   }
+
+  // Widen cost columns (no data loss: existing values keep the same numeric value)
+  try {
+    await db.execute(
+      sql`ALTER TABLE sales ALTER COLUMN cogs TYPE NUMERIC(16,4) USING cogs::numeric`,
+    );
+  } catch (e) {
+    console.error("applySchemaPatches: failed to widen sales.cogs:", e);
+    throw e;
+  }
+  try {
+    await db.execute(
+      sql`ALTER TABLE sales ALTER COLUMN gross_profit TYPE NUMERIC(16,4) USING gross_profit::numeric`,
+    );
+  } catch (e) {
+    console.error("applySchemaPatches: failed to widen sales.gross_profit:", e);
+    throw e;
+  }
+  try {
+    await db.execute(
+      sql`ALTER TABLE sales ALTER COLUMN purchase_price_per_gallon TYPE NUMERIC(12,6) USING purchase_price_per_gallon::numeric`,
+    );
+  } catch (e) {
+    console.error("applySchemaPatches: failed to widen sales.purchase_price_per_gallon:", e);
+    throw e;
+  }
 }

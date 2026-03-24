@@ -531,7 +531,7 @@ export class MemStorage implements IStorage {
     const invoice: Invoice = {
       ...insertInvoice,
       id,
-      status: insertInvoice.status || "Generated",
+      status: insertInvoice.submissionDate ? "Sent" : "Generated",
       createdAt: new Date(),
       lpoNumber: (insertInvoice as any).lpoNumber ?? null,
       submissionDate: insertInvoice.submissionDate ?? null,
