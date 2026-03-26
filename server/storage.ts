@@ -262,6 +262,14 @@ export interface IStorage {
     pendingDebts: number;
     availableBalance: number;
   }>;
+  reconcileStockPurchaseCashbookEntries(): Promise<{
+    checked: number;
+    updated: number;
+    created: number;
+    deletedDuplicates: number;
+    deletedOrphans: number;
+    missingCashbookEntries: number;
+  }>;
   markDebtAsPaid(cashbookId: string, paidAmount: number, paymentMethod: string, paymentDate: Date): Promise<CashbookEntry>;
   
   // Cashbook Payment Allocation methods
@@ -1417,6 +1425,9 @@ export class DatabaseStorage implements IStorage {
   async updateInvoice(id: string, insertInvoice: InsertInvoice): Promise<Invoice | undefined> {
     const existing = await this.getInvoice(id);
     if (!existing) return undefined;
+    if (insertInvoice.saleId !== existing.saleId) {
+      throw new Error("Changing invoice sale is not supported. Delete and recreate the invoice.");
+    }
 
     const submissionResolved =
       insertInvoice.submissionDate === undefined
@@ -1976,7 +1987,11 @@ export class DatabaseStorage implements IStorage {
       }
 
       // Delete operations without transaction (for Neon HTTP driver compatibility)
-      // 1. Delete all cashbook payment allocations for this entry
+      // 1. Capture and delete all cashbook payment allocations for this entry
+      const allocations = await db
+        .select({ invoiceId: cashbookPaymentAllocations.invoiceId })
+        .from(cashbookPaymentAllocations)
+        .where(eq(cashbookPaymentAllocations.cashbookEntryId, id));
       await db
         .delete(cashbookPaymentAllocations)
         .where(eq(cashbookPaymentAllocations.cashbookEntryId, id));
@@ -2046,6 +2061,11 @@ export class DatabaseStorage implements IStorage {
         .where(eq(cashbook.id, id))
         .returning();
 
+      // Recompute affected invoice statuses after allocation removal.
+      for (const a of allocations) {
+        await this.updateInvoiceStatusIfPaid(a.invoiceId);
+      }
+
       return result.length > 0;
     } catch (error) {
       console.error("Error deleting cashbook entry:", error);
@@ -2110,6 +2130,133 @@ export class DatabaseStorage implements IStorage {
       pendingDebts,
       availableBalance
     };
+  }
+
+  async reconcileStockPurchaseCashbookEntries(): Promise<{
+    checked: number;
+    updated: number;
+    created: number;
+    deletedDuplicates: number;
+    deletedOrphans: number;
+    missingCashbookEntries: number;
+  }> {
+    const stockRows = await db.select().from(stock);
+    let checked = 0;
+    let updated = 0;
+    let created = 0;
+    let deletedDuplicates = 0;
+    let deletedOrphans = 0;
+    let missingCashbookEntries = 0;
+
+    for (const row of stockRows) {
+      checked += 1;
+      const quantity = parseFloat(row.quantityGallons);
+      const pricePerGallon = parseFloat(row.purchasePricePerGallon);
+      const expectedAmount = parseFloat(row.totalCost).toFixed(2);
+      const transactionDate = new Date(row.purchaseDate as Date);
+      const description = `Stock purchase — ${quantity} gal @ ${pricePerGallon.toFixed(2)}/gal`;
+      const payableDescription = `Stock purchase (payable) — ${quantity} gal @ ${pricePerGallon.toFixed(2)}/gal`;
+
+      const linked = await db
+        .select()
+        .from(cashbook)
+        .where(
+          and(
+            eq(cashbook.referenceType, "stock"),
+            eq(cashbook.referenceId, row.id),
+            eq(cashbook.transactionType, "Stock Purchase"),
+            eq(cashbook.isInflow, 0),
+          ),
+        );
+
+      if (linked.length === 0) {
+        missingCashbookEntries += 1;
+        const isSupplierPayable = Boolean((row as any).supplierAccountHeadId);
+        let accountHeadId = (row as any).supplierAccountHeadId as string | null | undefined;
+        if (!accountHeadId) {
+          const existing = await db.select().from(accountHeads).where(eq(accountHeads.name, "Stock Purchase")).limit(1);
+          if (existing[0]) {
+            accountHeadId = existing[0].id;
+          } else {
+            const [newHead] = await db.insert(accountHeads).values({ name: "Stock Purchase", type: "Expense" }).returning();
+            accountHeadId = newHead.id;
+          }
+        }
+        await db.insert(cashbook).values({
+          transactionDate,
+          transactionType: "Stock Purchase",
+          category: isSupplierPayable ? "Supplier payable" : "Cost",
+          accountHeadId: accountHeadId!,
+          amount: expectedAmount,
+          isInflow: 0,
+          description: isSupplierPayable ? payableDescription : description,
+          counterparty: isSupplierPayable ? "Supplier" : "—",
+          paymentMethod: isSupplierPayable ? "Credit" : "Cash",
+          referenceType: "stock",
+          referenceId: row.id,
+          isPending: isSupplierPayable ? 1 : 0,
+          notes: `Stock entry ${row.id}`,
+        });
+        created += 1;
+      } else {
+        const isSupplierPayable = Boolean((row as any).supplierAccountHeadId);
+        const preferred =
+          linked.find((e) => (isSupplierPayable ? e.isPending === 1 : e.isPending === 0)) ??
+          linked[0];
+
+        const duplicateIds = linked
+          .filter((e) => e.id !== preferred.id)
+          .map((e) => e.id);
+        if (duplicateIds.length > 0) {
+          await db
+            .delete(cashbookPaymentAllocations)
+            .where(inArray(cashbookPaymentAllocations.cashbookEntryId, duplicateIds));
+          await db.delete(cashbook).where(inArray(cashbook.id, duplicateIds));
+          deletedDuplicates += duplicateIds.length;
+        }
+
+        const nextDescription = isSupplierPayable ? payableDescription : description;
+        const amountChanged = parseFloat(preferred.amount).toFixed(2) !== expectedAmount;
+        const dateChanged = new Date(preferred.transactionDate as Date).getTime() !== transactionDate.getTime();
+        const descChanged = (preferred.description ?? "") !== nextDescription;
+        const pendingChanged = preferred.isPending !== (isSupplierPayable ? 1 : 0);
+        if (amountChanged || dateChanged || descChanged || pendingChanged) {
+          await db
+            .update(cashbook)
+            .set({
+              amount: expectedAmount,
+              transactionDate,
+              description: nextDescription,
+              isPending: isSupplierPayable ? 1 : 0,
+              notes: `Stock entry ${row.id}`,
+            })
+            .where(eq(cashbook.id, preferred.id));
+          updated += 1;
+        }
+      }
+    }
+
+    const stockIds = stockRows.map((r) => r.id);
+    const orphanEntries = await db
+      .select({ id: cashbook.id, referenceId: cashbook.referenceId })
+      .from(cashbook)
+      .where(
+        and(
+          eq(cashbook.referenceType, "stock"),
+          eq(cashbook.transactionType, "Stock Purchase"),
+          eq(cashbook.isInflow, 0),
+        ),
+      );
+    const orphanIds = orphanEntries
+      .filter((e) => !e.referenceId || !stockIds.includes(e.referenceId))
+      .map((e) => e.id);
+    if (orphanIds.length > 0) {
+      await db.delete(cashbookPaymentAllocations).where(inArray(cashbookPaymentAllocations.cashbookEntryId, orphanIds));
+      await db.delete(cashbook).where(inArray(cashbook.id, orphanIds));
+      deletedOrphans = orphanIds.length;
+    }
+
+    return { checked, updated, created, deletedDuplicates, deletedOrphans, missingCashbookEntries };
   }
 
   async markDebtAsPaid(cashbookId: string, paidAmount: number, paymentMethod: string, paymentDate: Date): Promise<CashbookEntry> {
@@ -2346,6 +2493,41 @@ export class DatabaseStorage implements IStorage {
       createdAt: new Date(result[0].createdAt as Date),
       id: result[0].id,
     });
+    const linkedInvoiceRows = await db
+      .select({ invoiceId: invoiceSales.invoiceId })
+      .from(invoiceSales)
+      .where(eq(invoiceSales.saleId, id));
+    const legacyInvoiceRows = await db
+      .select({ id: invoices.id })
+      .from(invoices)
+      .where(eq(invoices.saleId, id));
+    const affectedInvoiceIds = Array.from(
+      new Set([
+        ...linkedInvoiceRows.map((r) => r.invoiceId),
+        ...legacyInvoiceRows.map((r) => r.id),
+      ]),
+    );
+    for (const invoiceId of affectedInvoiceIds) {
+      const saleIds = await this.getSaleIdsForInvoice(invoiceId);
+      if (saleIds.length === 0) continue;
+      const invoiceSalesRows = await db
+        .select({
+          totalAmount: sales.totalAmount,
+          vatAmount: sales.vatAmount,
+        })
+        .from(sales)
+        .where(inArray(sales.id, saleIds));
+      const totalAmount = invoiceSalesRows.reduce((sum, s) => sum + parseFloat(s.totalAmount), 0);
+      const vatAmount = invoiceSalesRows.reduce((sum, s) => sum + parseFloat(s.vatAmount), 0);
+      await db
+        .update(invoices)
+        .set({
+          totalAmount: totalAmount.toFixed(2),
+          vatAmount: vatAmount.toFixed(2),
+        })
+        .where(eq(invoices.id, invoiceId));
+      await this.updateInvoiceStatusIfPaid(invoiceId);
+    }
     const refreshed = await db.select().from(sales).where(eq(sales.id, id)).limit(1);
     return refreshed[0] ?? result[0];
   }
@@ -2701,11 +2883,14 @@ export class DatabaseStorage implements IStorage {
 
     const allocatedAmount = await this.getInvoiceAllocatedAmount(invoiceId);
     const totalAmount = parseFloat(invoice.totalAmount);
-
-    if (allocatedAmount >= totalAmount) {
+    const nextStatus =
+      allocatedAmount >= totalAmount - 0.009
+        ? "Paid"
+        : deriveOpenInvoiceStatus(invoice.submissionDate ?? null);
+    if (invoice.status !== nextStatus) {
       await db
         .update(invoices)
-        .set({ status: "Paid" })
+        .set({ status: nextStatus })
         .where(eq(invoices.id, invoiceId));
     }
   }
@@ -2958,6 +3143,33 @@ export class DatabaseStorage implements IStorage {
       .returning();
     
     if (!result[0]) return undefined;
+
+    // Keep linked cashbook "Stock Purchase" entry aligned with edited stock amount/date.
+    const linkedStockCashbook = await db
+      .select()
+      .from(cashbook)
+      .where(
+        and(
+          eq(cashbook.referenceType, "stock"),
+          eq(cashbook.referenceId, id),
+          eq(cashbook.transactionType, "Stock Purchase"),
+          eq(cashbook.isInflow, 0),
+        ),
+      )
+      .limit(1);
+
+    if (linkedStockCashbook[0]) {
+      await db
+        .update(cashbook)
+        .set({
+          transactionDate: stockData.purchaseDate,
+          amount: totalCost.toFixed(2),
+          description: `Stock purchase${linkedStockCashbook[0].isPending === 1 ? " (payable)" : ""} — ${quantity} gal @ ${pricePerGallon.toFixed(2)}/gal`,
+          notes: `Stock entry ${id}`,
+        })
+        .where(eq(cashbook.id, linkedStockCashbook[0].id));
+    }
+
     // Stock edit can alter historical FIFO layer costs; replay sales COGS.
     await this.reapplyFIFOCostsToAllSales();
     const refreshed = await db.select().from(stock).where(eq(stock.id, id)).limit(1);
@@ -2982,9 +3194,6 @@ export class DatabaseStorage implements IStorage {
 
   async deleteSale(id: string): Promise<boolean> {
     try {
-      console.log(`Starting deletion of sale: ${id}`);
-      
-      // Get the sale first to understand what we're deleting
       const sale = await db
         .select()
         .from(sales)
@@ -2992,79 +3201,62 @@ export class DatabaseStorage implements IStorage {
         .limit(1);
 
       if (sale.length === 0) {
-        console.log(`Sale not found: ${id}`);
         return false;
       }
 
-      console.log(`Found sale: ${sale[0].lpoNumber || 'No LPO'} for client`);
       const anchor = {
         saleDate: new Date(sale[0].saleDate as Date),
         createdAt: new Date(sale[0].createdAt as Date),
         id: sale[0].id,
       };
 
-      // Delete operations without transaction (for Neon HTTP driver compatibility)
-      // 1. Delete all cashbook payment allocations for invoices of this sale
-      const saleInvoices = await db
-        .select()
+      // Guard: if the sale is part of a multi-sale invoice, require deleting invoice explicitly first.
+      const linkedInvoiceRows = await db
+        .select({ invoiceId: invoiceSales.invoiceId })
+        .from(invoiceSales)
+        .where(eq(invoiceSales.saleId, id));
+      const legacyInvoiceRows = await db
+        .select({ id: invoices.id })
         .from(invoices)
         .where(eq(invoices.saleId, id));
-
-      console.log(`Found ${saleInvoices.length} invoices to delete`);
-
-      for (const invoice of saleInvoices) {
-        // Delete allocations for this invoice
-        await db
-          .delete(cashbookPaymentAllocations)
-          .where(eq(cashbookPaymentAllocations.invoiceId, invoice.id));
-        console.log(`Deleted cashbook payment allocations for invoice: ${invoice.invoiceNumber}`);
+      const linkedInvoiceIds = Array.from(
+        new Set([...linkedInvoiceRows.map((r) => r.invoiceId), ...legacyInvoiceRows.map((r) => r.id)]),
+      );
+      for (const invoiceId of linkedInvoiceIds) {
+        const linkCount = await db
+          .select({ count: sql<number>`COUNT(*)` })
+          .from(invoiceSales)
+          .where(eq(invoiceSales.invoiceId, invoiceId));
+        if ((linkCount[0]?.count || 0) > 1) {
+          throw new Error("Cannot delete sale linked to a multi-sale invoice. Delete or adjust the invoice first.");
+        }
       }
 
-      // 2. Delete all cashbook entries related to payments for this sale
+      // Delete payment cashbook entries and payments for this sale.
       const salePayments = await db
         .select()
         .from(payments)
         .where(eq(payments.saleId, id));
-
-      console.log(`Found ${salePayments.length} payments to delete`);
-
-      for (const payment of salePayments) {
-        // Delete cashbook entries for this payment
-        await db
-          .delete(cashbook)
-          .where(and(
-            eq(cashbook.referenceType, "payment"),
-            eq(cashbook.referenceId, payment.id)
-          ));
-        console.log(`Deleted cashbook entry for payment: ${payment.id}`);
+      for (const p of salePayments) {
+        await this.deletePayment(p.id);
       }
 
-      // 3. Delete all payments for this sale
-      await db
-        .delete(payments)
-        .where(eq(payments.saleId, id));
-      console.log(`Deleted ${salePayments.length} payments`);
+      // Delete linked invoices (safe for single-sale links only per guard above).
+      for (const invoiceId of linkedInvoiceIds) {
+        await this.deleteInvoice(invoiceId);
+      }
 
-      // 4. Delete all invoices for this sale
-      await db
-        .delete(invoices)
-        .where(eq(invoices.saleId, id));
-      console.log(`Deleted ${saleInvoices.length} invoices`);
-
-      // 5. Delete the sale itself
+      // Delete the sale itself.
       const result = await db
         .delete(sales)
         .where(eq(sales.id, id))
         .returning();
 
       if (result.length === 0) {
-        console.log(`Sale deletion completed: FAILED`);
         return false;
       }
 
       await this.reapplyFIFOCostsFromAnchor(anchor);
-
-      console.log(`Sale deletion completed: SUCCESS`);
       return true;
     } catch (error) {
       console.error("Error deleting sale:", error);
@@ -3163,7 +3355,13 @@ export class DatabaseStorage implements IStorage {
         ))
         .limit(1);
 
+      let affectedInvoiceIds: string[] = [];
       if (cashbookEntry.length > 0) {
+        const allocations = await db
+          .select({ invoiceId: cashbookPaymentAllocations.invoiceId })
+          .from(cashbookPaymentAllocations)
+          .where(eq(cashbookPaymentAllocations.cashbookEntryId, cashbookEntry[0].id));
+        affectedInvoiceIds = allocations.map((a) => a.invoiceId);
         // Delete all allocations for this cashbook entry
         await db
           .delete(cashbookPaymentAllocations)
@@ -3227,6 +3425,10 @@ export class DatabaseStorage implements IStorage {
             }
           }
         }
+      }
+
+      for (const invoiceId of affectedInvoiceIds) {
+        await this.updateInvoiceStatusIfPaid(invoiceId);
       }
 
       return result.length > 0;

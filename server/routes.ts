@@ -426,6 +426,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!stock) {
         return res.status(404).json({ message: "Stock entry not found" });
       }
+      clearCachePattern('/api/stock');
       res.json(stock);
     } catch (error) {
       res.status(400).json({ message: "Invalid stock data", error: error instanceof Error ? error.message : String(error) });
@@ -438,6 +439,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!success) {
         return res.status(404).json({ message: "Stock entry not found" });
       }
+      clearCachePattern('/api/stock');
       res.json({ message: "Stock entry deleted successfully" });
     } catch (error) {
       res.status(500).json({ message: "Failed to delete stock entry", error: error instanceof Error ? error.message : String(error) });
@@ -1221,6 +1223,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(debts);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch pending debts", error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post("/api/cashbook/reconcile-stock-purchases", requireAuth, writeLimiter, async (_req, res) => {
+    try {
+      const result = await storage.reconcileStockPurchaseCashbookEntries();
+      res.json({
+        message: "Stock purchase cashbook reconciliation completed",
+        ...result,
+      });
+    } catch (error) {
+      res.status(500).json({
+        message: "Failed to reconcile stock purchase cashbook entries",
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   });
 
