@@ -2151,12 +2151,15 @@ export class DatabaseStorage implements IStorage {
     pendingDebts: number;
     availableBalance: number;
   }> {
-    const [inflowResult, outflowResult, pendingResult] = await Promise.all([
+    const [inflowResult, allOutflowResult, settledOutflowResult, pendingResult] = await Promise.all([
       db.select({
         totalInflow: sql<number>`COALESCE(SUM(${cashbook.amount}::numeric), 0)`
       }).from(cashbook).where(and(eq(cashbook.isInflow, 1), eq(cashbook.isPending, 0))),
       db.select({
         totalOutflow: sql<number>`COALESCE(SUM(${cashbook.amount}::numeric), 0)`
+      }).from(cashbook).where(eq(cashbook.isInflow, 0)),
+      db.select({
+        settledOutflow: sql<number>`COALESCE(SUM(${cashbook.amount}::numeric), 0)`
       }).from(cashbook).where(and(eq(cashbook.isInflow, 0), eq(cashbook.isPending, 0))),
       db.select({
         pendingDebts: sql<number>`COALESCE(SUM(${cashbook.amount}::numeric), 0)`
@@ -2164,9 +2167,10 @@ export class DatabaseStorage implements IStorage {
     ]);
     
     const totalInflow = inflowResult[0]?.totalInflow || 0;
-    const totalOutflow = outflowResult[0]?.totalOutflow || 0;
+    const totalOutflow = allOutflowResult[0]?.totalOutflow || 0;
+    const settledOutflow = settledOutflowResult[0]?.settledOutflow || 0;
     const pendingDebts = pendingResult[0]?.pendingDebts || 0;
-    const availableBalance = totalInflow - totalOutflow;
+    const availableBalance = totalInflow - settledOutflow;
     
     return {
       totalInflow,

@@ -1855,6 +1855,7 @@ export default function Reports() {
                   <thead>
                     <tr className="border-b">
                       <th className="text-left p-3 text-sm font-medium text-gray-600">Client</th>
+                      <th className="text-left p-3 text-sm font-medium text-gray-600">Project</th>
                       <th className="text-left p-3 text-sm font-medium text-gray-600">Invoice No.</th>
                       <th className="text-left p-3 text-sm font-medium text-gray-600">Invoice Date</th>
                       <th className="text-left p-3 text-sm font-medium text-gray-600">Due Date</th>
@@ -1868,9 +1869,19 @@ export default function Reports() {
                       const dueDate = inv.dueDate ? new Date(inv.dueDate) : (() => { const d = new Date(inv.invoiceDate); d.setMonth(d.getMonth() + 1); return d; })();
                       const clientName =
                         inv.sale?.client?.name ?? inv.sales?.[0]?.client?.name ?? "—";
+                      const projectNames = Array.from(
+                        new Set(
+                          [inv.sale?.project?.name, ...(Array.isArray(inv.sales) ? inv.sales.map((s: any) => s?.project?.name) : [])]
+                            .filter((name): name is string => typeof name === "string" && name.trim().length > 0)
+                            .map((name) => name.trim()),
+                        ),
+                      );
+                      const projectLabel =
+                        projectNames.length === 0 ? "—" : projectNames.length === 1 ? projectNames[0] : `${projectNames.length} projects`;
                       return (
                         <tr key={inv.id} className="border-b hover:bg-gray-50">
                           <td className="p-3 text-sm font-medium">{clientName}</td>
+                          <td className="p-3 text-sm">{projectLabel}</td>
                           <td className="p-3 text-sm">{inv.invoiceNumber}</td>
                           <td className="p-3 text-sm">{new Date(inv.invoiceDate).toLocaleDateString()}</td>
                           <td className="p-3 text-sm">{dueDate.toLocaleDateString()}</td>
