@@ -11,6 +11,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Textarea } from "@/components/ui/textarea";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { SALES_ALL_QUERY_KEY, salesKeys } from "@/lib/sales-query";
 import { useToast } from "@/hooks/use-toast";
 import { CURRENCY } from "@/lib/constants";
 import { z } from "zod";
@@ -39,7 +40,7 @@ export default function PaymentModal({ open, onOpenChange, saleId }: PaymentModa
 
   // Fetch data
   const { data: salesResponse } = useQuery<any>({
-    queryKey: ["/api/sales", "all"],
+    queryKey: SALES_ALL_QUERY_KEY,
     enabled: open,
     queryFn: async () => {
       const r = await apiRequest("GET", "/api/sales?limit=all");
@@ -117,10 +118,12 @@ export default function PaymentModal({ open, onOpenChange, saleId }: PaymentModa
       const response = await apiRequest("POST", "/api/payments", payload);
       return response.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/payments"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/sales"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/cashbook"] });
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["/api/payments"] }),
+        queryClient.invalidateQueries({ queryKey: salesKeys.root }),
+        queryClient.invalidateQueries({ queryKey: ["/api/cashbook"] }),
+      ]);
       toast({
         title: "Payment Recorded Successfully",
         description: "The payment has been recorded, allocated to the invoice, and the sale has been updated.",

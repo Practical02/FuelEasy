@@ -253,4 +253,253 @@ describe('DatabaseStorage', () => {
       expect(result).toEqual(expect.objectContaining({ id: 'mock-id' }));
     });
   });
+
+  describe('incremental FIFO replay', () => {
+    it('updateSale should trigger anchor-based FIFO replay from updated sale', async () => {
+      const now = new Date('2026-01-10T10:00:00.000Z');
+      const updatedSaleRow = {
+        id: 'sale-updated',
+        saleDate: now,
+        createdAt: now,
+      };
+
+      (db.update as vi.Mock).mockReturnValue({
+        set: vi.fn(() => ({
+          where: vi.fn(() => ({
+            returning: vi.fn(() => [updatedSaleRow]),
+          })),
+        })),
+      });
+      (db.select as vi.Mock).mockReturnValue({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(() => [updatedSaleRow]),
+          })),
+        })),
+      });
+
+      const replaySpy = vi
+        .spyOn(storage as any, 'reapplyFIFOCostsFromAnchor')
+        .mockResolvedValue(undefined);
+
+      const payload = {
+        clientId: 'c1',
+        projectId: 'p1',
+        saleDate: now,
+        quantityGallons: '100',
+        salePricePerGallon: '10',
+        purchasePricePerGallon: '8',
+        lpoNumber: 'LPO-1',
+        deliveryNoteNumber: 'DN-1',
+        saleStatus: 'LPO Received',
+        vatPercentage: '5.00',
+      } as any;
+
+      await storage.updateSale('sale-updated', payload);
+
+      expect(replaySpy).toHaveBeenCalledWith({
+        saleDate: now,
+        createdAt: now,
+        id: 'sale-updated',
+      });
+    });
+
+    it('anchor replay should fail when stock is insufficient', async () => {
+      // First select() chain for stock batches: none available
+      (db.select as vi.Mock)
+        .mockReturnValueOnce({
+          from: vi.fn(() => ({
+            orderBy: vi.fn(() => []),
+          })),
+        })
+        // Second select() chain for sales list: one sale requiring stock
+        .mockReturnValueOnce({
+          from: vi.fn(() => ({
+            orderBy: vi.fn(() => [
+              {
+                id: 'sale-1',
+                saleDate: new Date('2026-01-01T00:00:00.000Z'),
+                createdAt: new Date('2026-01-01T00:00:01.000Z'),
+                quantityGallons: '50',
+                subtotal: '500',
+              },
+            ]),
+          })),
+        });
+
+      await expect(
+        (storage as any).computeReplayedFifoCostsFromAnchor({
+          saleDate: new Date('2026-01-01T00:00:00.000Z'),
+          createdAt: new Date('2026-01-01T00:00:01.000Z'),
+          id: 'sale-1',
+        }),
+      ).rejects.toMatchObject({
+        name: 'FifoInsufficientStockError',
+        code: 'FIFO_INSUFFICIENT_STOCK',
+      });
+    });
+  });
+
+  describe('createInvoiceForLPO concurrency guards', () => {
+    it('returns existing invoice for duplicate invoice number', async () => {
+      const existingInvoice = {
+        id: 'inv-existing',
+        saleId: 'sale-1',
+        invoiceNumber: 'INV-1001',
+      };
+
+      (db.select as vi.Mock).mockReturnValueOnce({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(() => [existingInvoice]),
+          })),
+        })),
+      });
+
+      const result = await storage.createInvoiceForLPO({
+        lpoNumber: 'LPO-1',
+        invoiceNumber: 'INV-1001',
+        invoiceDate: new Date(),
+      });
+
+      expect(result).toEqual(existingInvoice);
+      expect(db.insert).not.toHaveBeenCalled();
+    });
+
+    it('rolls back created invoice when a sale becomes ineligible mid-process', async () => {
+      (db.select as vi.Mock)
+        // Existing invoice lookup by invoice number
+        .mockReturnValueOnce({
+          from: vi.fn(() => ({
+            where: vi.fn(() => ({
+              limit: vi.fn(() => []),
+            })),
+          })),
+        })
+        // Candidate sales lookup
+        .mockReturnValueOnce({
+          from: vi.fn(() => ({
+            where: vi.fn(() => [
+              {
+                id: 'sale-1',
+                saleStatus: 'LPO Received',
+                totalAmount: '120.00',
+                vatAmount: '6.00',
+              },
+              {
+                id: 'sale-2',
+                saleStatus: 'Pending LPO',
+                totalAmount: '180.00',
+                vatAmount: '9.00',
+              },
+            ]),
+          })),
+        });
+
+      const updateReturning = vi
+        .fn()
+        .mockReturnValueOnce([{ id: 'sale-1' }]) // first sale transition succeeds
+        .mockReturnValueOnce([]); // second sale transition fails (concurrency case)
+      const updateWhere = vi.fn(() => ({ returning: updateReturning }));
+      (db.update as vi.Mock).mockReturnValue({
+        set: vi.fn(() => ({ where: updateWhere })),
+      });
+
+      const deleteWhere = vi.fn(() => ({ returning: vi.fn(() => []) }));
+      (db.delete as vi.Mock).mockReturnValue({ where: deleteWhere });
+
+      await expect(
+        storage.createInvoiceForLPO({
+          lpoNumber: 'LPO-ROLLBACK',
+          invoiceNumber: 'INV-ROLLBACK',
+          invoiceDate: new Date(),
+        }),
+      ).rejects.toThrow(/no longer eligible/i);
+
+      expect(db.delete).toHaveBeenCalled();
+      expect(deleteWhere).toHaveBeenCalled();
+      // First update transitions sale-1 to Invoiced; rollback should restore it.
+      expect((db.update as vi.Mock).mock.calls.length).toBeGreaterThan(2);
+    });
+
+    it('handles candidate sale deleted in-between by failing safely and cleaning up invoice artifacts', async () => {
+      (db.select as vi.Mock)
+        .mockReturnValueOnce({
+          from: vi.fn(() => ({
+            where: vi.fn(() => ({
+              limit: vi.fn(() => []),
+            })),
+          })),
+        })
+        .mockReturnValueOnce({
+          from: vi.fn(() => ({
+            where: vi.fn(() => [
+              {
+                id: 'sale-1',
+                saleStatus: 'LPO Received',
+                totalAmount: '100.00',
+                vatAmount: '5.00',
+              },
+              {
+                id: 'sale-2',
+                saleStatus: 'Pending LPO',
+                totalAmount: '200.00',
+                vatAmount: '10.00',
+              },
+            ]),
+          })),
+        });
+
+      const updateReturning = vi
+        .fn()
+        .mockReturnValueOnce([{ id: 'sale-1' }])
+        // Simulate "sale-2 was deleted between read and update"
+        .mockReturnValueOnce([])
+        // Rollback call for sale-1
+        .mockReturnValueOnce([{ id: 'sale-1' }]);
+      const updateWhere = vi.fn(() => ({ returning: updateReturning }));
+      (db.update as vi.Mock).mockReturnValue({
+        set: vi.fn(() => ({ where: updateWhere })),
+      });
+
+      const deleteWhere = vi.fn(() => ({ returning: vi.fn(() => []) }));
+      (db.delete as vi.Mock).mockReturnValue({ where: deleteWhere });
+
+      await expect(
+        storage.createInvoiceForLPO({
+          lpoNumber: 'LPO-DELETED',
+          invoiceNumber: 'INV-DELETED',
+          invoiceDate: new Date(),
+        }),
+      ).rejects.toThrow(/no longer eligible/i);
+
+      // Invoice row and invoice_sales rows should be cleaned up.
+      expect(db.delete).toHaveBeenCalledTimes(2);
+      expect(deleteWhere).toHaveBeenCalledTimes(2);
+    });
+
+    it('fails fast when no eligible sales remain for the LPO', async () => {
+      (db.select as vi.Mock)
+        .mockReturnValueOnce({
+          from: vi.fn(() => ({
+            where: vi.fn(() => ({
+              limit: vi.fn(() => []),
+            })),
+          })),
+        })
+        .mockReturnValueOnce({
+          from: vi.fn(() => ({
+            where: vi.fn(() => []),
+          })),
+        });
+
+      await expect(
+        storage.createInvoiceForLPO({
+          lpoNumber: 'LPO-NONE',
+          invoiceNumber: 'INV-NONE',
+          invoiceDate: new Date(),
+        }),
+      ).rejects.toThrow(/No eligible sales found/i);
+    });
+  });
 });

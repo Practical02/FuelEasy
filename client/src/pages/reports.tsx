@@ -33,7 +33,7 @@ import {
   YAxis,
 } from "recharts";
 import { CURRENCY, STATUS_COLORS } from "@/lib/constants";
-import { SALES_ALL_QUERY_KEY, fetchAllSales, salesListFromResponse } from "@/lib/sales-query";
+import { fetchAllSales, salesKeys, salesListFromResponse } from "@/lib/sales-query";
 import {
   type Sale,
   type Client,
@@ -124,7 +124,7 @@ export default function Reports() {
   }, [selectedClient]);
 
   const { data: salesResponse } = useQuery({
-    queryKey: ["/api/sales", "all", dateFrom, dateTo],
+    queryKey: salesKeys.all(dateFrom, dateTo),
     queryFn: () =>
       fetchAllSales({
         dateFrom: dateFrom || undefined,

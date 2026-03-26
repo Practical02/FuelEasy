@@ -4,12 +4,11 @@ import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { useIsMobile, usePWA, useOnlineStatus } from "@/hooks/use-mobile";
+import { useIsMobile, useOnlineStatus } from "@/hooks/use-mobile";
 import { AuthProvider, ProtectedRoute, useAuth } from "@/lib/auth";
 import Sidebar from "@/components/layout/sidebar";
 import MobileNav from "@/components/layout/mobile-nav";
 import { cn } from "@/lib/utils";
-import { PwaInstallBanner } from "@/components/pwa-install-banner";
 
 // Lazy load pages for better performance
 const Dashboard = lazy(() => import("@/pages/dashboard"));
@@ -41,7 +40,6 @@ function PageLoader() {
 
 function Router() {
   const isMobile = useIsMobile();
-  const { isPWA } = usePWA();
   const isOnline = useOnlineStatus();
 
   return (
@@ -102,7 +100,6 @@ function App() {
       <AuthProvider>
         <TooltipProvider>
           <Toaster />
-          <PwaInstallBanner />
           <Router />
         </TooltipProvider>
       </AuthProvider>

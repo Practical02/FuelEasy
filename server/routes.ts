@@ -61,6 +61,11 @@ function clearCachePattern(pattern: string): void {
   });
 }
 
+function clearSalesDerivedCaches(): void {
+  clearCachePattern("/api/sales");
+  clearCachePattern("/api/reports/overview");
+}
+
 // Cache middleware for GET requests
 function cacheMiddleware(ttlMs: number = 60000) {
   return (req: any, res: any, next: any) => {
@@ -590,8 +595,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/sales", requireAuth, writeLimiter, async (req, res) => {
     try {
       // Invalidate GET caches for sales and reports
-      clearCachePattern('/api/sales');
-      clearCachePattern('/api/reports/overview');
+      clearSalesDerivedCaches();
       const requestData = {
         ...req.body,
         saleDate: new Date(req.body.saleDate),
@@ -634,6 +638,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!sale) {
         return res.status(404).json({ message: "Sale not found" });
       }
+      clearSalesDerivedCaches();
       res.json(sale);
     } catch (error) {
       res.status(500).json({ message: "Failed to update sale status", error: error instanceof Error ? error.message : String(error) });
@@ -684,8 +689,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/sales/:id", requireAuth, writeLimiter, async (req, res) => {
     try {
-      clearCachePattern('/api/sales');
-      clearCachePattern('/api/reports/overview');
+      clearSalesDerivedCaches();
       const requestData = {
         ...req.body,
         saleDate: new Date(req.body.saleDate),
@@ -718,14 +722,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(sale);
     } catch (error) {
       console.error("Sale update validation error:", error);
+      if (
+        error instanceof Error &&
+        (error.name === "FifoInsufficientStockError" ||
+          (typeof (error as any).code === "string" && (error as any).code === "FIFO_INSUFFICIENT_STOCK"))
+      ) {
+        return res.status(400).json({
+          message:
+            "Cannot apply sale update: insufficient stock during FIFO replay. Reduce quantity or add stock first.",
+          error: error.message,
+        });
+      }
       res.status(400).json({ message: "Invalid sale data", error: error instanceof Error ? error.message : String(error) });
     }
   });
 
   app.post("/api/sales/bulk-record-lpo", requireAuth, writeLimiter, async (req, res) => {
     try {
-      clearCachePattern('/api/sales');
-      clearCachePattern('/api/reports/overview');
+      clearSalesDerivedCaches();
       const body = z.object({
         saleIds: z.array(z.string().uuid()).min(1, "At least one sale is required"),
         lpoNumber: z.string().min(1, "LPO number is required"),
@@ -750,8 +764,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/sales/reconcile-fifo-costs", requireAuth, writeLimiter, async (_req, res) => {
     try {
       await storage.reapplyFIFOCostsToAllSales();
-      clearCachePattern("/api/sales");
-      clearCachePattern("/api/reports/overview");
+      clearSalesDerivedCaches();
       res.json({ message: "FIFO costs reconciled for all sales" });
     } catch (error) {
       res.status(500).json({
@@ -763,14 +776,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/sales/:id", requireAuth, writeLimiter, async (req, res) => {
     try {
-      clearCachePattern('/api/sales');
-      clearCachePattern('/api/reports/overview');
+      clearSalesDerivedCaches();
       const success = await storage.deleteSale(req.params.id);
       if (!success) {
         return res.status(404).json({ message: "Sale not found" });
       }
       res.json({ message: "Sale deleted successfully" });
     } catch (error) {
+      if (
+        error instanceof Error &&
+        (error.name === "FifoInsufficientStockError" ||
+          (typeof (error as any).code === "string" && (error as any).code === "FIFO_INSUFFICIENT_STOCK"))
+      ) {
+        return res.status(400).json({
+          message:
+            "Cannot delete sale: insufficient stock during FIFO replay for subsequent sales. Reconcile stock first.",
+          error: error.message,
+        });
+      }
       res.status(500).json({ message: "Failed to delete sale", error: error instanceof Error ? error.message : String(error) });
     }
   });
@@ -806,7 +829,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           await storage.updateSaleStatus(paymentData.saleId, "Paid");
         }
       }
-
+      clearSalesDerivedCaches();
       res.json(payment);
     } catch (error) {
       res.status(400).json({ message: "Invalid payment data", error: error instanceof Error ? error.message : String(error) });
@@ -828,6 +851,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!success) {
         return res.status(404).json({ message: "Payment not found" });
       }
+      clearSalesDerivedCaches();
       res.json({ message: "Payment deleted successfully" });
     } catch (error) {
       res.status(500).json({ message: "Failed to delete payment", error: error instanceof Error ? error.message : String(error) });
@@ -873,7 +897,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Update sale status to "Invoiced"
       await storage.updateSaleStatus(invoiceData.saleId, "Invoiced");
-
+      clearSalesDerivedCaches();
       res.json(invoice);
     } catch (error) {
       if (process.env.NODE_ENV !== 'production') {
@@ -898,6 +922,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ? { submissionDate: new Date(submissionDate) }
           : {}),
       });
+      clearSalesDerivedCaches();
       res.json(invoice);
     } catch (error) {
       res.status(400).json({ message: "Failed to create invoice by LPO", error: error instanceof Error ? error.message : String(error) });
@@ -923,6 +948,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         paymentMethod: body.paymentMethod,
         chequeNumber: body.chequeNumber,
       });
+      clearSalesDerivedCaches();
       res.json(result);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -973,6 +999,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!invoice) {
         return res.status(404).json({ message: "Invoice not found" });
       }
+      clearSalesDerivedCaches();
       res.json(invoice);
     } catch (error) {
       if (process.env.NODE_ENV !== 'production') {
@@ -988,6 +1015,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!success) {
         return res.status(404).json({ message: "Invoice not found" });
       }
+      clearSalesDerivedCaches();
       res.json({ message: "Invoice deleted successfully" });
     } catch (error) {
       res.status(500).json({ message: "Failed to delete invoice", error: error instanceof Error ? error.message : String(error) });

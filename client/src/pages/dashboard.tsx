@@ -27,7 +27,7 @@ import {
 } from "lucide-react";
 import { CURRENCY } from "@/lib/constants";
 import type { SaleWithClient } from "@shared/schema";
-import { fetchSalesList, salesListFromResponse } from "@/lib/sales-query";
+import { fetchSalesList, salesKeys, salesListFromResponse } from "@/lib/sales-query";
 
 export default function Dashboard() {
   const [showNewSaleModal, setShowNewSaleModal] = useState(false);
@@ -57,7 +57,7 @@ export default function Dashboard() {
   });
 
   const { data: recentSalesResponse, isLoading: salesLoading } = useQuery({
-    queryKey: ["/api/sales", "dashboard-recent", 5],
+    queryKey: salesKeys.list({ page: 1, limit: 5 }),
     queryFn: () => fetchSalesList({ page: 1, limit: 5 }),
   });
   const recentSales: SaleWithClient[] = (salesListFromResponse(recentSalesResponse) as SaleWithClient[])

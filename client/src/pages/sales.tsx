@@ -21,6 +21,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
   SALES_PAGE_SIZE,
   fetchSalesList,
+  salesKeys,
   salesListFromResponse,
   type SalesListQuery,
 } from "@/lib/sales-query";
@@ -94,7 +95,7 @@ export default function Sales() {
   );
 
   const { data: salesResponse, isLoading } = useQuery({
-    queryKey: ["/api/sales", "list", salesListQuery] as const,
+    queryKey: salesKeys.list(salesListQuery),
     queryFn: () => fetchSalesList(salesListQuery),
   });
 
@@ -121,7 +122,7 @@ export default function Sales() {
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/sales"] });
+      queryClient.invalidateQueries({ queryKey: salesKeys.root });
       queryClient.invalidateQueries({ queryKey: ["/api/reports/overview"] });
       toast({
         title: "Status Updated",
@@ -143,7 +144,7 @@ export default function Sales() {
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/sales"] });
+      queryClient.invalidateQueries({ queryKey: salesKeys.root });
       queryClient.invalidateQueries({ queryKey: ["/api/reports/overview"] });
       queryClient.invalidateQueries({ queryKey: ["/api/stock/current-level"] });
       toast({

@@ -14,7 +14,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { CURRENCY } from "@/lib/constants";
 import { isInLocalYmdRange } from "@/lib/date-range";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { SALES_ALL_QUERY_KEY, fetchAllSales, salesListFromResponse } from "@/lib/sales-query";
+import { SALES_ALL_QUERY_KEY, fetchAllSales, salesKeys, salesListFromResponse } from "@/lib/sales-query";
 import { useToast } from "@/hooks/use-toast";
 import type { Invoice, SaleWithClient } from "@shared/schema";
 import NewInvoiceModal from "@/components/modals/new-invoice-modal";
@@ -151,7 +151,7 @@ export default function Invoices() {
 
   const { data: salesResponse } = useQuery({
     queryKey: SALES_ALL_QUERY_KEY,
-    queryFn: fetchAllSales,
+    queryFn: () => fetchAllSales(),
   });
   const sales: SaleWithClient[] = salesListFromResponse(salesResponse) as SaleWithClient[];
 
@@ -162,7 +162,7 @@ export default function Invoices() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/sales"] });
+      queryClient.invalidateQueries({ queryKey: salesKeys.root });
       toast({
         title: "Invoice Deleted",
         description: "Invoice has been deleted and sale status reverted to 'LPO Received'.",

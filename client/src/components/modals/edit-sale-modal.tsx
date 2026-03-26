@@ -15,6 +15,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { CURRENCY } from "@/lib/constants";
+import { salesKeys } from "@/lib/sales-query";
 import { z } from "zod";
 
 const editSaleFormSchema = insertSaleSchema.extend({
@@ -159,11 +160,17 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
       }
       return body;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/sales"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/sales?status=Pending%20LPO"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/sales?status=LPO%20Received"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/reports/overview"] });
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: salesKeys.root }),
+        queryClient.invalidateQueries({ queryKey: salesKeys.status("Pending LPO") }),
+        queryClient.invalidateQueries({ queryKey: salesKeys.status("LPO Received") }),
+        queryClient.invalidateQueries({ queryKey: ["/api/reports/overview"] }),
+      ]);
+      await Promise.all([
+        queryClient.refetchQueries({ queryKey: salesKeys.status("Pending LPO"), type: "active" }),
+        queryClient.refetchQueries({ queryKey: salesKeys.status("LPO Received"), type: "active" }),
+      ]);
       toast({
         title: "Sale Updated",
         description: "Sale has been updated successfully.",

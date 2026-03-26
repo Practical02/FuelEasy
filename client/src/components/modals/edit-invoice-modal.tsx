@@ -12,6 +12,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import type { InsertInvoice, Invoice } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { CURRENCY } from "@/lib/constants";
+import { salesKeys } from "@/lib/sales-query";
 import { z } from "zod";
 
 /** List row shape includes joined `sale` and `pendingAmount`; core invoice fields drive the form. */
@@ -98,8 +99,11 @@ export default function EditInvoiceModal({ open, onOpenChange, invoice }: EditIn
       }
       return body;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["/api/invoices"] }),
+        queryClient.invalidateQueries({ queryKey: salesKeys.root }),
+      ]);
       toast({
         title: "Invoice Updated",
         description: "Invoice has been updated successfully.",

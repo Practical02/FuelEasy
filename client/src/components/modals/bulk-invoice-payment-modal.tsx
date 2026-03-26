@@ -23,6 +23,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { CURRENCY } from "@/lib/constants";
+import { salesKeys } from "@/lib/sales-query";
 import { z } from "zod";
 
 /** Minimal row for bulk pay (avoids circular import with invoices page). */
@@ -111,12 +112,14 @@ export default function BulkInvoicePaymentModal({
       }
       return body as { totalAmount: string; paymentsCreated: number };
     },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/sales"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/payments"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/cashbook"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/reports/overview"] });
+    onSuccess: async (data) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["/api/invoices"] }),
+        queryClient.invalidateQueries({ queryKey: salesKeys.root }),
+        queryClient.invalidateQueries({ queryKey: ["/api/payments"] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/cashbook"] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/reports/overview"] }),
+      ]);
       toast({
         title: "Payment recorded",
         description: `${CURRENCY} ${parseFloat(data.totalAmount).toLocaleString()} recorded for ${invoices.length} invoice(s). Cashbook entry includes invoice breakdown.`,

@@ -11,7 +11,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { insertInvoiceSchema, SaleWithClient } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { salesListFromResponse } from "@/lib/sales-query";
+import { salesKeys, salesListFromResponse, salesStatusUrl } from "@/lib/sales-query";
 import { useToast } from "@/hooks/use-toast";
 import { z } from "zod";
 
@@ -51,9 +51,9 @@ export default function NewInvoiceModal({ open, onOpenChange }: NewInvoiceModalP
   });
 
   const { data: salesResponse } = useQuery({
-    queryKey: ["/api/sales", "status", "LPO Received"],
+    queryKey: salesKeys.status("LPO Received"),
     queryFn: async () =>
-      (await apiRequest("GET", "/api/sales?status=" + encodeURIComponent("LPO Received"))).json(),
+      (await apiRequest("GET", salesStatusUrl("LPO Received"))).json(),
     enabled: open,
   });
   const sales: SaleWithClient[] = salesListFromResponse(salesResponse) as SaleWithClient[];
@@ -119,9 +119,13 @@ export default function NewInvoiceModal({ open, onOpenChange }: NewInvoiceModalP
       }
       return response.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/sales"] });
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["/api/invoices"] }),
+        queryClient.invalidateQueries({ queryKey: salesKeys.root }),
+        queryClient.invalidateQueries({ queryKey: salesKeys.status("LPO Received") }),
+      ]);
+      await queryClient.refetchQueries({ queryKey: salesKeys.status("LPO Received"), type: "active" });
       toast({
         title: "Invoice Created",
         description: "New invoice has been created successfully.",

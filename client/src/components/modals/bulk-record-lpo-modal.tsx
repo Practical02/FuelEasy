@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/form";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { salesKeys } from "@/lib/sales-query";
 import { z } from "zod";
 
 const bulkLpoSchema = z.object({
@@ -60,11 +61,17 @@ export default function BulkRecordLpoModal({
       });
       return res.json();
     },
-    onSuccess: (result: { updated: number; errors: string[] }) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/sales"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/sales?status=Pending%20LPO"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/sales?status=LPO%20Received"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/reports/overview"] });
+    onSuccess: async (result: { updated: number; errors: string[] }) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: salesKeys.root }),
+        queryClient.invalidateQueries({ queryKey: salesKeys.status("Pending LPO") }),
+        queryClient.invalidateQueries({ queryKey: salesKeys.status("LPO Received") }),
+        queryClient.invalidateQueries({ queryKey: ["/api/reports/overview"] }),
+      ]);
+      await Promise.all([
+        queryClient.refetchQueries({ queryKey: salesKeys.status("Pending LPO"), type: "active" }),
+        queryClient.refetchQueries({ queryKey: salesKeys.status("LPO Received"), type: "active" }),
+      ]);
       const { updated, errors } = result;
       if (errors.length > 0) {
         toast({

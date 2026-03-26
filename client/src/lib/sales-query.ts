@@ -5,6 +5,17 @@ export const SALES_ALL_QUERY_KEY = ["/api/sales", "all"] as const;
 
 export const SALES_PAGE_SIZE = 50;
 
+export const salesKeys = {
+  root: ["/api/sales"] as const,
+  all: (dateFrom?: string, dateTo?: string) => ["/api/sales", "all", dateFrom ?? "", dateTo ?? ""] as const,
+  list: (q: SalesListQuery) => ["/api/sales", "list", q] as const,
+  status: (status: string) => ["/api/sales", "status", status] as const,
+};
+
+export function salesStatusUrl(status: string): string {
+  return `/api/sales?status=${encodeURIComponent(status)}`;
+}
+
 /** Server-side filtered + paginated list (Sales page). */
 export type SalesListQuery = {
   page: number;

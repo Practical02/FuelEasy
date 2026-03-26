@@ -17,7 +17,7 @@ import { Trash2, Users, CreditCard } from "lucide-react";
 import { CURRENCY } from "@/lib/constants";
 import { endOfLocalDay } from "@/lib/date-range";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { SALES_ALL_QUERY_KEY, fetchAllSales, salesListFromResponse } from "@/lib/sales-query";
+import { SALES_ALL_QUERY_KEY, fetchAllSales, salesKeys, salesListFromResponse } from "@/lib/sales-query";
 import { useToast } from "@/hooks/use-toast";
 import type { PaymentWithSaleAndClient, Client } from "@shared/schema";
 
@@ -47,7 +47,7 @@ export default function Payments() {
 // type SaleWithClient = any;
   const { data: salesResponse } = useQuery({
     queryKey: SALES_ALL_QUERY_KEY,
-    queryFn: fetchAllSales,
+    queryFn: () => fetchAllSales(),
   });
   const sales: SaleWithClient[] = salesListFromResponse(salesResponse) as SaleWithClient[];
 
@@ -58,7 +58,7 @@ export default function Payments() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/payments"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/sales"] });
+      queryClient.invalidateQueries({ queryKey: salesKeys.root });
       queryClient.invalidateQueries({ queryKey: ["/api/reports/overview"] });
       toast({
         title: "Payment Deleted",

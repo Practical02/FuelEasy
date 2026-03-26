@@ -13,6 +13,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { insertSaleSchema } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { salesKeys } from "@/lib/sales-query";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { CURRENCY, VAT_PERCENTAGE } from "@/lib/constants";
@@ -111,7 +112,7 @@ export default function NewSaleModal({ open, onOpenChange }: NewSaleModalProps) 
       return body;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/sales"] });
+      queryClient.invalidateQueries({ queryKey: salesKeys.root });
       queryClient.invalidateQueries({ queryKey: ["/api/reports/overview"] });
       queryClient.invalidateQueries({ queryKey: ["/api/stock/current-level"] });
       toast({

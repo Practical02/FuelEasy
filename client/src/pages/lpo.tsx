@@ -13,7 +13,7 @@ import BulkRecordLpoModal from "@/components/modals/bulk-record-lpo-modal";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ClipboardList, Pencil } from "lucide-react";
 import { CURRENCY, STATUS_COLORS } from "@/lib/constants";
-import { SALES_PAGE_SIZE } from "@/lib/sales-query";
+import { SALES_PAGE_SIZE, salesKeys, salesStatusUrl } from "@/lib/sales-query";
 import { apiRequest } from "@/lib/queryClient";
 import { isInLocalYmdRange } from "@/lib/date-range";
 import type { SaleWithClient } from "@shared/schema";
@@ -35,10 +35,12 @@ export default function LPO() {
 
   // Fetch Pending LPO and LPO Received separately so we get all relevant sales (no pagination cutoff)
   const { data: pendingResponse } = useQuery<any>({
-    queryKey: ["/api/sales?status=Pending%20LPO"],
+    queryKey: salesKeys.status("Pending LPO"),
+    queryFn: async () => (await apiRequest("GET", salesStatusUrl("Pending LPO"))).json(),
   });
   const { data: receivedResponse } = useQuery<any>({
-    queryKey: ["/api/sales?status=LPO%20Received"],
+    queryKey: salesKeys.status("LPO Received"),
+    queryFn: async () => (await apiRequest("GET", salesStatusUrl("LPO Received"))).json(),
   });
   const pendingSales: SaleWithClient[] = Array.isArray(pendingResponse)
     ? pendingResponse
@@ -47,8 +49,10 @@ export default function LPO() {
     ? receivedResponse
     : receivedResponse?.data ?? [];
   const sales: SaleWithClient[] = useMemo(() => {
-    const combined = [...pendingSales, ...receivedSales];
-    return combined.sort(
+    const byId = new Map<string, SaleWithClient>();
+    for (const sale of pendingSales) byId.set(sale.id, sale);
+    for (const sale of receivedSales) byId.set(sale.id, sale);
+    return Array.from(byId.values()).sort(
       (a, b) => new Date(b.saleDate).getTime() - new Date(a.saleDate).getTime()
     );
   }, [pendingSales, receivedSales]);

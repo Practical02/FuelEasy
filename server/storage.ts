@@ -85,6 +85,14 @@ function addOneMonth(d: Date): Date {
   return x;
 }
 
+class FifoInsufficientStockError extends Error {
+  code = "FIFO_INSUFFICIENT_STOCK" as const;
+  constructor(message: string) {
+    super(message);
+    this.name = "FifoInsufficientStockError";
+  }
+}
+
 /**
  * Open (unpaid) invoices: Generated = not yet submitted to client; Sent = submission date set.
  * Paid is only set when cashbook allocations cover the full amount (see updateInvoiceStatusIfPaid).
@@ -412,7 +420,10 @@ export class DatabaseStorage implements IStorage {
       });
     }
 
-    return created;
+    // Backdated/edited stock batches can change FIFO layers for historical sales.
+    await this.reapplyFIFOCostsToAllSales();
+    const refreshed = await db.select().from(stock).where(eq(stock.id, created.id)).limit(1);
+    return refreshed[0] ?? created;
   }
 
   async getCurrentStockLevel(): Promise<number> {
@@ -453,7 +464,7 @@ export class DatabaseStorage implements IStorage {
     const salesList = await db
       .select({ id: sales.id, quantityGallons: sales.quantityGallons })
       .from(sales)
-      .orderBy(asc(sales.saleDate), asc(sales.id));
+      .orderBy(asc(sales.saleDate), asc(sales.createdAt), asc(sales.id));
 
     const remaining = new Map<string, number>();
     for (const b of batches) {
@@ -502,7 +513,7 @@ export class DatabaseStorage implements IStorage {
     const salesList = await db
       .select({ quantityGallons: sales.quantityGallons })
       .from(sales)
-      .orderBy(asc(sales.saleDate), asc(sales.id));
+      .orderBy(asc(sales.saleDate), asc(sales.createdAt), asc(sales.id));
     const remaining = new Map<string, number>();
     for (const b of batches) {
       remaining.set(b.id, parseFloat(b.quantityGallons));
@@ -550,7 +561,7 @@ export class DatabaseStorage implements IStorage {
     const salesList = await db
       .select()
       .from(sales)
-      .orderBy(asc(sales.saleDate), asc(sales.id));
+      .orderBy(asc(sales.saleDate), asc(sales.createdAt), asc(sales.id));
 
     const remaining = new Map<string, number>();
     for (const b of batches) {
@@ -584,6 +595,119 @@ export class DatabaseStorage implements IStorage {
     return replayById;
   }
 
+  private async computeReplayedFifoCostsFromAnchor(anchor: {
+    saleDate: Date;
+    createdAt: Date;
+    id: string;
+  }): Promise<Map<string, { cogs: number; pricePerGallon: number }>> {
+    const batches = await db
+      .select({
+        id: stock.id,
+        quantityGallons: stock.quantityGallons,
+        purchasePricePerGallon: stock.purchasePricePerGallon,
+      })
+      .from(stock)
+      .orderBy(asc(stock.purchaseDate), asc(stock.createdAt));
+
+    const salesList = await db
+      .select()
+      .from(sales)
+      .orderBy(asc(sales.saleDate), asc(sales.createdAt), asc(sales.id));
+
+    const remaining = new Map<string, number>();
+    for (const b of batches) remaining.set(b.id, parseFloat(b.quantityGallons));
+
+    const isBeforeAnchor = (s: typeof salesList[number]) => {
+      const sd = new Date(s.saleDate as Date).getTime();
+      const ad = new Date(anchor.saleDate).getTime();
+      if (sd !== ad) return sd < ad;
+      const sc = new Date(s.createdAt as Date).getTime();
+      const ac = new Date(anchor.createdAt).getTime();
+      if (sc !== ac) return sc < ac;
+      return s.id < anchor.id;
+    };
+
+    // Consume layers for sales before anchor.
+    for (const s of salesList) {
+      if (!isBeforeAnchor(s)) break;
+      let q = parseFloat(s.quantityGallons);
+      for (const b of batches) {
+        if (q <= 0) break;
+        const rem = remaining.get(b.id) ?? 0;
+        const take = Math.min(rem, q);
+        if (take > 0) {
+          remaining.set(b.id, rem - take);
+          q -= take;
+        }
+      }
+      if (q > 0.000001) {
+        throw new FifoInsufficientStockError(
+          `Insufficient stock while consuming pre-anchor sale ${s.id}`,
+        );
+      }
+    }
+
+    const replayById = new Map<string, { cogs: number; pricePerGallon: number }>();
+
+    for (const s of salesList) {
+      if (isBeforeAnchor(s)) continue;
+      const qty = parseFloat(s.quantityGallons);
+      if (!Number.isFinite(qty) || qty <= 0) continue;
+
+      let need = qty;
+      let totalCost = 0;
+      for (const b of batches) {
+        if (need <= 0) break;
+        const rem = remaining.get(b.id) ?? 0;
+        const take = Math.min(rem, need);
+        if (take > 0) {
+          const price = parseFloat(b.purchasePricePerGallon);
+          totalCost += take * price;
+          remaining.set(b.id, rem - take);
+          need -= take;
+        }
+      }
+
+      if (need > 0.000001) {
+        throw new FifoInsufficientStockError(
+          `Insufficient stock during FIFO replay at sale ${s.id}`,
+        );
+      }
+
+      const { cogs, pricePerGallon } = cogsAndPpgFromFifoRawTotal(totalCost, qty);
+      replayById.set(s.id, { cogs, pricePerGallon });
+    }
+
+    return replayById;
+  }
+
+  private async reapplyFIFOCostsFromAnchor(anchor: {
+    saleDate: Date;
+    createdAt: Date;
+    id: string;
+  }): Promise<void> {
+    const replayById = await this.computeReplayedFifoCostsFromAnchor(anchor);
+    const salesList = await db
+      .select()
+      .from(sales)
+      .orderBy(asc(sales.saleDate), asc(sales.createdAt), asc(sales.id));
+
+    for (const sale of salesList) {
+      const rec = replayById.get(sale.id);
+      if (!rec) continue;
+      const subtotal = parseFloat(sale.subtotal);
+      const grossProfit = subtotal - rec.cogs;
+      await db
+        .update(sales)
+        .set({
+          purchasePricePerGallon: rec.pricePerGallon.toFixed(SALE_PURCHASE_PPG_DECIMAL_PLACES),
+          cogs: rec.cogs.toFixed(SALE_COGS_DECIMAL_PLACES),
+          grossProfit: grossProfit.toFixed(SALE_COGS_DECIMAL_PLACES),
+        })
+        .where(eq(sales.id, sale.id));
+    }
+  }
+
   /**
    * Replay FIFO in sale-date order: each sale consumes from batch layers, then we
    * rewrite purchasePricePerGallon, cogs, and grossProfit to match. Stock
@@ -595,7 +719,7 @@ export class DatabaseStorage implements IStorage {
     const salesList = await db
       .select()
       .from(sales)
-      .orderBy(asc(sales.saleDate), asc(sales.id));
+      .orderBy(asc(sales.saleDate), asc(sales.createdAt), asc(sales.id));
 
     for (const sale of salesList) {
       const rec = replayById.get(sale.id);
@@ -1207,7 +1331,10 @@ export class DatabaseStorage implements IStorage {
       });
     }
     
-    return result[0];
+    // Keep all historical sales aligned if this sale is backdated or changes FIFO layer usage.
+    await this.reapplyFIFOCostsToAllSales();
+    const refreshed = await db.select().from(sales).where(eq(sales.id, result[0].id)).limit(1);
+    return refreshed[0] ?? result[0];
   }
 
   async updateSaleStatus(id: string, status: string): Promise<Sale | undefined> {
@@ -1329,7 +1456,17 @@ export class DatabaseStorage implements IStorage {
   }): Promise<Invoice> {
     const { lpoNumber, invoiceNumber, invoiceDate } = params;
 
-    // Find all sales with this LPO that are not yet invoiced or paid
+    // Idempotency guard: if the same invoice number was created concurrently, return it.
+    const existingByNumber = await db
+      .select()
+      .from(invoices)
+      .where(eq(invoices.invoiceNumber, invoiceNumber))
+      .limit(1);
+    if (existingByNumber[0]) {
+      return existingByNumber[0];
+    }
+
+    // Find all sales with this LPO that are still eligible for invoice creation.
     const candidateSales = await db
       .select()
       .from(sales)
@@ -1339,14 +1476,13 @@ export class DatabaseStorage implements IStorage {
       throw new Error(`No eligible sales found for LPO ${lpoNumber}`);
     }
 
-    // Sum totals across sales
-    const totalAmount = candidateSales.reduce((sum, s) => sum + parseFloat(s.totalAmount), 0);
-    const vatAmount = candidateSales.reduce((sum, s) => sum + parseFloat(s.vatAmount), 0);
-
     const dueDate = params.submissionDate
       ? addOneMonth(new Date(params.submissionDate))
       : addOneMonth(new Date(invoiceDate));
-    // Create invoice row (pick first sale's id for legacy column, but will link all via invoice_sales)
+    const candidateById = new Map(candidateSales.map((s) => [s.id, s]));
+    const candidateIds = candidateSales.map((s) => s.id);
+    const totalAmount = candidateSales.reduce((sum, s) => sum + parseFloat(s.totalAmount), 0);
+    const vatAmount = candidateSales.reduce((sum, s) => sum + parseFloat(s.vatAmount), 0);
     const baseSaleId = candidateSales[0].id;
     const submissionDate = params.submissionDate ?? null;
     const invRows = await db.insert(invoices).values({
@@ -1362,10 +1498,41 @@ export class DatabaseStorage implements IStorage {
     }).returning();
     const invoice = invRows[0];
 
-    // Link all sales to this invoice and mark status as Invoiced
-    for (const s of candidateSales) {
-      await db.insert(invoiceSales).values({ invoiceId: invoice.id, saleId: s.id });
-      await this.updateSaleStatus(s.id, "Invoiced");
+    const transitionedSales: string[] = [];
+    try {
+      // Guard every row update so concurrent requests cannot invoice the same sale twice.
+      for (const saleId of candidateIds) {
+        const statusUpdated = await db
+          .update(sales)
+          .set({ saleStatus: "Invoiced" })
+          .where(
+            and(
+              eq(sales.id, saleId),
+              sql`${sales.saleStatus} IN ('LPO Received', 'Pending LPO')` as any,
+            ),
+          )
+          .returning({ id: sales.id });
+        if (statusUpdated.length === 0) {
+          throw new Error(`Sale ${saleId} is no longer eligible for invoicing; please refresh and retry`);
+        }
+        transitionedSales.push(saleId);
+        await db.insert(invoiceSales).values({ invoiceId: invoice.id, saleId });
+      }
+    } catch (error) {
+      // Best-effort rollback for non-transactional driver paths.
+      if (transitionedSales.length > 0) {
+        for (const saleId of transitionedSales) {
+          const original = candidateById.get(saleId);
+          if (!original) continue;
+          await db
+            .update(sales)
+            .set({ saleStatus: original.saleStatus })
+            .where(eq(sales.id, saleId));
+        }
+      }
+      await db.delete(invoiceSales).where(eq(invoiceSales.invoiceId, invoice.id));
+      await db.delete(invoices).where(eq(invoices.id, invoice.id));
+      throw error;
     }
 
     return invoice;
@@ -2221,7 +2388,15 @@ export class DatabaseStorage implements IStorage {
       .where(eq(sales.id, id))
       .returning();
 
-    return result[0];
+    if (!result[0]) return undefined;
+    // Recalculate from the updated sale forward (saleDate, createdAt, id order).
+    await this.reapplyFIFOCostsFromAnchor({
+      saleDate: new Date(result[0].saleDate as Date),
+      createdAt: new Date(result[0].createdAt as Date),
+      id: result[0].id,
+    });
+    const refreshed = await db.select().from(sales).where(eq(sales.id, id)).limit(1);
+    return refreshed[0] ?? result[0];
   }
 
   async bulkRecordLPO(params: { saleIds: string[]; lpoNumber: string; lpoReceivedDate?: Date }): Promise<{ updated: number; errors: string[] }> {
@@ -2831,7 +3006,11 @@ export class DatabaseStorage implements IStorage {
       .where(eq(stock.id, id))
       .returning();
     
-    return result[0];
+    if (!result[0]) return undefined;
+    // Stock edit can alter historical FIFO layer costs; replay sales COGS.
+    await this.reapplyFIFOCostsToAllSales();
+    const refreshed = await db.select().from(stock).where(eq(stock.id, id)).limit(1);
+    return refreshed[0] ?? result[0];
   }
 
   async deleteStock(id: string): Promise<boolean> {
@@ -2867,6 +3046,11 @@ export class DatabaseStorage implements IStorage {
       }
 
       console.log(`Found sale: ${sale[0].lpoNumber || 'No LPO'} for client`);
+      const anchor = {
+        saleDate: new Date(sale[0].saleDate as Date),
+        createdAt: new Date(sale[0].createdAt as Date),
+        id: sale[0].id,
+      };
 
       // Delete operations without transaction (for Neon HTTP driver compatibility)
       // 1. Delete all cashbook payment allocations for invoices of this sale
@@ -2927,7 +3111,7 @@ export class DatabaseStorage implements IStorage {
         return false;
       }
 
-      await this.reapplyFIFOCostsToAllSales();
+      await this.reapplyFIFOCostsFromAnchor(anchor);
 
       console.log(`Sale deletion completed: SUCCESS`);
       return true;
