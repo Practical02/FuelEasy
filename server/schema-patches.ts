@@ -35,6 +35,24 @@ export async function applySchemaPatches(): Promise<void> {
   }
 
   try {
+    await db.execute(
+      sql`ALTER TABLE business_settings ADD COLUMN IF NOT EXISTS zigma_invoice_prefix TEXT NOT NULL DEFAULT 'ZDT-'`
+    );
+  } catch (e) {
+    console.error("applySchemaPatches: failed to ensure business_settings.zigma_invoice_prefix:", e);
+    throw e;
+  }
+
+  try {
+    await db.execute(
+      sql`ALTER TABLE business_settings ADD COLUMN IF NOT EXISTS sayan_invoice_prefix TEXT NOT NULL DEFAULT 'SYN-'`
+    );
+  } catch (e) {
+    console.error("applySchemaPatches: failed to ensure business_settings.sayan_invoice_prefix:", e);
+    throw e;
+  }
+
+  try {
     await db.execute(sql`
       CREATE UNIQUE INDEX IF NOT EXISTS sales_delivery_note_unique_norm
       ON sales (lower(trim(delivery_note_number)))

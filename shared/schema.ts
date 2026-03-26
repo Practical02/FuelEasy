@@ -36,6 +36,8 @@ export const businessSettings = pgTable("business_settings", {
   companyPhone: text("company_phone").notNull().default(""),
   companyEmail: text("company_email").notNull().default(""),
   invoicePrefix: text("invoice_prefix").notNull().default("ZDT/S20-"),
+  zigmaInvoicePrefix: text("zigma_invoice_prefix").notNull().default("ZDT-"),
+  sayanInvoicePrefix: text("sayan_invoice_prefix").notNull().default("SYN-"),
   defaultPaymentTerms: text("default_payment_terms").notNull().default("Net 30"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),

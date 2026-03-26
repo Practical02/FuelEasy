@@ -61,6 +61,8 @@ export default function BusinessSettings() {
       taxNumber: "",
       vatNumber: "",
       invoicePrefix: "ZDT/S20-",
+      zigmaInvoicePrefix: "ZDT-",
+      sayanInvoicePrefix: "SYN-",
       invoiceNumberStart: 1000,
       primaryColor: "#1976D2",
       secondaryColor: "#666666",
@@ -312,14 +314,39 @@ export default function BusinessSettings() {
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="invoicePrefix">Invoice Prefix</Label>
+                    <Label htmlFor="zigmaInvoicePrefix">Zigma Invoice Prefix</Label>
+                    <Input
+                      id="zigmaInvoicePrefix"
+                      {...form.register("zigmaInvoicePrefix")}
+                      placeholder="ZDT-"
+                    />
+                    <p className="text-sm text-gray-500">
+                      Prefix used when supplier is Zigma.
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="sayanInvoicePrefix">Sayan Invoice Prefix</Label>
+                    <Input
+                      id="sayanInvoicePrefix"
+                      {...form.register("sayanInvoicePrefix")}
+                      placeholder="SYN-"
+                    />
+                    <p className="text-sm text-gray-500">
+                      Prefix used when supplier is Sayan.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="invoicePrefix">Fallback Invoice Prefix</Label>
                     <Input
                       id="invoicePrefix"
                       {...form.register("invoicePrefix")}
                       placeholder="ZDT/S20-"
                     />
                     <p className="text-sm text-gray-500">
-                      Default prefix for new invoices (e.g. ZDT/S20-). Include a trailing hyphen if numbers follow directly. You can still edit the full invoice number when creating an invoice.
+                      Legacy fallback prefix used only if supplier-specific prefix is empty.
                     </p>
                   </div>
                   <div className="space-y-2">

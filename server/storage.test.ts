@@ -202,7 +202,7 @@ describe('DatabaseStorage', () => {
   });
 
   describe('markDebtAsPaid', () => {
-    it('should update debt status and create a new payment entry', async () => {
+    it('should reduce pending debt and create a supplier payment outflow', async () => {
       const debtId = 'debt-123';
       const paidAmount = 100;
       const paymentMethod = 'Bank Transfer';
@@ -229,17 +229,19 @@ describe('DatabaseStorage', () => {
 
       const updateSpy = vi.spyOn(db, 'update');
       const insertSpy = vi.spyOn(db, 'insert');
+      const deleteSpy = vi.spyOn(db, 'delete');
 
       const result = await storage.markDebtAsPaid(debtId, paidAmount, paymentMethod, paymentDate);
 
       expect(updateSpy).toHaveBeenCalledWith(expect.anything()); // cashbook table
-      expect(updateSpy().set).toHaveBeenCalledWith({ isPending: 0 });
+      expect(updateSpy().set).toHaveBeenCalledWith({ amount: '50.00' });
       expect(updateSpy().set().where).toHaveBeenCalledWith(eq(expect.anything(), debtId));
+      expect(deleteSpy).not.toHaveBeenCalledWith(expect.anything()); // no full-delete on partial pay
 
       expect(insertSpy).toHaveBeenCalledWith(expect.anything()); // cashbook table
       expect(insertSpy().values).toHaveBeenCalledWith(expect.objectContaining({
         transactionDate: paymentDate,
-        transactionType: 'Stock Payment',
+        transactionType: 'Supplier Payment',
         accountHeadId: 'supplier-head-id',
         amount: paidAmount.toFixed(2),
         isInflow: 0,
@@ -251,6 +253,38 @@ describe('DatabaseStorage', () => {
         counterparty: 'Supplier A',
       }));
       expect(result).toEqual(expect.objectContaining({ id: 'mock-id' }));
+    });
+
+    it('should remove pending debt row when fully settled', async () => {
+      const debtId = 'debt-full';
+      const paidAmount = 150;
+      const paymentMethod = 'Cash';
+      const paymentDate = new Date();
+
+      const mockOriginalDebt = {
+        id: debtId,
+        transactionDate: new Date(),
+        transactionType: 'Stock Purchase',
+        accountHeadId: 'supplier-head-id',
+        amount: '150.00',
+        isInflow: 0,
+        description: 'Stock purchase debt',
+        counterparty: 'Supplier A',
+        paymentMethod: 'Credit',
+        referenceType: 'stock',
+        referenceId: 'stock-xyz',
+        isPending: 1,
+        notes: null,
+        createdAt: new Date(),
+      };
+
+      vi.spyOn(storage, 'getCashbookEntry').mockResolvedValue(mockOriginalDebt as any);
+      const deleteSpy = vi.spyOn(db, 'delete');
+
+      await storage.markDebtAsPaid(debtId, paidAmount, paymentMethod, paymentDate);
+
+      expect(deleteSpy).toHaveBeenCalledWith(expect.anything());
+      expect(deleteSpy().where).toHaveBeenCalledWith(eq(expect.anything(), debtId));
     });
   });
 

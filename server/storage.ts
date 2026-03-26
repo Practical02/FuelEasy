@@ -1650,41 +1650,6 @@ export class DatabaseStorage implements IStorage {
       await this.updateSaleStatus(insertPayment.saleId, newStatus);
     }
     
-    // Auto-settle supplier pending debts using the received amount (FIFO, full-settlement only)
-    try {
-      let remainingToSettle = parseFloat(insertPayment.amountReceived);
-      if (remainingToSettle > 0) {
-        const supplierDebts = await db
-          .select({
-            id: cashbook.id,
-            amount: cashbook.amount,
-            transactionDate: cashbook.transactionDate,
-            accountHead: accountHeads,
-          })
-          .from(cashbook)
-          .leftJoin(accountHeads, eq(cashbook.accountHeadId, accountHeads.id))
-          .where(and(eq(cashbook.isPending, 1), eq(accountHeads.type, "Supplier")))
-          .orderBy(cashbook.transactionDate);
-
-        for (const debt of supplierDebts) {
-          if (remainingToSettle <= 0) break;
-          const debtAmount = parseFloat(debt.amount);
-          // Only settle if we can fully pay this debt
-          if (remainingToSettle + 1e-6 >= debtAmount) {
-            await this.markDebtAsPaid(
-              debt.id,
-              debtAmount,
-              insertPayment.paymentMethod,
-              insertPayment.paymentDate instanceof Date ? insertPayment.paymentDate : new Date(insertPayment.paymentDate as any)
-            );
-            remainingToSettle -= debtAmount;
-          }
-        }
-      }
-    } catch (e) {
-      console.warn("Auto-settle supplier debts failed:", e);
-    }
-
     return payment;
   }
 
@@ -1840,39 +1805,6 @@ export class DatabaseStorage implements IStorage {
           await this.updateSaleStatus(saleId, newStatus);
         }
       }
-    }
-
-    try {
-      let remainingToSettle = total;
-      if (remainingToSettle > 0) {
-        const supplierDebts = await db
-          .select({
-            id: cashbook.id,
-            amount: cashbook.amount,
-            transactionDate: cashbook.transactionDate,
-            accountHead: accountHeads,
-          })
-          .from(cashbook)
-          .leftJoin(accountHeads, eq(cashbook.accountHeadId, accountHeads.id))
-          .where(and(eq(cashbook.isPending, 1), eq(accountHeads.type, "Supplier")))
-          .orderBy(cashbook.transactionDate);
-
-        for (const debt of supplierDebts) {
-          if (remainingToSettle <= 0) break;
-          const debtAmount = parseFloat(debt.amount);
-          if (remainingToSettle + 1e-6 >= debtAmount) {
-            await this.markDebtAsPaid(
-              debt.id,
-              debtAmount,
-              params.paymentMethod,
-              params.paymentDate instanceof Date ? params.paymentDate : new Date(params.paymentDate as unknown as string),
-            );
-            remainingToSettle -= debtAmount;
-          }
-        }
-      }
-    } catch (e) {
-      console.warn("Auto-settle supplier debts failed (bulk invoice pay):", e);
     }
 
     return {
@@ -2201,13 +2133,16 @@ export class DatabaseStorage implements IStorage {
         throw new Error("Entry is not a pending debt");
       }
 
-      // Update the original debt entry to mark it as not pending
-      await db
-        .update(cashbook)
-        .set({ isPending: 0 })
-        .where(eq(cashbook.id, cashbookId));
+      const originalDebtAmount = parseFloat(originalDebtEntry.amount);
+      if (!Number.isFinite(originalDebtAmount) || originalDebtAmount <= 0) {
+        throw new Error("Original debt amount is invalid");
+      }
+      if (paidAmount > originalDebtAmount + 1e-6) {
+        throw new Error("Paid amount cannot exceed pending debt amount");
+      }
+      const remainingAmount = Math.max(0, originalDebtAmount - paidAmount);
 
-      // Create a new payment entry
+      // Record the actual cash movement as a separate outflow.
       const paymentEntry = await this.createCashbookEntry({
         transactionDate: paymentDate,
         transactionType: "Supplier Payment",
@@ -2223,6 +2158,18 @@ export class DatabaseStorage implements IStorage {
         counterparty: originalDebtEntry.counterparty,
         notes: `Payment for debt: ${originalDebtEntry.description}`,
       });
+
+      // Keep pending debt equal to outstanding amount (or remove when fully settled).
+      if (remainingAmount <= 0.009) {
+        await db
+          .delete(cashbook)
+          .where(eq(cashbook.id, cashbookId));
+      } else {
+        await db
+          .update(cashbook)
+          .set({ amount: remainingAmount.toFixed(2) })
+          .where(eq(cashbook.id, cashbookId));
+      }
 
       return paymentEntry;
     } catch (error) {
