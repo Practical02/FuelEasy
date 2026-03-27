@@ -13,6 +13,7 @@ import { insertInvoiceSchema, SaleWithClient } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { salesKeys, salesListFromResponse, salesStatusUrl } from "@/lib/sales-query";
 import { useToast } from "@/hooks/use-toast";
+import { CURRENCY } from "@/lib/constants";
 import { z } from "zod";
 
 const SUPPLIER_OPTIONS = [
@@ -147,6 +148,19 @@ export default function NewInvoiceModal({ open, onOpenChange }: NewInvoiceModalP
     invoiceableSales.forEach(s => s.lpoNumber && set.add(s.lpoNumber));
     return Array.from(set);
   }, [invoiceableSales]);
+  const lpoSummary = useMemo(() => {
+    const map = new Map<string, { count: number; total: number }>();
+    for (const sale of invoiceableSales) {
+      const lpo = (sale.lpoNumber || "").trim();
+      if (!lpo) continue;
+      const existing = map.get(lpo) ?? { count: 0, total: 0 };
+      existing.count += 1;
+      existing.total += parseFloat(sale.totalAmount);
+      map.set(lpo, existing);
+    }
+    return map;
+  }, [invoiceableSales]);
+  const selectedLpoSummary = selectedLpo ? lpoSummary.get(selectedLpo) : undefined;
 
   const body = (
     <>
@@ -229,6 +243,19 @@ export default function NewInvoiceModal({ open, onOpenChange }: NewInvoiceModalP
                 </FormItem>
               )}
             />
+
+            {selectedLpoSummary && (
+              <div className="rounded-md border bg-muted/40 p-3 text-sm">
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">
+                    Total LPO Amount ({selectedLpoSummary.count} sale{selectedLpoSummary.count !== 1 ? "s" : ""})
+                  </span>
+                  <span className="font-semibold">
+                    {CURRENCY} {selectedLpoSummary.total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+              </div>
+            )}
 
             <FormField
               control={form.control}
