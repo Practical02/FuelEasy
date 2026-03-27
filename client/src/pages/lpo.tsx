@@ -127,6 +127,13 @@ export default function LPO() {
   const receivedCount = sales.filter((s) => s.saleStatus === "LPO Received").length;
 
   const selectedCount = selectedIds.size;
+  const selectedTotalAmount = useMemo(
+    () =>
+      sales
+        .filter((s) => selectedIds.has(s.id))
+        .reduce((sum, s) => sum + parseFloat(s.totalAmount), 0),
+    [sales, selectedIds],
+  );
   const pageIds = pagedLpo.map((s) => s.id);
   const allOnPageSelected = pageIds.length > 0 && pageIds.every((id) => selectedIds.has(id));
   const toggleSelectAll = () => {
@@ -431,6 +438,7 @@ export default function LPO() {
         open={showBulkLpoModal}
         onOpenChange={setShowBulkLpoModal}
         saleIds={Array.from(selectedIds)}
+        totalAmount={selectedTotalAmount}
         onSuccess={() => setSelectedIds(new Set())}
       />
     </>

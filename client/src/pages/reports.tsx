@@ -514,6 +514,21 @@ export default function Reports() {
               : "VAT Report";
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet(sheetName);
+    const salesForExport = [...filteredSales].sort(
+      (a, b) => new Date(a.saleDate).getTime() - new Date(b.saleDate).getTime(),
+    );
+    const pendingInvoicesForExport = [...pendingInvoices].sort(
+      (a: any, b: any) => new Date(a.invoiceDate).getTime() - new Date(b.invoiceDate).getTime(),
+    );
+    const purchaseStockForExport = [...filteredPurchaseStock].sort(
+      (a, b) => new Date(a.purchaseDate).getTime() - new Date(b.purchaseDate).getTime(),
+    );
+    const vatStockForExport = [...filteredStock].sort(
+      (a, b) => new Date(a.purchaseDate).getTime() - new Date(b.purchaseDate).getTime(),
+    );
+    const cashbookEntriesForExport = [...cashbookEntries].sort(
+      (a, b) => new Date(a.transactionDate).getTime() - new Date(b.transactionDate).getTime(),
+    );
 
     let currentRow = 1;
     const TITLE_MERGE_END_COL = 10; // A–J
@@ -563,7 +578,7 @@ export default function Reports() {
         cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE0E0E0" } };
       });
       currentRow++;
-      for (const e of cashbookEntries) {
+      for (const e of cashbookEntriesForExport) {
         [
           new Date(e.transactionDate).toLocaleDateString(),
           e.accountHead?.name ?? "—",
@@ -630,7 +645,7 @@ export default function Reports() {
       });
       currentRow++;
 
-      pendingInvoices.forEach((inv: any) => {
+      pendingInvoicesForExport.forEach((inv: any) => {
         const clientName = inv.sale?.client?.name ?? inv.sales?.[0]?.client?.name ?? "—";
         const total = parseFloat(inv.totalAmount);
         const dueDate = inv.dueDate
@@ -679,7 +694,7 @@ export default function Reports() {
         cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE0E0E0" } };
       });
       currentRow++;
-      filteredSales.forEach((sale) => {
+      salesForExport.forEach((sale) => {
         const saleWithProject = sale as SaleWithClient;
         const rowData = [
           new Date(sale.saleDate).toLocaleDateString(),
@@ -723,7 +738,7 @@ export default function Reports() {
         cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE0E0E0" } };
       });
       currentRow++;
-      filteredPurchaseStock.forEach((row) => {
+      purchaseStockForExport.forEach((row) => {
         const supplier =
           row.supplierAccountHeadId != null
             ? supplierNameById[row.supplierAccountHeadId] ?? "—"
@@ -778,7 +793,7 @@ export default function Reports() {
         };
       });
       currentRow++;
-      filteredSales.forEach((sale) => {
+      salesForExport.forEach((sale) => {
         const inv = saleIdToInvoice[sale.id];
         const saleWithProject = sale as SaleWithClient;
         const rowData = [
@@ -823,7 +838,7 @@ export default function Reports() {
           cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE0E0E0" } };
         });
         currentRow++;
-        filteredStock.forEach((row) => {
+        vatStockForExport.forEach((row) => {
           [
             new Date(row.purchaseDate).toLocaleDateString(),
             parseFloat(row.quantityGallons),

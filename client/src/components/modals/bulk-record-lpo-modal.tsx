@@ -21,6 +21,7 @@ import {
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { salesKeys } from "@/lib/sales-query";
+import { CURRENCY } from "@/lib/constants";
 import { z } from "zod";
 
 const bulkLpoSchema = z.object({
@@ -34,6 +35,7 @@ interface BulkRecordLpoModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   saleIds: string[];
+  totalAmount: number;
   onSuccess?: () => void;
 }
 
@@ -41,6 +43,7 @@ export default function BulkRecordLpoModal({
   open,
   onOpenChange,
   saleIds,
+  totalAmount,
   onSuccess,
 }: BulkRecordLpoModalProps) {
   const { toast } = useToast();
@@ -114,6 +117,14 @@ export default function BulkRecordLpoModal({
             Enter LPO details to apply to all {saleIds.length} selected sale(s). Status will be set to &quot;LPO Received&quot;.
           </DialogDescription>
         </DialogHeader>
+        <div className="rounded-md border bg-muted/40 p-3 text-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">Selected sales total</span>
+            <span className="font-semibold">
+              {CURRENCY} {totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+          </div>
+        </div>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             <FormField
