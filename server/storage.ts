@@ -1905,7 +1905,9 @@ export class DatabaseStorage implements IStorage {
     const alloc = db
       .select({
         cashbookEntryId: cashbookPaymentAllocations.cashbookEntryId,
-        allocatedAmount: sql<number>`COALESCE(SUM(${cashbookPaymentAllocations.amountAllocated}::numeric), 0)`,
+        allocatedAmount: sql<number>`COALESCE(SUM(${cashbookPaymentAllocations.amountAllocated}::numeric), 0)`.as(
+          "allocatedAmount",
+        ),
       })
       .from(cashbookPaymentAllocations)
       .groupBy(cashbookPaymentAllocations.cashbookEntryId)

@@ -1224,6 +1224,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       res.json(entries);
     } catch (error) {
+      console.error("GET /api/cashbook failed:", error);
       res.status(500).json({ message: "Failed to fetch cashbook entries", error: error instanceof Error ? error.message : String(error) });
     }
   });
