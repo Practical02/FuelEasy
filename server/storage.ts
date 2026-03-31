@@ -1945,13 +1945,22 @@ export class DatabaseStorage implements IStorage {
     >;
 
     return result.map((r) => {
+      const accountHead: AccountHead =
+        r.accountHead ??
+        ({
+          id: r.accountHeadId,
+          name: "(Missing account head)",
+          type: "Other",
+          createdAt: new Date(0),
+        } as AccountHead);
+
       const entryWithAccountHead: CashbookEntryWithAccountHead = {
         ...r,
-        accountHead: r.accountHead!,
+        accountHead,
         allocatedAmount: r.allocatedAmount ?? 0,
       };
 
-      if (r.isInflow === 1 && r.accountHead && r.accountHead.type === "Client") {
+      if (r.isInflow === 1 && accountHead.type === "Client") {
         const totalAllocated = r.allocatedAmount ?? 0;
         const totalAmount = parseFloat(r.amount);
         let allocationStatus = "Not Allocated";
