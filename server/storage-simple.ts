@@ -199,6 +199,7 @@ export class MemStorage implements IStorage {
       salePricePerGallon: "3.200",
       purchasePricePerGallon: "2.800",
       lpoNumber: "LPO-EMT-2025-001",
+      deliveryNoteNumber: null,
       lpoReceivedDate: new Date("2025-01-22T09:00:00Z"),
       invoiceDate: null,
       saleStatus: "LPO Received",
@@ -220,6 +221,7 @@ export class MemStorage implements IStorage {
       salePricePerGallon: "3.150",
       purchasePricePerGallon: "2.750",
       lpoNumber: "LPO-DUB-2025-012",
+      deliveryNoteNumber: null,
       lpoReceivedDate: new Date("2025-01-25T13:00:00Z"),
       invoiceDate: new Date("2025-01-26T09:00:00Z"),
       saleStatus: "Invoiced",
@@ -241,6 +243,7 @@ export class MemStorage implements IStorage {
       salePricePerGallon: "3.180",
       purchasePricePerGallon: "2.850",
       lpoNumber: "LPO-ALF-2025-005",
+      deliveryNoteNumber: null,
       lpoReceivedDate: null,
       invoiceDate: null,
       saleStatus: "Pending LPO",
@@ -454,10 +457,11 @@ export class MemStorage implements IStorage {
     const cogs = quantity * parseFloat(insertSale.purchasePricePerGallon);
     const grossProfit = subtotal - cogs; // exclude VAT
     
-    const sale: Sale = { 
-      ...insertSale, 
+    const sale: Sale = {
+      ...insertSale,
       id,
       lpoNumber: insertSale.lpoNumber ?? null,
+      deliveryNoteNumber: insertSale.deliveryNoteNumber ?? null,
       lpoReceivedDate: insertSale.lpoReceivedDate ?? null,
       invoiceDate: insertSale.invoiceDate || null,
       saleStatus: insertSale.saleStatus || "Pending LPO",
@@ -493,6 +497,8 @@ export class MemStorage implements IStorage {
     const updatedSale: Sale = {
       ...existingSale,
       ...saleData,
+      deliveryNoteNumber:
+        saleData.deliveryNoteNumber !== undefined ? saleData.deliveryNoteNumber : (existingSale.deliveryNoteNumber ?? null),
       subtotal: subtotal.toFixed(2),
       vatAmount: vatAmount.toFixed(2),
       totalAmount: totalAmount.toFixed(2),
@@ -535,6 +541,7 @@ export class MemStorage implements IStorage {
       createdAt: new Date(),
       lpoNumber: (insertInvoice as any).lpoNumber ?? null,
       submissionDate: insertInvoice.submissionDate ?? null,
+      dueDate: insertInvoice.dueDate ?? null,
     };
     this.invoices.set(id, invoice);
     return invoice;

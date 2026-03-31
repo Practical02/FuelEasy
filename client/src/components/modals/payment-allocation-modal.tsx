@@ -55,8 +55,8 @@ export function PaymentAllocationModal({
     queryKey: ["/api/cashbook/pending-invoices", accountHeadId],
     queryFn: async () => {
       const url = accountHeadId 
-        ? `/api/cashbook/pending-invoices?accountHeadId=${accountHeadId}`
-        : "/api/cashbook/pending-invoices";
+        ? `/api/cashbook/pending-invoices?accountHeadId=${accountHeadId}&limit=500`
+        : "/api/cashbook/pending-invoices?limit=500";
       const response = await apiRequest("GET", url);
       return response.json();
     },

@@ -31,6 +31,10 @@ export default function CashbookPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
+  const CASHBOOK_PAGE_SIZE = 200;
+  const [page, setPage] = useState(0);
+  const cashbookLimit = (page + 1) * CASHBOOK_PAGE_SIZE;
+
   // Queries
   const cashbookQueryKey = [
     "/api/cashbook",
@@ -39,6 +43,7 @@ export default function CashbookPage() {
     filterDateTo,
     filterTransactionType,
     filterFlow,
+    cashbookLimit,
   ] as const;
 
   const { data: entries = [], isLoading: entriesLoading } = useQuery<CashbookEntryWithAccountHead[]>({
@@ -50,10 +55,15 @@ export default function CashbookPage() {
       if (filterDateTo) params.set("dateTo", filterDateTo);
       if (filterTransactionType !== "all") params.set("transactionType", filterTransactionType);
       if (filterFlow !== "all") params.set("flow", filterFlow);
+      params.set("limit", String(cashbookLimit));
       const q = params.toString();
       return (await apiRequest("GET", `/api/cashbook${q ? `?${q}` : ""}`)).json();
     },
   });
+
+  useEffect(() => {
+    setPage(0);
+  }, [filterAccountHeadId, filterDateFrom, filterDateTo, filterTransactionType, filterFlow]);
 
   const { data: accountHeads = [], isLoading: accountHeadsLoading } = useQuery<AccountHead[]>({
     queryKey: ["/api/account-heads"],
@@ -846,6 +856,13 @@ export default function CashbookPage() {
               ))}
             </TableBody>
           </Table>
+          {entries.length >= cashbookLimit && (
+            <div className="mt-4 flex justify-center">
+              <Button variant="outline" onClick={() => setPage((p) => p + 1)}>
+                Load more
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
 

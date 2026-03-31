@@ -155,6 +155,19 @@ function parseSalesListFilters(req: any): SalesListFilters {
 export async function registerRoutes(app: Express): Promise<Server> {
   await applySchemaPatches();
 
+  // Optional request timing (enable in prod with ENABLE_API_TIMING=1)
+  if (process.env.ENABLE_API_TIMING === "1") {
+    app.use((req, res, next) => {
+      const start = Date.now();
+      res.on("finish", () => {
+        const ms = Date.now() - start;
+        // Keep logs compact; Vercel captures stdout
+        console.log(`[api] ${req.method} ${req.originalUrl} -> ${res.statusCode} (${ms}ms)`);
+      });
+      next();
+    });
+  }
+
   // Rate limiters
   const loginLimiter = rateLimit({
     windowMs: 60 * 1000,
@@ -803,7 +816,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Payment routes
   app.get("/api/payments", requireAuth, async (req, res) => {
     try {
-      const payments = await storage.getPayments();
+      const limit = req.query.limit != null && req.query.limit !== "" ? Number(req.query.limit) : undefined;
+      const offset = req.query.offset != null && req.query.offset !== "" ? Number(req.query.offset) : undefined;
+      if (limit != null && (!Number.isFinite(limit) || limit < 1 || limit > 1000)) {
+        return res.status(400).json({ message: "Invalid limit" });
+      }
+      if (offset != null && (!Number.isFinite(offset) || offset < 0)) {
+        return res.status(400).json({ message: "Invalid offset" });
+      }
+      const payments = await storage.getPayments({ limit, offset });
       res.json(payments);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch payments", error: error instanceof Error ? error.message : String(error) });
@@ -821,16 +842,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...paymentData,
         amountReceived: paymentData.amountReceived.toString(),
       });
-
-      // After successful payment, check if the sale is fully paid
-      const sale = await storage.getSale(paymentData.saleId);
-      if (sale) {
-        const payments = await storage.getPaymentsBySale(paymentData.saleId);
-        const totalPaid = payments.reduce((acc, p) => acc + parseFloat(p.amountReceived), 0);
-        if (totalPaid >= parseFloat(sale.totalAmount)) {
-          await storage.updateSaleStatus(paymentData.saleId, "Paid");
-        }
-      }
       clearSalesDerivedCaches();
       res.json(payment);
     } catch (error) {
@@ -878,7 +889,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Invoice routes
   app.get("/api/invoices", requireAuth, async (req, res) => {
     try {
-      const invoices = await storage.getInvoices();
+      const limit = req.query.limit != null && req.query.limit !== "" ? Number(req.query.limit) : undefined;
+      const offset = req.query.offset != null && req.query.offset !== "" ? Number(req.query.offset) : undefined;
+      if (limit != null && (!Number.isFinite(limit) || limit < 1 || limit > 1000)) {
+        return res.status(400).json({ message: "Invalid limit" });
+      }
+      if (offset != null && (!Number.isFinite(offset) || offset < 0)) {
+        return res.status(400).json({ message: "Invalid offset" });
+      }
+      const invoices = await storage.getInvoices({ limit, offset });
       res.json(invoices);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch invoices", error: error instanceof Error ? error.message : String(error) });
@@ -1036,7 +1055,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Failed to fetch overdue clients", error: error instanceof Error ? error.message : String(error) });
     }
   });
-  app.get("/api/reports/overview", requireAuth, async (req, res) => {
+  app.get("/api/reports/overview", requireAuth, cacheMiddleware(60 * 1000), async (req, res) => {
     try {
       const [
         totalRevenue, 
@@ -1186,12 +1205,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const dateTo = typeof req.query.dateTo === "string" ? req.query.dateTo : undefined;
       const transactionType = typeof req.query.transactionType === "string" ? req.query.transactionType : undefined;
       const flow = typeof req.query.flow === "string" ? req.query.flow : undefined; // inflow | outflow
+      const limit = typeof req.query.limit === "string" && req.query.limit !== "" ? Number(req.query.limit) : undefined;
+      const offset = typeof req.query.offset === "string" && req.query.offset !== "" ? Number(req.query.offset) : undefined;
+      if (limit != null && (!Number.isFinite(limit) || limit < 1 || limit > 2000)) {
+        return res.status(400).json({ message: "Invalid limit" });
+      }
+      if (offset != null && (!Number.isFinite(offset) || offset < 0)) {
+        return res.status(400).json({ message: "Invalid offset" });
+      }
       const entries = await storage.getCashbookEntries({
         accountHeadId,
         dateFrom,
         dateTo,
         transactionType,
         flow: flow === "inflow" ? "inflow" : flow === "outflow" ? "outflow" : undefined,
+        limit,
+        offset,
       });
       res.json(entries);
     } catch (error) {
@@ -1331,8 +1360,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/cashbook/pending-invoices", requireAuth, async (req, res) => {
     try {
-      const accountHeadId = req.query.accountHeadId as string;
-      const pendingInvoices = await storage.getPendingInvoicesForAllocation(accountHeadId);
+      const accountHeadId = typeof req.query.accountHeadId === "string" ? req.query.accountHeadId : undefined;
+      const limit = typeof req.query.limit === "string" && req.query.limit !== "" ? Number(req.query.limit) : undefined;
+      const offset = typeof req.query.offset === "string" && req.query.offset !== "" ? Number(req.query.offset) : undefined;
+      if (limit != null && (!Number.isFinite(limit) || limit < 1 || limit > 2000)) {
+        return res.status(400).json({ message: "Invalid limit" });
+      }
+      if (offset != null && (!Number.isFinite(offset) || offset < 0)) {
+        return res.status(400).json({ message: "Invalid offset" });
+      }
+      const pendingInvoices = await storage.getPendingInvoicesForAllocation({ accountHeadId, limit, offset });
       res.json(pendingInvoices);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch pending invoices", error: error instanceof Error ? error.message : String(error) });

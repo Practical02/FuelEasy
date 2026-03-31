@@ -57,12 +57,21 @@ export default function Invoices() {
   >([]);
   const { toast } = useToast();
 
+  const INVOICES_PAGE_SIZE = 200;
+  const [page, setPage] = useState(0);
+  const invoicesLimit = (page + 1) * INVOICES_PAGE_SIZE;
+
   const { data: allInvoices, isLoading } = useQuery<InvoiceWithSale[]>({
-    queryKey: ["/api/invoices"],
+    queryKey: ["/api/invoices", { limit: invoicesLimit }],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/invoices?limit=${invoicesLimit}`);
+      return res.json();
+    },
   });
 
   // Use all invoices since we're not using soft delete anymore
   const invoices = allInvoices || [];
+  const canLoadMore = invoices.length >= invoicesLimit;
 
   const filteredInvoices = useMemo(() => {
     return invoices.filter((inv) => {
@@ -447,6 +456,13 @@ export default function Invoices() {
                 </tbody>
               </table>
             </div>
+            {canLoadMore && (
+              <div className="mt-4 flex justify-center">
+                <Button variant="outline" onClick={() => setPage((p) => p + 1)}>
+                  Load more
+                </Button>
+              </div>
+            )}
           </CardContent>
         </Card>
 

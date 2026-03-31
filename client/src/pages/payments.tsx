@@ -27,6 +27,10 @@ export default function Payments() {
   const [selectedPayment, setSelectedPayment] = useState<PaymentWithSaleAndClient | null>(null);
   const { toast } = useToast();
 
+  const PAYMENTS_PAGE_SIZE = 200;
+  const [page, setPage] = useState(0);
+  const paymentsLimit = (page + 1) * PAYMENTS_PAGE_SIZE;
+
   // Filter states
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedClients, setSelectedClients] = useState<string[]>([]);
@@ -37,7 +41,11 @@ export default function Payments() {
   const [maxAmount, setMaxAmount] = useState("");
 
   const { data: payments, isLoading } = useQuery<PaymentWithSaleAndClient[]>({
-    queryKey: ["/api/payments"],
+    queryKey: ["/api/payments", { limit: paymentsLimit }],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/payments?limit=${paymentsLimit}`);
+      return res.json();
+    },
   });
 
   const { data: clients } = useQuery<Client[]>({
@@ -315,6 +323,13 @@ export default function Payments() {
             Showing {filteredPayments.length} of {payments?.length || 0} payments
             {hasActiveFilters && <span className="font-medium"> (filtered)</span>}
           </p>
+          {!hasActiveFilters && payments && payments.length >= paymentsLimit && (
+            <div className="mt-2">
+              <Button variant="outline" onClick={() => setPage((p) => p + 1)}>
+                Load more
+              </Button>
+            </div>
+          )}
         </div>
 
         {/* Payment Summary */}

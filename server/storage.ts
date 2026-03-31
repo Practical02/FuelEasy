@@ -216,7 +216,7 @@ export interface IStorage {
   }>;
 
   // Invoice methods
-  getInvoices(): Promise<any[]>;
+  getInvoices(params?: { limit?: number; offset?: number }): Promise<any[]>;
   getInvoice(id: string): Promise<Invoice | undefined>;
   createInvoice(invoice: InsertInvoice): Promise<Invoice>;
   updateInvoice(id: string, invoice: InsertInvoice): Promise<Invoice | undefined>;
@@ -276,7 +276,22 @@ export interface IStorage {
   getCashbookPaymentAllocations(): Promise<CashbookPaymentAllocationWithInvoice[]>;
   createCashbookPaymentAllocation(allocation: InsertCashbookPaymentAllocation): Promise<CashbookPaymentAllocation>;
   getCashbookPaymentAllocationsByEntry(cashbookEntryId: string): Promise<CashbookPaymentAllocationWithInvoice[]>;
-  getPendingInvoicesForAllocation(accountHeadId?: string): Promise<any[]>;
+  getPendingInvoicesForAllocation(params?: {
+    accountHeadId?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<
+    Array<{
+      id: string;
+      invoiceNumber: string;
+      invoiceDate: Date;
+      totalAmount: string;
+      status: string;
+      allocatedAmount: number;
+      pendingAmount: number;
+      sale: SaleWithClient | null;
+    }>
+  >;
   getInvoiceAllocatedAmount(invoiceId: string): Promise<number>;
   updateInvoiceStatusIfPaid(invoiceId: string): Promise<void>;
 
@@ -689,6 +704,26 @@ export class DatabaseStorage implements IStorage {
     return replayById;
   }
 
+  private async applyFifoCostUpdates(
+    updates: Array<{ id: string; purchasePricePerGallon: string; cogs: string; grossProfit: string }>,
+  ): Promise<void> {
+    if (updates.length === 0) return;
+    const CHUNK = 200;
+    for (let i = 0; i < updates.length; i += CHUNK) {
+      const chunk = updates.slice(i, i + CHUNK);
+      const values = chunk.map((u) => sql`(${u.id}, ${u.purchasePricePerGallon}, ${u.cogs}, ${u.grossProfit})`);
+      await db.execute(sql`
+        UPDATE sales AS s
+        SET
+          purchase_price_per_gallon = v.ppg,
+          cogs = v.cogs,
+          gross_profit = v.gp
+        FROM (VALUES ${sql.join(values, sql`,`)}) AS v(id, ppg, cogs, gp)
+        WHERE s.id = v.id
+      `);
+    }
+  }
+
   private async reapplyFIFOCostsFromAnchor(anchor: {
     saleDate: Date;
     createdAt: Date;
@@ -700,20 +735,20 @@ export class DatabaseStorage implements IStorage {
       .from(sales)
       .orderBy(asc(sales.saleDate), asc(sales.createdAt), asc(sales.id));
 
+    const updates: Array<{ id: string; purchasePricePerGallon: string; cogs: string; grossProfit: string }> = [];
     for (const sale of salesList) {
       const rec = replayById.get(sale.id);
       if (!rec) continue;
       const subtotal = parseFloat(sale.subtotal);
       const grossProfit = subtotal - rec.cogs;
-      await db
-        .update(sales)
-        .set({
-          purchasePricePerGallon: rec.pricePerGallon.toFixed(SALE_PURCHASE_PPG_DECIMAL_PLACES),
-          cogs: rec.cogs.toFixed(SALE_COGS_DECIMAL_PLACES),
-          grossProfit: grossProfit.toFixed(SALE_COGS_DECIMAL_PLACES),
-        })
-        .where(eq(sales.id, sale.id));
+      updates.push({
+        id: sale.id,
+        purchasePricePerGallon: rec.pricePerGallon.toFixed(SALE_PURCHASE_PPG_DECIMAL_PLACES),
+        cogs: rec.cogs.toFixed(SALE_COGS_DECIMAL_PLACES),
+        grossProfit: grossProfit.toFixed(SALE_COGS_DECIMAL_PLACES),
+      });
     }
+    await this.applyFifoCostUpdates(updates);
   }
 
   /**
@@ -729,22 +764,20 @@ export class DatabaseStorage implements IStorage {
       .from(sales)
       .orderBy(asc(sales.saleDate), asc(sales.createdAt), asc(sales.id));
 
+    const updates: Array<{ id: string; purchasePricePerGallon: string; cogs: string; grossProfit: string }> = [];
     for (const sale of salesList) {
       const rec = replayById.get(sale.id);
       if (!rec) continue;
-
       const subtotal = parseFloat(sale.subtotal);
       const grossProfit = subtotal - rec.cogs;
-
-      await db
-        .update(sales)
-        .set({
-          purchasePricePerGallon: rec.pricePerGallon.toFixed(SALE_PURCHASE_PPG_DECIMAL_PLACES),
-          cogs: rec.cogs.toFixed(SALE_COGS_DECIMAL_PLACES),
-          grossProfit: grossProfit.toFixed(SALE_COGS_DECIMAL_PLACES),
-        })
-        .where(eq(sales.id, sale.id));
+      updates.push({
+        id: sale.id,
+        purchasePricePerGallon: rec.pricePerGallon.toFixed(SALE_PURCHASE_PPG_DECIMAL_PLACES),
+        cogs: rec.cogs.toFixed(SALE_COGS_DECIMAL_PLACES),
+        grossProfit: grossProfit.toFixed(SALE_COGS_DECIMAL_PLACES),
+      });
     }
+    await this.applyFifoCostUpdates(updates);
   }
 
   /**
@@ -1355,17 +1388,25 @@ export class DatabaseStorage implements IStorage {
     return result[0];
   }
 
-  async getInvoices(): Promise<any[]> {
+  async getInvoices(params?: { limit?: number; offset?: number }): Promise<any[]> {
     // Fetch invoices with primary sale join for backward-compat display
-    const invRows = await db
+    let invQuery: any = db
       .select({ inv: invoices, s: sales, c: clients, p: projects })
       .from(invoices)
       .leftJoin(sales, eq(invoices.saleId, sales.id))
       .leftJoin(clients, eq(sales.clientId, clients.id))
       .leftJoin(projects, eq(sales.projectId, projects.id))
       .orderBy(desc(invoices.createdAt));
+    if (typeof params?.limit === "number") invQuery = invQuery.limit(params.limit);
+    if (typeof params?.offset === "number") invQuery = invQuery.offset(params.offset);
+    const invRows = (await invQuery) as Array<{
+      inv: Invoice;
+      s: Sale | null;
+      c: Client | null;
+      p: Project | null;
+    }>;
 
-    const allInvoiceIds = invRows.map(r => r.inv.id);
+    const allInvoiceIds = invRows.map((r) => r.inv.id);
     // Compute allocated amounts per invoice
     const allocations = allInvoiceIds.length
       ? await db
@@ -1378,16 +1419,20 @@ export class DatabaseStorage implements IStorage {
     for (const a of allocations) allocatedMap[a.invoiceId] = a.amountAllocated;
 
     // Build list of all LPO numbers to fetch their sales
-    const lpoSet = new Set(invRows.map(r => r.inv.lpoNumber).filter(Boolean) as string[]);
+    const lpoSet = new Set(invRows.map((r) => r.inv.lpoNumber).filter(Boolean) as string[]);
     const lpoList = Array.from(lpoSet);
     const salesByLpo: Record<string, any[]> = {};
     if (lpoList.length) {
-      const lpoSales = await db
+      const lpoSales = (await db
         .select({ s: sales, c: clients, p: projects })
         .from(sales)
         .leftJoin(clients, eq(sales.clientId, clients.id))
         .leftJoin(projects, eq(sales.projectId, projects.id))
-        .where(inArray(sales.lpoNumber, lpoList));
+        .where(inArray(sales.lpoNumber, lpoList))) as Array<{
+        s: Sale;
+        c: Client | null;
+        p: Project | null;
+      }>;
       for (const row of lpoSales) {
         const lpo = row.s.lpoNumber || '';
         if (!salesByLpo[lpo]) salesByLpo[lpo] = [];
@@ -1395,7 +1440,7 @@ export class DatabaseStorage implements IStorage {
       }
     }
 
-    return invRows.map(r => {
+    return invRows.map((r) => {
       const inv = r.inv;
       const allocated = allocatedMap[inv.id] || 0;
       const pendingAmount = parseFloat(inv.totalAmount) - allocated;
@@ -1549,27 +1594,37 @@ export class DatabaseStorage implements IStorage {
     return invoice;
   }
 
-  async getPayments(): Promise<PaymentWithSaleAndClient[]> {
-    const paymentsData = await db.select().from(payments).orderBy(desc(payments.createdAt));
-    const result: PaymentWithSaleAndClient[] = [];
-    
-    for (const payment of paymentsData) {
-      const saleData = await db.select().from(sales).where(eq(sales.id, payment.saleId)).limit(1);
-      if (saleData[0]) {
-        const clientData = await db.select().from(clients).where(eq(clients.id, saleData[0].clientId)).limit(1);
-        if (clientData[0]) {
-          result.push({
-            ...payment,
-            sale: {
-              ...saleData[0],
-              client: clientData[0]
-            }
-          });
-        }
-      }
-    }
-    
-    return result;
+  async getPayments(params?: { limit?: number; offset?: number }): Promise<PaymentWithSaleAndClient[]> {
+    const limit = params?.limit;
+    const offset = params?.offset;
+
+    const base = db
+      .select({ payment: payments, sale: sales, client: clients })
+      .from(payments)
+      .leftJoin(sales, eq(payments.saleId, sales.id))
+      .leftJoin(clients, eq(sales.clientId, clients.id))
+      .orderBy(desc(payments.createdAt));
+
+    // Drizzle's fluent builder types can be hard to narrow across conditional chaining.
+    // We keep chaining dynamic parts via an `any`-typed builder while preserving runtime safety.
+    let q: any = base;
+    if (typeof limit === "number") q = q.limit(limit);
+    if (typeof offset === "number") q = q.offset(offset);
+
+    const rows = (await q) as Array<{
+      payment: Payment;
+      sale: Sale | null;
+      client: Client | null;
+    }>;
+    return rows
+      .filter((r) => r.sale != null && r.client != null)
+      .map((r) => ({
+        ...r.payment,
+        sale: {
+          ...r.sale!,
+          client: r.client!,
+        },
+      }));
   }
 
   async getPaymentsBySale(saleId: string): Promise<Payment[]> {
@@ -1832,6 +1887,8 @@ export class DatabaseStorage implements IStorage {
     dateTo?: string;
     transactionType?: string;
     flow?: "inflow" | "outflow";
+    limit?: number;
+    offset?: number;
   }): Promise<CashbookEntryWithAccountHead[]> {
     const conditions = [];
     if (filters?.accountHeadId) conditions.push(eq(cashbook.accountHeadId, filters.accountHeadId));
@@ -1845,7 +1902,16 @@ export class DatabaseStorage implements IStorage {
     if (filters?.flow === "inflow") conditions.push(eq(cashbook.isInflow, 1));
     if (filters?.flow === "outflow") conditions.push(eq(cashbook.isInflow, 0));
 
-    const base = db
+    const alloc = db
+      .select({
+        cashbookEntryId: cashbookPaymentAllocations.cashbookEntryId,
+        allocatedAmount: sql<number>`COALESCE(SUM(${cashbookPaymentAllocations.amountAllocated}::numeric), 0)`,
+      })
+      .from(cashbookPaymentAllocations)
+      .groupBy(cashbookPaymentAllocations.cashbookEntryId)
+      .as("alloc");
+
+    let base: any = db
       .select({
         id: cashbook.id,
         transactionDate: cashbook.transactionDate,
@@ -1863,49 +1929,42 @@ export class DatabaseStorage implements IStorage {
         notes: cashbook.notes,
         createdAt: cashbook.createdAt,
         accountHead: accountHeads,
+        allocatedAmount: sql<number>`COALESCE(${alloc.allocatedAmount}, 0)`,
       })
       .from(cashbook)
-      .leftJoin(accountHeads, eq(cashbook.accountHeadId, accountHeads.id));
-    const result = await (conditions.length
-      ? base.where(and(...conditions)).orderBy(desc(cashbook.transactionDate))
-      : base.orderBy(desc(cashbook.transactionDate)));
+      .leftJoin(accountHeads, eq(cashbook.accountHeadId, accountHeads.id))
+      .leftJoin(alloc, eq(alloc.cashbookEntryId, cashbook.id));
 
-    // Calculate allocation status for client payments
-    const entriesWithStatus = await Promise.all(
-      result.map(async (r) => {
-        const entryWithAccountHead = {
-          ...r,
-          accountHead: r.accountHead!,
-        };
+    if (conditions.length) base = base.where(and(...conditions));
+    base = base.orderBy(desc(cashbook.transactionDate));
+    if (typeof filters?.limit === "number") base = base.limit(filters.limit);
+    if (typeof filters?.offset === "number") base = base.offset(filters.offset);
 
-        // Only calculate status for client payments (inflow transactions)
-        if (r.isInflow === 1 && r.accountHead && r.accountHead.type === "Client") {
-          const totalAllocated = await this.getCashbookEntryAllocatedAmount(r.id);
-          const totalAmount = parseFloat(r.amount);
-          
-          let allocationStatus = "Not Allocated";
-          if (totalAllocated > 0) {
-            if (Math.abs(totalAllocated - totalAmount) < 0.01) {
-              allocationStatus = "Fully Allocated";
-            } else if (totalAllocated < totalAmount) {
-              allocationStatus = "Partially Allocated";
-            } else {
-              allocationStatus = "Over-allocated";
-            }
-          }
-          
-          return {
-            ...entryWithAccountHead,
-            allocationStatus,
-            allocatedAmount: totalAllocated,
-          };
+    const result = (await base) as Array<
+      CashbookEntryWithAccountHead & { allocatedAmount: number; accountHead: AccountHead | null }
+    >;
+
+    return result.map((r) => {
+      const entryWithAccountHead: CashbookEntryWithAccountHead = {
+        ...r,
+        accountHead: r.accountHead!,
+        allocatedAmount: r.allocatedAmount ?? 0,
+      };
+
+      if (r.isInflow === 1 && r.accountHead && r.accountHead.type === "Client") {
+        const totalAllocated = r.allocatedAmount ?? 0;
+        const totalAmount = parseFloat(r.amount);
+        let allocationStatus = "Not Allocated";
+        if (totalAllocated > 0) {
+          if (Math.abs(totalAllocated - totalAmount) < 0.01) allocationStatus = "Fully Allocated";
+          else if (totalAllocated < totalAmount) allocationStatus = "Partially Allocated";
+          else allocationStatus = "Over-allocated";
         }
+        entryWithAccountHead.allocationStatus = allocationStatus;
+      }
 
-        return entryWithAccountHead;
-      })
-    );
-
-    return entriesWithStatus;
+      return entryWithAccountHead;
+    });
   }
 
   async getCashbookEntry(id: string): Promise<CashbookEntry | undefined> {
@@ -2534,38 +2593,53 @@ export class DatabaseStorage implements IStorage {
 
   async bulkRecordLPO(params: { saleIds: string[]; lpoNumber: string; lpoReceivedDate?: Date }): Promise<{ updated: number; errors: string[] }> {
     const { saleIds, lpoNumber, lpoReceivedDate } = params;
+    const uniqueIds = Array.from(new Set(saleIds));
     const errors: string[] = [];
-    let updated = 0;
+    if (uniqueIds.length === 0) return { updated: 0, errors };
+
     const receivedDate = lpoReceivedDate || new Date();
-    for (const id of saleIds) {
-      try {
-        const sale = await this.getSale(id);
-        if (!sale) {
-          errors.push(`Sale ${id} not found`);
-          continue;
-        }
-        const { client, project, ...saleFields } = sale as SaleWithClient & { client?: unknown; project?: unknown };
-        const payload: InsertSale = {
-          clientId: saleFields.clientId,
-          projectId: saleFields.projectId,
-          saleDate: saleFields.saleDate,
-          quantityGallons: saleFields.quantityGallons,
-          salePricePerGallon: saleFields.salePricePerGallon,
-          purchasePricePerGallon: saleFields.purchasePricePerGallon,
-          lpoNumber,
-          deliveryNoteNumber: saleFields.deliveryNoteNumber ?? "",
-          lpoReceivedDate: receivedDate,
-          invoiceDate: saleFields.invoiceDate,
-          saleStatus: "LPO Received",
-          vatPercentage: saleFields.vatPercentage,
-        };
-        const updatedSale = await this.updateSale(id, payload);
-        if (updatedSale) updated++;
-      } catch (e) {
-        errors.push(`${id}: ${e instanceof Error ? e.message : String(e)}`);
-      }
+
+    const rows = await db
+      .select({ id: sales.id, saleDate: sales.saleDate, createdAt: sales.createdAt })
+      .from(sales)
+      .where(inArray(sales.id, uniqueIds));
+
+    const foundIds = new Set(rows.map((r) => r.id));
+    for (const id of uniqueIds) {
+      if (!foundIds.has(id)) errors.push(`Sale ${id} not found`);
     }
-    return { updated, errors };
+    if (rows.length === 0) return { updated: 0, errors };
+
+    // One-shot update: fast and avoids per-sale FIFO replay.
+    const updatedRows = await db
+      .update(sales)
+      .set({
+        lpoNumber,
+        lpoReceivedDate: receivedDate,
+        saleStatus: "LPO Received",
+      })
+      .where(inArray(sales.id, rows.map((r) => r.id)))
+      .returning({ id: sales.id, saleDate: sales.saleDate, createdAt: sales.createdAt });
+
+    // Single FIFO replay from earliest updated sale (safe; cheap vs N× replay).
+    const anchor = updatedRows.reduce(
+      (min, r) => {
+        const saleDate = new Date(r.saleDate as Date);
+        const createdAt = new Date(r.createdAt as Date);
+        if (!min) return { id: r.id, saleDate, createdAt };
+        if (saleDate.getTime() < min.saleDate.getTime()) return { id: r.id, saleDate, createdAt };
+        if (saleDate.getTime() === min.saleDate.getTime() && createdAt.getTime() < min.createdAt.getTime()) {
+          return { id: r.id, saleDate, createdAt };
+        }
+        return min;
+      },
+      null as null | { id: string; saleDate: Date; createdAt: Date },
+    );
+    if (anchor) {
+      await this.reapplyFIFOCostsFromAnchor(anchor);
+    }
+
+    return { updated: updatedRows.length, errors };
   }
 
   async getPendingBusinessReport(clientId?: string, dateFrom?: string, dateTo?: string): Promise<SaleWithClient[]> {
@@ -2779,7 +2853,23 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async getPendingInvoicesForAllocation(accountHeadId?: string): Promise<any[]> {
+  async getPendingInvoicesForAllocation(params?: {
+    accountHeadId?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<
+    Array<{
+      id: string;
+      invoiceNumber: string;
+      invoiceDate: Date;
+      totalAmount: string;
+      status: string;
+      allocatedAmount: number;
+      pendingAmount: number;
+      sale: SaleWithClient | null;
+    }>
+  > {
+    const accountHeadId = params?.accountHeadId;
     // If accountHeadId is provided, filter by client
     let clientId: string | undefined;
     if (accountHeadId) {
@@ -2805,8 +2895,18 @@ export class DatabaseStorage implements IStorage {
       }
     }
 
-    // Build the query with conditional client filter
-    const result = await db
+    const alloc = db
+      .select({
+        invoiceId: cashbookPaymentAllocations.invoiceId,
+        allocatedAmount: sql<number>`COALESCE(SUM(${cashbookPaymentAllocations.amountAllocated}::numeric), 0)`,
+      })
+      .from(cashbookPaymentAllocations)
+      .groupBy(cashbookPaymentAllocations.invoiceId)
+      .as("inv_alloc");
+
+    const pendingExpr = sql<number>`(${invoices.totalAmount}::numeric - COALESCE(${alloc.allocatedAmount}, 0))`;
+
+    let q: any = db
       .select({
         id: invoices.id,
         invoiceNumber: invoices.invoiceNumber,
@@ -2816,43 +2916,57 @@ export class DatabaseStorage implements IStorage {
         saleId: invoices.saleId,
         sale: sales,
         client: clients,
-        project: projects
+        project: projects,
+        allocatedAmount: sql<number>`COALESCE(${alloc.allocatedAmount}, 0)`,
+        pendingAmount: pendingExpr,
       })
       .from(invoices)
       .leftJoin(sales, eq(invoices.saleId, sales.id))
       .leftJoin(clients, eq(sales.clientId, clients.id))
       .leftJoin(projects, eq(sales.projectId, projects.id))
+      .leftJoin(alloc, eq(alloc.invoiceId, invoices.id))
       .where(
         clientId
-          ? and(inArray(invoices.status, ["Generated", "Sent"]), eq(sales.clientId, clientId))
-          : inArray(invoices.status, ["Generated", "Sent"]),
+          ? and(
+              inArray(invoices.status, ["Generated", "Sent"]),
+              eq(sales.clientId, clientId),
+              sql`${pendingExpr} > 0.009`,
+            )
+          : and(inArray(invoices.status, ["Generated", "Sent"]), sql`${pendingExpr} > 0.009`),
       );
+    q = q.orderBy(desc(invoices.invoiceDate));
+    if (typeof params?.limit === "number") q = q.limit(params.limit);
+    if (typeof params?.offset === "number") q = q.offset(params.offset);
 
-    // Calculate allocated amounts and build final result
-    const invoicesWithAllocations = await Promise.all(
-      result.map(async (row) => {
-        const allocatedAmount = await this.getInvoiceAllocatedAmount(row.id);
-        const pendingAmount = parseFloat(row.totalAmount) - allocatedAmount;
-        
-        return {
-          id: row.id,
-          invoiceNumber: row.invoiceNumber,
-          invoiceDate: row.invoiceDate,
-          totalAmount: row.totalAmount,
-          status: row.status,
-          allocatedAmount: allocatedAmount,
-          pendingAmount: pendingAmount,
-          sale: row.sale ? {
+    const result = (await q) as Array<{
+      id: string;
+      invoiceNumber: string;
+      invoiceDate: Date;
+      totalAmount: string;
+      status: string;
+      allocatedAmount: number;
+      pendingAmount: number;
+      sale: Sale | null;
+      client: Client | null;
+      project: Project | null;
+    }>;
+
+    return result.map((row) => ({
+      id: row.id,
+      invoiceNumber: row.invoiceNumber,
+      invoiceDate: row.invoiceDate,
+      totalAmount: row.totalAmount,
+      status: row.status,
+      allocatedAmount: row.allocatedAmount ?? 0,
+      pendingAmount: row.pendingAmount ?? 0,
+      sale: row.sale
+        ? {
             ...row.sale,
-            client: row.client,
-            project: row.project
-          } : null
-        };
-      })
-    );
-
-    // Only return invoices with pending amounts
-    return invoicesWithAllocations.filter(invoice => invoice.pendingAmount > 0);
+            client: row.client!,
+            project: row.project ?? null,
+          }
+        : null,
+    }));
   }
 
   async getInvoiceAllocatedAmount(invoiceId: string): Promise<number> {

@@ -4,5 +4,12 @@
  */
 import { applySchemaPatches } from "./schema-patches";
 
-await applySchemaPatches();
-console.log("Migration completed: invoices.due_date is ensured.");
+async function main() {
+  await applySchemaPatches();
+  console.log("Migration completed: schema patches ensured.");
+}
+
+main().catch((err) => {
+  console.error("Migration failed:", err);
+  process.exitCode = 1;
+});

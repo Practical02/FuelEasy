@@ -37,7 +37,7 @@ export default function Clients() {
 
   const { data: salesResponse } = useQuery({
     queryKey: SALES_ALL_QUERY_KEY,
-    queryFn: fetchAllSales,
+    queryFn: () => fetchAllSales(),
   });
   const sales: SaleWithClient[] = salesListFromResponse(salesResponse) as SaleWithClient[];
 
