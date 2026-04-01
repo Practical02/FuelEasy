@@ -101,6 +101,14 @@ const apiInsertSaleSchema = insertSaleSchema.extend({
   deliveryNoteNumber: z.string().min(1, "Delivery Note no. is required"),
 });
 
+/** PATCH: delivery note optional so Pending LPO / corrections can clear or set it later. */
+const apiPatchSaleSchema = insertSaleSchema.extend({
+  quantityGallons: z.number(),
+  salePricePerGallon: z.number(),
+  purchasePricePerGallon: z.number().optional(),
+  deliveryNoteNumber: z.string().optional().default(""),
+});
+
 const apiInsertPaymentSchema = insertPaymentSchema.extend({
   amountReceived: z.number(),
 });
@@ -710,13 +718,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         saleDate: new Date(req.body.saleDate),
         ...(req.body.lpoReceivedDate && { lpoReceivedDate: new Date(req.body.lpoReceivedDate) }),
       };
-      const validatedData = apiInsertSaleSchema.parse(requestData);
+      const validatedData = apiPatchSaleSchema.parse(requestData);
       const dnTrim = validatedData.deliveryNoteNumber.trim();
-      const dupId = await storage.findSaleIdByNormalizedDeliveryNote(dnTrim, req.params.id);
-      if (dupId) {
-        return res.status(409).json({
-          message: "This delivery note number is already used on another sale.",
-        });
+      if (dnTrim) {
+        const dupId = await storage.findSaleIdByNormalizedDeliveryNote(dnTrim, req.params.id);
+        if (dupId) {
+          return res.status(409).json({
+            message: "This delivery note number is already used on another sale.",
+          });
+        }
       }
       // On update, require purchase price (FIFO is only used on create to avoid double-counting this sale)
       const purchasePrice = validatedData.purchasePricePerGallon;
@@ -725,7 +735,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const saleDataForStorage: InsertSale = {
         ...validatedData,
-        deliveryNoteNumber: dnTrim,
+        deliveryNoteNumber: dnTrim.length > 0 ? dnTrim : null,
         quantityGallons: validatedData.quantityGallons.toString(),
         salePricePerGallon: validatedData.salePricePerGallon.toString(),
         purchasePricePerGallon: purchasePrice.toString(),

@@ -69,8 +69,6 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
     return () => window.clearTimeout(t);
   }, [rawDeliveryNote]);
 
-  const showDeliveryNoteField = sale?.saleStatus !== "Pending LPO";
-
   const { data: deliveryNoteCheck } = useQuery({
     queryKey: ["/api/sales/check-delivery-note", debouncedDeliveryNote, sale?.id] as const,
     queryFn: async () => {
@@ -85,7 +83,7 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
       if (!res.ok) return { taken: false as const };
       return res.json() as Promise<{ taken: boolean }>;
     },
-    enabled: open && showDeliveryNoteField && debouncedDeliveryNote.length > 0 && Boolean(sale?.id),
+    enabled: open && debouncedDeliveryNote.length > 0 && Boolean(sale?.id),
     staleTime: 15_000,
   });
 
@@ -131,9 +129,7 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
       }
 
       const { lpoReceivedDate: lpoDateInput, ...rest } = data;
-      const dn =
-        data.deliveryNoteNumber?.trim() ||
-        String((sale as any).deliveryNoteNumber ?? "").trim();
+      const dn = (data.deliveryNoteNumber ?? "").trim();
       const saleData: any = {
         ...rest,
         saleDate: new Date(data.saleDate).toISOString(),
@@ -360,30 +356,28 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
                 )}
               />
 
-              {sale?.saleStatus !== "Pending LPO" && (
-                <FormField
-                  control={form.control}
-                  name="deliveryNoteNumber"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Delivery Note no.</FormLabel>
-                      <FormControl>
-                        <Input placeholder="e.g. DN-2025-001" {...field} value={field.value ?? ""} />
-                      </FormControl>
-                      <FormMessage />
-                      {deliveryNoteTaken && (
-                        <Alert className="mt-2 border-amber-500/50 bg-amber-50 text-amber-950 dark:bg-amber-950/20 dark:text-amber-100 dark:border-amber-600/50">
-                          <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-                          <AlertTitle className="text-amber-900 dark:text-amber-100">Delivery note already in use</AlertTitle>
-                          <AlertDescription>
-                            Another sale is using this number (matching is case-insensitive). Use a different delivery note or you cannot save.
-                          </AlertDescription>
-                        </Alert>
-                      )}
-                    </FormItem>
-                  )}
-                />
-              )}
+              <FormField
+                control={form.control}
+                name="deliveryNoteNumber"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Delivery Note no.</FormLabel>
+                    <FormControl>
+                      <Input placeholder="e.g. DN-2025-001 (optional until issued)" {...field} value={field.value ?? ""} />
+                    </FormControl>
+                    <FormMessage />
+                    {deliveryNoteTaken && (
+                      <Alert className="mt-2 border-amber-500/50 bg-amber-50 text-amber-950 dark:bg-amber-950/20 dark:text-amber-100 dark:border-amber-600/50">
+                        <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                        <AlertTitle className="text-amber-900 dark:text-amber-100">Delivery note already in use</AlertTitle>
+                        <AlertDescription>
+                          Another sale is using this number (matching is case-insensitive). Use a different delivery note or you cannot save.
+                        </AlertDescription>
+                      </Alert>
+                    )}
+                  </FormItem>
+                )}
+              />
 
               <FormField
                 control={form.control}
@@ -504,7 +498,7 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
               </Button>
               <Button 
                 type="submit" 
-                disabled={updateSaleMutation.isPending || (showDeliveryNoteField && deliveryNoteTaken)}
+                disabled={updateSaleMutation.isPending || deliveryNoteTaken}
                 className="w-full sm:w-auto bg-blue-600 text-white hover:bg-blue-700"
               >
                 {updateSaleMutation.isPending ? "Updating..." : "Update Sale"}
