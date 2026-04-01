@@ -719,7 +719,7 @@ export class DatabaseStorage implements IStorage {
           cogs = v.cogs,
           gross_profit = v.gp
         FROM (VALUES ${sql.join(values, sql`,`)}) AS v(id, ppg, cogs, gp)
-        WHERE s.id = v.id
+        WHERE s.id = v.id::uuid
       `);
     }
   }
