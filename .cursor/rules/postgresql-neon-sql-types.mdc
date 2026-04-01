@@ -1,0 +1,15 @@
+---
+description: PostgreSQL/Neon raw SQL — avoid uuid=text and numeric=text mismatches
+globs: server/**/*.ts
+alwaysApply: false
+---
+
+# Raw SQL and Neon (PostgreSQL)
+
+When adding or changing raw SQL in `server/` (especially `db.execute` with a Drizzle `sql` template literal):
+
+1. **Review risky patterns** before merging: search for `VALUES`, `UPDATE ... FROM`, and `db.execute`.
+2. **Parameterized `VALUES (...)`** rows often infer columns as **text**. Do not compare or assign them to **uuid** or **numeric** columns without explicit casts (`::uuid`, `::numeric`, etc.).
+3. **Prefer** Drizzle query builders (`eq`, `update`, `inArray`) where they carry correct types; use raw SQL only when necessary and keep casts explicit.
+
+Reference implementation: bulk FIFO sale updates in `server/storage.ts` (`applyFifoCostUpdates`).

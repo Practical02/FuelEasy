@@ -704,6 +704,7 @@ export class DatabaseStorage implements IStorage {
     return replayById;
   }
 
+  /** Bulk-update sale cost fields. `VALUES` rows from bound params infer as text in PostgreSQL; cast to uuid/numeric when joining or assigning to typed columns (Neon errors 42883 / 42804 otherwise). */
   private async applyFifoCostUpdates(
     updates: Array<{ id: string; purchasePricePerGallon: string; cogs: string; grossProfit: string }>,
   ): Promise<void> {
@@ -715,9 +716,9 @@ export class DatabaseStorage implements IStorage {
       await db.execute(sql`
         UPDATE sales AS s
         SET
-          purchase_price_per_gallon = v.ppg,
-          cogs = v.cogs,
-          gross_profit = v.gp
+          purchase_price_per_gallon = v.ppg::numeric,
+          cogs = v.cogs::numeric,
+          gross_profit = v.gp::numeric
         FROM (VALUES ${sql.join(values, sql`,`)}) AS v(id, ppg, cogs, gp)
         WHERE s.id = v.id::uuid
       `);
