@@ -13,6 +13,7 @@ import type { InsertInvoice, Invoice } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { CURRENCY } from "@/lib/constants";
 import { salesKeys } from "@/lib/sales-query";
+import { fromDateInputValue, toCalendarDayIsoForApi, toDateInputValue } from "@/lib/calendar-date";
 import { z } from "zod";
 
 /** List row shape includes joined `sale` and `pendingAmount`; core invoice fields drive the form. */
@@ -72,12 +73,12 @@ export default function EditInvoiceModal({ open, onOpenChange, invoice }: EditIn
         credentials: "include",
         body: JSON.stringify({
           ...payload,
-          invoiceDate: payload.invoiceDate instanceof Date ? payload.invoiceDate.toISOString() : payload.invoiceDate,
+          invoiceDate: toCalendarDayIsoForApi(payload.invoiceDate),
           submissionDate:
             payload.submissionDate === null || payload.submissionDate === undefined
               ? payload.submissionDate
               : payload.submissionDate instanceof Date
-                ? payload.submissionDate.toISOString()
+                ? toCalendarDayIsoForApi(payload.submissionDate)
                 : payload.submissionDate,
           dueDate:
             payload.dueDate === null || payload.dueDate === undefined
@@ -241,8 +242,8 @@ export default function EditInvoiceModal({ open, onOpenChange, invoice }: EditIn
                   <FormControl>
                     <Input
                       type="date"
-                      value={field.value instanceof Date ? field.value.toISOString().split('T')[0] : ''}
-                      onChange={(e) => field.onChange(new Date(e.target.value))}
+                      value={toDateInputValue(field.value)}
+                      onChange={(e) => field.onChange(fromDateInputValue(e.target.value))}
                     />
                   </FormControl>
                   <FormMessage />
@@ -259,9 +260,9 @@ export default function EditInvoiceModal({ open, onOpenChange, invoice }: EditIn
                   <FormControl>
                     <Input
                       type="date"
-                      value={field.value instanceof Date ? field.value.toISOString().split('T')[0] : ""}
+                      value={toDateInputValue(field.value)}
                       onChange={(e) =>
-                        field.onChange(e.target.value ? new Date(e.target.value) : null)
+                        field.onChange(e.target.value ? fromDateInputValue(e.target.value) : null)
                       }
                     />
                   </FormControl>

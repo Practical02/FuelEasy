@@ -118,6 +118,8 @@ export default function BulkInvoicePaymentModal({
         queryClient.invalidateQueries({ queryKey: salesKeys.root }),
         queryClient.invalidateQueries({ queryKey: ["/api/payments"] }),
         queryClient.invalidateQueries({ queryKey: ["/api/cashbook"] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/cashbook/payment-allocations"] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/cashbook/pending-invoices"] }),
         queryClient.invalidateQueries({ queryKey: ["/api/reports/overview"] }),
       ]);
       toast({

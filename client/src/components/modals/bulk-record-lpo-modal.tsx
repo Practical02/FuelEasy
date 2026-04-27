@@ -22,6 +22,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { salesKeys } from "@/lib/sales-query";
 import { CURRENCY } from "@/lib/constants";
+import { toCalendarDayIsoForApi, toDateInputValue } from "@/lib/calendar-date";
 import { z } from "zod";
 
 const bulkLpoSchema = z.object({
@@ -51,7 +52,7 @@ export default function BulkRecordLpoModal({
     resolver: zodResolver(bulkLpoSchema),
     defaultValues: {
       lpoNumber: "",
-      lpoReceivedDate: new Date().toISOString().slice(0, 10),
+      lpoReceivedDate: toDateInputValue(new Date()),
     },
   });
 
@@ -60,7 +61,7 @@ export default function BulkRecordLpoModal({
       const res = await apiRequest("POST", "/api/sales/bulk-record-lpo", {
         saleIds,
         lpoNumber: data.lpoNumber,
-        lpoReceivedDate: data.lpoReceivedDate ? new Date(data.lpoReceivedDate).toISOString() : undefined,
+        lpoReceivedDate: data.lpoReceivedDate ? toCalendarDayIsoForApi(data.lpoReceivedDate) : undefined,
       });
       return res.json();
     },
@@ -90,7 +91,7 @@ export default function BulkRecordLpoModal({
       }
       form.reset({
         lpoNumber: "",
-        lpoReceivedDate: new Date().toISOString().slice(0, 10),
+        lpoReceivedDate: toDateInputValue(new Date()),
       });
       onOpenChange(false);
       onSuccess?.();

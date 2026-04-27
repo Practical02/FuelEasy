@@ -14,6 +14,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { SALES_ALL_QUERY_KEY, salesKeys } from "@/lib/sales-query";
 import { useToast } from "@/hooks/use-toast";
 import { CURRENCY } from "@/lib/constants";
+import { fromDateInputValue, toCalendarDayIsoForApi, toDateInputValue } from "@/lib/calendar-date";
 import { z } from "zod";
 
 // Simplified schema for simple payment
@@ -110,7 +111,7 @@ export default function PaymentModal({ open, onOpenChange, saleId }: PaymentModa
     mutationFn: async (data: z.infer<typeof paymentFormSchema>) => {
       const payload = {
         saleId: data.saleId,
-        paymentDate: data.paymentDate.toISOString().split('T')[0],
+        paymentDate: toCalendarDayIsoForApi(data.paymentDate),
         paymentMethod: data.paymentMethod,
         amountReceived: data.amountReceived,
         chequeNumber: data.paymentMethod === "Cheque" ? data.chequeNumber : null,
@@ -120,9 +121,13 @@ export default function PaymentModal({ open, onOpenChange, saleId }: PaymentModa
     },
     onSuccess: async () => {
       await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["/api/invoices"] }),
         queryClient.invalidateQueries({ queryKey: ["/api/payments"] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/cashbook/payment-allocations"] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/cashbook/pending-invoices"] }),
         queryClient.invalidateQueries({ queryKey: salesKeys.root }),
         queryClient.invalidateQueries({ queryKey: ["/api/cashbook"] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/reports/overview"] }),
       ]);
       toast({
         title: "Payment Recorded Successfully",
@@ -257,8 +262,8 @@ export default function PaymentModal({ open, onOpenChange, saleId }: PaymentModa
                     <FormControl>
                       <Input
                         type="date"
-                        value={field.value instanceof Date ? field.value.toISOString().split('T')[0] : new Date(field.value).toISOString().split('T')[0]}
-                        onChange={(e) => field.onChange(new Date(e.target.value))}
+                        value={toDateInputValue(field.value)}
+                        onChange={(e) => field.onChange(fromDateInputValue(e.target.value))}
                       />
                     </FormControl>
                     <FormMessage />

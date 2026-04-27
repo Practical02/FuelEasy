@@ -125,6 +125,7 @@ export function PaymentAllocationModal({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/cashbook/payment-allocations"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/cashbook/pending-invoices"] });
       queryClient.invalidateQueries({ queryKey: ["/api/cashbook"] });
       queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
       onOpenChange(false);

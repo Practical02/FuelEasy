@@ -26,6 +26,7 @@ import {
   ShoppingCart,
 } from "lucide-react";
 import { CURRENCY } from "@/lib/constants";
+import { formatCalendarDateLocale } from "@/lib/calendar-date";
 import type { SaleWithClient } from "@shared/schema";
 import { fetchSalesList, salesKeys, salesListFromResponse } from "@/lib/sales-query";
 
@@ -302,7 +303,7 @@ export default function Dashboard() {
                       <div className="flex-1 min-w-0">
                         <p className="font-medium text-gray-900 truncate">{sale.client.name}</p>
                         <p className="text-sm text-gray-500">
-                          {new Date(sale.saleDate).toLocaleDateString()}
+                          {formatCalendarDateLocale(sale.saleDate)}
                         </p>
                       </div>
                       <div className="text-right ml-4">

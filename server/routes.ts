@@ -66,6 +66,19 @@ function clearSalesDerivedCaches(): void {
   clearCachePattern("/api/reports/overview");
 }
 
+function getHeaderValue(req: any, name: string): string | undefined {
+  const raw = req.headers[name.toLowerCase()];
+  return typeof raw === "string" ? raw : Array.isArray(raw) ? raw[0] : undefined;
+}
+
+function requireOptionalOperationalSecret(req: any, res: any, envName: string, headerName: string): boolean {
+  const secret = process.env[envName]?.trim();
+  if (!secret) return true;
+  if (getHeaderValue(req, headerName) === secret) return true;
+  res.status(403).json({ message: "Not allowed to run this operational action" });
+  return false;
+}
+
 // Cache middleware for GET requests
 function cacheMiddleware(ttlMs: number = 60000) {
   return (req: any, res: any, next: any) => {
@@ -786,12 +799,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   /** One-shot: realign all sales' COGS / purchase price with FIFO (fixes drift after past sale deletes). */
-  app.post("/api/sales/reconcile-fifo-costs", requireAuth, writeLimiter, async (_req, res) => {
+  app.post("/api/sales/reconcile-fifo-costs", requireAuth, writeLimiter, async (req, res) => {
+    if (!requireOptionalOperationalSecret(req, res, "FIFO_RECONCILE_SECRET", "x-fuelflow-fifo-reconcile")) return;
     try {
       await storage.reapplyFIFOCostsToAllSales();
       clearSalesDerivedCaches();
       res.json({ message: "FIFO costs reconciled for all sales" });
     } catch (error) {
+      if (
+        error instanceof Error &&
+        (error.name === "FifoInsufficientStockError" ||
+          (typeof (error as any).code === "string" && (error as any).code === "FIFO_INSUFFICIENT_STOCK"))
+      ) {
+        return res.status(400).json({
+          message: "Cannot reconcile: total sales exceed available stock for FIFO. Add stock or reduce sale quantities.",
+          error: error.message,
+        });
+      }
       res.status(500).json({
         message: "Failed to reconcile FIFO costs",
         error: error instanceof Error ? error.message : String(error),
@@ -882,6 +906,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.post("/api/payments/migrate-to-cashbook", requireAuth, writeLimiter, async (req, res) => {
+    if (!requireOptionalOperationalSecret(req, res, "OPERATIONAL_ACTION_SECRET", "x-fuelflow-operational-action")) return;
     try {
       const migratedCount = await storage.migratePaymentsToCashbook();
       res.json({ 
@@ -1266,7 +1291,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/cashbook/reconcile-stock-purchases", requireAuth, writeLimiter, async (_req, res) => {
+  app.post("/api/cashbook/reconcile-stock-purchases", requireAuth, writeLimiter, async (req, res) => {
+    if (!requireOptionalOperationalSecret(req, res, "OPERATIONAL_ACTION_SECRET", "x-fuelflow-operational-action")) return;
     try {
       const result = await storage.reconcileStockPurchaseCashbookEntries();
       res.json({

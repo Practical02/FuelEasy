@@ -16,6 +16,11 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { CURRENCY } from "@/lib/constants";
 import { salesKeys } from "@/lib/sales-query";
+import {
+  toCalendarDayIsoForApi,
+  toDateInputValue,
+  fromDateInputValue,
+} from "@/lib/calendar-date";
 import { z } from "zod";
 
 const editSaleFormSchema = insertSaleSchema.extend({
@@ -106,9 +111,7 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
         purchasePricePerGallon: sale.purchasePricePerGallon ? parseFloat(sale.purchasePricePerGallon) : undefined,
         lpoNumber: sale.lpoNumber || "",
         deliveryNoteNumber: (sale as any).deliveryNoteNumber || "",
-        lpoReceivedDate: sale.lpoReceivedDate
-          ? new Date(sale.lpoReceivedDate).toISOString().slice(0, 10)
-          : "",
+        lpoReceivedDate: sale.lpoReceivedDate ? toDateInputValue(sale.lpoReceivedDate) : "",
         vatPercentage: sale.vatPercentage,
         saleStatus: sale.saleStatus,
       });
@@ -132,13 +135,13 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
       const dn = (data.deliveryNoteNumber ?? "").trim();
       const saleData: any = {
         ...rest,
-        saleDate: new Date(data.saleDate).toISOString(),
+        saleDate: toCalendarDayIsoForApi(data.saleDate),
         invoiceDate: data.saleStatus === "Invoiced" || data.saleStatus === "Paid" 
           ? new Date().toISOString() 
           : null,
         deliveryNoteNumber: dn,
         lpoReceivedDate: lpoDateInput?.trim()
-          ? new Date(`${lpoDateInput.trim()}T12:00:00`).toISOString()
+          ? toCalendarDayIsoForApi(lpoDateInput.trim())
           : null,
       };
 
@@ -304,8 +307,8 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
                     <FormControl>
                       <Input
                         type="date"
-                        value={field.value instanceof Date ? field.value.toISOString().split('T')[0] : field.value}
-                        onChange={(e) => field.onChange(new Date(e.target.value))}
+                        value={field.value instanceof Date ? toDateInputValue(field.value) : (field.value ?? "")}
+                        onChange={(e) => field.onChange(fromDateInputValue(e.target.value))}
                       />
                     </FormControl>
                     <FormMessage />
@@ -348,7 +351,7 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
                         type="date"
                         {...field}
                         value={field.value ?? ""}
-                        onChange={(e) => field.onChange(e.target.value)}
+                        onChange={(e) => field.onChange(e.target.value ? e.target.value : "")}
                       />
                     </FormControl>
                     <FormMessage />

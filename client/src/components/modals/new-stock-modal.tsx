@@ -12,6 +12,7 @@ import { insertStockSchema } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { CURRENCY } from "@/lib/constants";
+import { fromDateInputValue, toCalendarDayIsoForApi, toDateInputValue } from "@/lib/calendar-date";
 import { z } from "zod";
 
 const stockFormSchema = insertStockSchema.omit({
@@ -58,7 +59,7 @@ export default function NewStockModal({ open, onOpenChange }: NewStockModalProps
 
       const response = await apiRequest("POST", "/api/stock", {
         ...data,
-        purchaseDate: new Date(data.purchaseDate).toISOString(),
+        purchaseDate: toCalendarDayIsoForApi(data.purchaseDate),
         vatAmount: vatAmount.toFixed(2),
         totalCost: totalCost.toFixed(2),
       });
@@ -134,8 +135,8 @@ export default function NewStockModal({ open, onOpenChange }: NewStockModalProps
                   <FormControl>
                     <Input
                       type="date"
-                      value={field.value instanceof Date ? field.value.toISOString().split('T')[0] : ''}
-                      onChange={(e) => field.onChange(new Date(e.target.value))}
+                      value={toDateInputValue(field.value)}
+                      onChange={(e) => field.onChange(fromDateInputValue(e.target.value))}
                     />
                   </FormControl>
                   <FormMessage />

@@ -3,6 +3,7 @@ import { Drawer, DrawerContent } from "@/components/ui/drawer";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { formatCalendarDateLocale } from "@/lib/calendar-date";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -88,7 +89,7 @@ export default function ViewSaleModal({ open, onOpenChange, sale }: ViewSaleModa
                   <div>
                     <p className="text-sm text-gray-500">Sale Date</p>
                     <p className="font-medium text-gray-900">
-                      {new Date(sale.saleDate).toLocaleDateString()}
+                      {formatCalendarDateLocale(sale.saleDate)}
                     </p>
                   </div>
                 </div>
@@ -114,7 +115,7 @@ export default function ViewSaleModal({ open, onOpenChange, sale }: ViewSaleModa
                     <div>
                       <p className="text-sm text-gray-500">Invoice Date</p>
                       <p className="font-medium text-gray-900">
-                        {new Date(sale.invoiceDate).toLocaleDateString()}
+                        {formatCalendarDateLocale(sale.invoiceDate)}
                       </p>
                     </div>
                   </div>

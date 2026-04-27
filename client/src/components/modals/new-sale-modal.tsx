@@ -17,6 +17,11 @@ import { salesKeys } from "@/lib/sales-query";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { CURRENCY, VAT_PERCENTAGE } from "@/lib/constants";
+import {
+  toCalendarDayIsoForApi,
+  toDateInputValue,
+  fromDateInputValue,
+} from "@/lib/calendar-date";
 import { z } from "zod";
 import type { Client, Project } from "@shared/schema";
 
@@ -94,7 +99,7 @@ export default function NewSaleModal({ open, onOpenChange }: NewSaleModalProps) 
       const saleData: any = {
         ...data,
         deliveryNoteNumber: data.deliveryNoteNumber.trim(),
-        saleDate: new Date(data.saleDate).toISOString(),
+        saleDate: toCalendarDayIsoForApi(data.saleDate),
       };
 
       const res = await fetch("/api/sales", {
@@ -255,8 +260,8 @@ export default function NewSaleModal({ open, onOpenChange }: NewSaleModalProps) 
                     <FormControl>
                       <Input
                         type="date"
-                        value={field.value instanceof Date ? field.value.toISOString().split('T')[0] : ''}
-                        onChange={(e) => field.onChange(new Date(e.target.value))}
+                        value={field.value instanceof Date ? toDateInputValue(field.value) : ""}
+                        onChange={(e) => field.onChange(fromDateInputValue(e.target.value))}
                       />
                     </FormControl>
                     <FormMessage />

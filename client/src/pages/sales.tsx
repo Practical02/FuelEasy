@@ -26,6 +26,7 @@ import {
   type SalesListQuery,
 } from "@/lib/sales-query";
 import { useToast } from "@/hooks/use-toast";
+import { formatCalendarDateLocale } from "@/lib/calendar-date";
 import type { SaleWithClient, Client, Project } from "@shared/schema";
 
 /** LPO, else delivery note no., else short id — never show the string "null". */
@@ -452,7 +453,7 @@ export default function Sales() {
                     salesRows.map((sale) => (
                       <tr key={sale.id} className="border-b border-gray-100 hover:bg-gray-50">
                         <td className="py-3 px-4 text-sm text-gray-900">
-                          {new Date(sale.saleDate).toLocaleDateString()}
+                          {formatCalendarDateLocale(sale.saleDate)}
                         </td>
                         <td className="py-3 px-4 text-sm text-gray-900">{sale.client.name}</td>
                         <td className="py-3 px-4 text-sm text-gray-900">
@@ -539,7 +540,7 @@ export default function Sales() {
                         <div className="flex-1 min-w-0">
                           <h4 className="font-semibold text-gray-900 truncate">{sale.client.name}</h4>
                           <p className="text-sm text-gray-500">
-                            {new Date(sale.saleDate).toLocaleDateString()}
+                            {formatCalendarDateLocale(sale.saleDate)}
                           </p>
                         </div>
                         <div className="ml-4">

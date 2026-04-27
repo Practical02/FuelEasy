@@ -611,6 +611,12 @@ export class DatabaseStorage implements IStorage {
         }
       }
 
+      if (need > 0.000001) {
+        throw new FifoInsufficientStockError(
+          `Insufficient stock during full FIFO replay at sale ${sale.id}`,
+        );
+      }
+
       const { cogs, pricePerGallon } = cogsAndPpgFromFifoRawTotal(totalCost, qty);
       replayById.set(sale.id, { cogs, pricePerGallon });
     }
@@ -926,11 +932,21 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateClient(id: string, insertClient: InsertClient): Promise<Client | undefined> {
+    const existing = await db.select().from(clients).where(eq(clients.id, id)).limit(1);
+    if (!existing[0]) return undefined;
+
     const result = await db
       .update(clients)
       .set(insertClient)
       .where(eq(clients.id, id))
       .returning();
+
+    if (result[0] && existing[0].name !== result[0].name) {
+      await db
+        .update(accountHeads)
+        .set({ name: result[0].name })
+        .where(and(eq(accountHeads.name, existing[0].name), eq(accountHeads.type, "Client")));
+    }
     return result[0];
   }
 
@@ -947,14 +963,30 @@ export class DatabaseStorage implements IStorage {
         return false;
       }
 
-      // Delete operations without transaction (for Neon HTTP driver compatibility)
-      // 1. Get all sales for this client
+      // Delete operations without transaction (for Neon HTTP driver compatibility).
+      // Preflight first so we fail before deleting anything when linked records need manual handling.
       const clientSales = await db
         .select()
         .from(sales)
         .where(eq(sales.clientId, id));
 
-      // 2. For each sale, delete related data
+      for (const sale of clientSales) {
+        const linkedInvoiceRows = await db
+          .select({ invoiceId: invoiceSales.invoiceId })
+          .from(invoiceSales)
+          .where(eq(invoiceSales.saleId, sale.id));
+        for (const row of linkedInvoiceRows) {
+          const linkCount = await db
+            .select({ count: sql<number>`COUNT(*)` })
+            .from(invoiceSales)
+            .where(eq(invoiceSales.invoiceId, row.invoiceId));
+          if ((linkCount[0]?.count || 0) > 1) {
+            throw new Error("Cannot delete client with sales linked to multi-sale invoices. Delete or adjust those invoices first.");
+          }
+        }
+      }
+
+      // 1. For each sale, delete related data
       for (const sale of clientSales) {
         // Delete cashbook payment allocations for invoices of this sale
         const saleInvoices = await db
@@ -966,6 +998,9 @@ export class DatabaseStorage implements IStorage {
           await db
             .delete(cashbookPaymentAllocations)
             .where(eq(cashbookPaymentAllocations.invoiceId, invoice.id));
+          await db
+            .delete(invoiceSales)
+            .where(eq(invoiceSales.invoiceId, invoice.id));
         }
 
         // Delete cashbook entries related to payments for this sale
@@ -994,22 +1029,22 @@ export class DatabaseStorage implements IStorage {
           .where(eq(invoices.saleId, sale.id));
       }
 
-      // 3. Delete all sales for this client
+      // 2. Delete all sales for this client
       await db
         .delete(sales)
         .where(eq(sales.clientId, id));
 
-      // 4. Delete all projects for this client
+      // 3. Delete all projects for this client
       await db
         .delete(projects)
         .where(eq(projects.clientId, id));
 
-      // 5. Delete the account head for this client (if it exists)
+      // 4. Delete the account head for this client (if it exists)
       await db
         .delete(accountHeads)
-        .where(eq(accountHeads.name, client[0].name));
+        .where(and(eq(accountHeads.name, client[0].name), eq(accountHeads.type, "Client")));
 
-      // 6. Delete the client itself
+      // 5. Delete the client itself
       const result = await db
         .delete(clients)
         .where(eq(clients.id, id))
@@ -1357,14 +1392,29 @@ export class DatabaseStorage implements IStorage {
     
     // Create cashbook entry for sale revenue when sale is completed/paid
     if (saleData.saleStatus === "Paid") {
+      const client = await this.getClient(insertSale.clientId);
+      if (!client) {
+        throw new Error("Client not found for paid sale");
+      }
+      let clientAccountHead = await db
+        .select()
+        .from(accountHeads)
+        .where(and(eq(accountHeads.name, client.name), eq(accountHeads.type, "Client")))
+        .limit(1);
+      if (!clientAccountHead[0]) {
+        clientAccountHead = await db
+          .insert(accountHeads)
+          .values({ name: client.name, type: "Client" })
+          .returning();
+      }
       await this.createCashbookEntry({
         transactionDate: insertSale.saleDate,
         transactionType: "Sale Revenue",
-        accountHeadId: insertSale.clientId,
+        accountHeadId: clientAccountHead[0].id,
         amount: totalAmount.toFixed(2),
         isInflow: 1,
         description: `Sale revenue - ${quantity} gallons`,
-        counterparty: "Client",
+        counterparty: client.name,
         paymentMethod: "Cash",
         referenceType: "sale",
         referenceId: result[0].id,
@@ -1650,7 +1700,7 @@ export class DatabaseStorage implements IStorage {
     let clientAccountHead = await db
       .select()
       .from(accountHeads)
-      .where(eq(accountHeads.name, client.name))
+      .where(and(eq(accountHeads.name, client.name), eq(accountHeads.type, "Client")))
       .limit(1);
 
     if (clientAccountHead.length === 0) {
@@ -1797,7 +1847,7 @@ export class DatabaseStorage implements IStorage {
     let clientAccountHead = await db
       .select()
       .from(accountHeads)
-      .where(eq(accountHeads.name, rows[0].clientName))
+      .where(and(eq(accountHeads.name, rows[0].clientName), eq(accountHeads.type, "Client")))
       .limit(1);
     if (clientAccountHead.length === 0) {
       const created = await db
@@ -3584,7 +3634,11 @@ export class DatabaseStorage implements IStorage {
         // Create cashbook entry for this payment
         const client = payment.sale.client;
         
-        let clientAccountHead = await db.select().from(accountHeads).where(eq(accountHeads.name, client.name)).limit(1);
+        let clientAccountHead = await db
+          .select()
+          .from(accountHeads)
+          .where(and(eq(accountHeads.name, client.name), eq(accountHeads.type, "Client")))
+          .limit(1);
         if (!clientAccountHead[0]) {
           clientAccountHead = [await this.createAccountHead({
             name: client.name,

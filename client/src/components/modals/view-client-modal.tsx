@@ -7,6 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Phone, Mail, MapPin, Receipt, TrendingUp, Calendar } from "lucide-react";
 import { CURRENCY } from "@/lib/constants";
+import { formatCalendarDateLocale } from "@/lib/calendar-date";
 import type { Client, SaleWithClient } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 
@@ -153,7 +154,7 @@ export default function ViewClientModal({ open, onOpenChange, client }: ViewClie
                       <div className="flex-1">
                         <p className="font-medium text-gray-900">{sale.lpoNumber}</p>
                         <p className="text-sm text-gray-500">
-                          {new Date(sale.saleDate).toLocaleDateString()} • {parseFloat(sale.quantityGallons).toLocaleString()} gallons
+                          {formatCalendarDateLocale(sale.saleDate)} • {parseFloat(sale.quantityGallons).toLocaleString()} gallons
                         </p>
                       </div>
                       <div className="text-right">

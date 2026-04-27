@@ -2,13 +2,13 @@
 
 import { ColumnDef } from "@tanstack/react-table";
 import type { SaleWithClient } from "@shared/schema";
-import { format } from "date-fns";
+import { formatCalendarDateFns } from "@/lib/calendar-date";
 
 export const columns: ColumnDef<SaleWithClient>[] = [
   {
     accessorKey: "saleDate",
     header: "Sale Date",
-    cell: ({ row }) => format(new Date(row.original.saleDate), "PPP"),
+    cell: ({ row }) => formatCalendarDateFns(row.original.saleDate, "PPP"),
   },
   {
     accessorKey: "client.name",

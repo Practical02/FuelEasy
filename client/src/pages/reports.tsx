@@ -46,6 +46,7 @@ import {
 } from "@shared/schema";
 import ExcelJS from 'exceljs';
 import { isInLocalYmdRange } from "@/lib/date-range";
+import { formatCalendarDateLocale } from "@/lib/calendar-date";
 
 type SaleWithClient = Sale & { client: Client; project?: { name: string } | null };
 
@@ -580,7 +581,7 @@ export default function Reports() {
       currentRow++;
       for (const e of cashbookEntriesForExport) {
         [
-          new Date(e.transactionDate).toLocaleDateString(),
+          formatCalendarDateLocale(e.transactionDate),
           e.accountHead?.name ?? "—",
           e.transactionType,
           e.category ?? "—",
@@ -658,7 +659,7 @@ export default function Reports() {
         const rowData = [
           clientName,
           inv.invoiceNumber ?? "",
-          new Date(inv.invoiceDate).toLocaleDateString(),
+          formatCalendarDateLocale(inv.invoiceDate),
           dueDate.toLocaleDateString(),
           inv.lpoNumber ?? inv.sale?.lpoNumber ?? inv.sales?.[0]?.lpoNumber ?? "—",
           total,
@@ -697,7 +698,7 @@ export default function Reports() {
       salesForExport.forEach((sale) => {
         const saleWithProject = sale as SaleWithClient;
         const rowData = [
-          new Date(sale.saleDate).toLocaleDateString(),
+          formatCalendarDateLocale(sale.saleDate),
           sale.client.name,
           saleWithProject.project?.name ?? "—",
           (sale as Sale).deliveryNoteNumber ?? "—",
@@ -745,7 +746,7 @@ export default function Reports() {
             : "—";
         const exVat = parseFloat(row.totalCost) - parseFloat(row.vatAmount);
         [
-          new Date(row.purchaseDate).toLocaleDateString(),
+          formatCalendarDateLocale(row.purchaseDate),
           supplier,
           parseFloat(row.quantityGallons),
           parseFloat(row.purchasePricePerGallon),
@@ -797,16 +798,16 @@ export default function Reports() {
         const inv = saleIdToInvoice[sale.id];
         const saleWithProject = sale as SaleWithClient;
         const rowData = [
-          new Date(sale.saleDate).toLocaleDateString(),
+          formatCalendarDateLocale(sale.saleDate),
           sale.client.name,
           saleWithProject.project?.name ?? "—",
           sale.lpoNumber,
           (sale as Sale).deliveryNoteNumber ?? "—",
           inv?.invoiceNumber ?? "—",
           inv?.invoiceDate
-            ? new Date(inv.invoiceDate).toLocaleDateString()
+            ? formatCalendarDateLocale(inv.invoiceDate)
             : sale.invoiceDate
-              ? new Date(sale.invoiceDate).toLocaleDateString()
+              ? formatCalendarDateLocale(sale.invoiceDate)
               : "—",
           parseFloat(sale.quantityGallons),
           parseFloat(sale.salePricePerGallon),
@@ -840,7 +841,7 @@ export default function Reports() {
         currentRow++;
         vatStockForExport.forEach((row) => {
           [
-            new Date(row.purchaseDate).toLocaleDateString(),
+            formatCalendarDateLocale(row.purchaseDate),
             parseFloat(row.quantityGallons),
             parseFloat(row.vatAmount),
             parseFloat(row.totalCost),
@@ -903,7 +904,7 @@ export default function Reports() {
     if (reportType === "cashbook") {
       const headers = ["Date", "Account head", "Type", "Description", "Flow", "Amount", "Pending"];
       const csvData = cashbookEntries.map((e) => [
-        new Date(e.transactionDate).toLocaleDateString(),
+        formatCalendarDateLocale(e.transactionDate),
         e.accountHead?.name ?? "—",
         e.transactionType,
         e.description.replace(/"/g, '""'),
@@ -946,7 +947,7 @@ export default function Reports() {
         return [
           clientName,
           inv.invoiceNumber ?? "",
-          new Date(inv.invoiceDate).toLocaleDateString(),
+          formatCalendarDateLocale(inv.invoiceDate),
           dueDate.toLocaleDateString(),
           inv.lpoNumber ?? inv.sale?.lpoNumber ?? inv.sales?.[0]?.lpoNumber ?? "—",
           total,
@@ -983,7 +984,7 @@ export default function Reports() {
             : "—";
         const exVat = parseFloat(row.totalCost) - parseFloat(row.vatAmount);
         return [
-          new Date(row.purchaseDate).toLocaleDateString(),
+          formatCalendarDateLocale(row.purchaseDate),
           supplier.replace(/"/g, '""'),
           parseFloat(row.quantityGallons),
           parseFloat(row.purchasePricePerGallon),
@@ -1037,7 +1038,7 @@ export default function Reports() {
     const csvData =
       reportType === "pending"
         ? filteredSales.map((sale) => [
-            new Date(sale.saleDate).toLocaleDateString(),
+            formatCalendarDateLocale(sale.saleDate),
             sale.client.name,
             (sale as SaleWithClient).project?.name ?? "",
             (sale as Sale).deliveryNoteNumber ?? "",
@@ -1051,15 +1052,15 @@ export default function Reports() {
         : filteredSales.map((sale) => {
             const inv = saleIdToInvoice[sale.id];
             return [
-              new Date(sale.saleDate).toLocaleDateString(),
+              formatCalendarDateLocale(sale.saleDate),
               sale.client.name,
               sale.lpoNumber ?? "",
               (sale as Sale).deliveryNoteNumber ?? "",
               inv?.invoiceNumber ?? "",
               inv?.invoiceDate
-                ? new Date(inv.invoiceDate).toLocaleDateString()
+                ? formatCalendarDateLocale(inv.invoiceDate)
                 : sale.invoiceDate
-                  ? new Date(sale.invoiceDate).toLocaleDateString()
+                  ? formatCalendarDateLocale(sale.invoiceDate)
                   : "",
               sale.quantityGallons,
               sale.salePricePerGallon,
@@ -1488,7 +1489,7 @@ export default function Reports() {
                   <tbody>
                     {cashbookEntries.map((e) => (
                       <tr key={e.id} className="border-b">
-                        <td className="p-2">{new Date(e.transactionDate).toLocaleDateString()}</td>
+                        <td className="p-2">{formatCalendarDateLocale(e.transactionDate)}</td>
                         <td className="p-2 font-medium">{e.accountHead?.name ?? "—"}</td>
                         <td className="p-2">{e.transactionType}</td>
                         <td className="p-2 max-w-xs truncate" title={e.description}>{e.description}</td>
@@ -1534,7 +1535,7 @@ export default function Reports() {
                     <tbody>
                       {filteredPurchaseStock.map((row) => (
                         <tr key={row.id} className="border-b">
-                          <td className="p-2">{new Date(row.purchaseDate).toLocaleDateString()}</td>
+                          <td className="p-2">{formatCalendarDateLocale(row.purchaseDate)}</td>
                           <td className="p-2 font-medium">
                             {row.supplierAccountHeadId != null
                               ? supplierNameById[row.supplierAccountHeadId] ?? "—"
@@ -1560,7 +1561,7 @@ export default function Reports() {
                       <CardContent className="p-4 space-y-2 text-sm">
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">Date</span>
-                          <span className="font-medium">{new Date(row.purchaseDate).toLocaleDateString()}</span>
+                          <span className="font-medium">{formatCalendarDateLocale(row.purchaseDate)}</span>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">Supplier</span>
@@ -1898,7 +1899,7 @@ export default function Reports() {
                           <td className="p-3 text-sm font-medium">{clientName}</td>
                           <td className="p-3 text-sm">{projectLabel}</td>
                           <td className="p-3 text-sm">{inv.invoiceNumber}</td>
-                          <td className="p-3 text-sm">{new Date(inv.invoiceDate).toLocaleDateString()}</td>
+                          <td className="p-3 text-sm">{formatCalendarDateLocale(inv.invoiceDate)}</td>
                           <td className="p-3 text-sm">{dueDate.toLocaleDateString()}</td>
                           <td className="p-3 text-sm">{inv.lpoNumber || (inv.sale?.lpoNumber ?? inv.sales?.[0]?.lpoNumber ?? "—")}</td>
                           <td className="p-3 text-sm text-right font-medium">{CURRENCY} {total.toFixed(2)}</td>
@@ -2044,7 +2045,7 @@ export default function Reports() {
                         <tbody>
                           {filteredSales.map((sale) => (
                             <tr key={sale.id} className="border-b">
-                              <td className="p-2">{new Date(sale.saleDate).toLocaleDateString()}</td>
+                              <td className="p-2">{formatCalendarDateLocale(sale.saleDate)}</td>
                               <td className="p-2 font-medium">{sale.client.name}</td>
                               <td className="p-2">{(sale as SaleWithClient).project?.name ?? "—"}</td>
                               <td className="p-2">{sale.lpoNumber ?? "—"}</td>
@@ -2086,7 +2087,7 @@ export default function Reports() {
                     {filteredSales.map((sale) => (
                         <tr key={sale.id} className="border-b hover:bg-gray-50">
                           <td className="p-3 text-sm">
-                            {new Date(sale.saleDate).toLocaleDateString()}
+                            {formatCalendarDateLocale(sale.saleDate)}
                           </td>
                           <td className="p-3 text-sm font-medium">{sale.client.name}</td>
                           <td className="p-3 text-sm">{(sale as SaleWithClient).project?.name ?? "—"}</td>
@@ -2129,7 +2130,7 @@ export default function Reports() {
                       <div className="grid grid-cols-2 gap-3 text-sm">
                         <div>
                           <span className="text-gray-600">Date:</span>
-                          <p className="font-medium">{new Date(sale.saleDate).toLocaleDateString()}</p>
+                          <p className="font-medium">{formatCalendarDateLocale(sale.saleDate)}</p>
                         </div>
                         <div>
                           <span className="text-gray-600">Quantity:</span>

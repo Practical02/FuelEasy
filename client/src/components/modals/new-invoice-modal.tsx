@@ -14,6 +14,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { salesKeys, salesListFromResponse, salesStatusUrl } from "@/lib/sales-query";
 import { useToast } from "@/hooks/use-toast";
 import { CURRENCY } from "@/lib/constants";
+import { fromDateInputValue, toCalendarDayIsoForApi, toDateInputValue } from "@/lib/calendar-date";
 import { z } from "zod";
 
 const SUPPLIER_OPTIONS = [
@@ -101,11 +102,11 @@ export default function NewInvoiceModal({ open, onOpenChange }: NewInvoiceModalP
     mutationFn: async (data: z.infer<typeof invoiceFormSchema>) => {
       const payload: Record<string, unknown> = {
         invoiceNumber: data.invoiceNumber,
-        invoiceDate: data.invoiceDate,
+        invoiceDate: toCalendarDayIsoForApi(data.invoiceDate),
         supplier: data.supplier,
       };
       if (data.submissionDate) {
-        payload.submissionDate = data.submissionDate;
+        payload.submissionDate = toCalendarDayIsoForApi(data.submissionDate);
       }
       payload.lpoNumber = data.lpoNumber;
       const response = await apiRequest("POST", "/api/invoices/by-lpo", payload);
@@ -266,8 +267,8 @@ export default function NewInvoiceModal({ open, onOpenChange }: NewInvoiceModalP
                   <FormControl>
                     <Input
                       type="date"
-                      value={field.value instanceof Date ? field.value.toISOString().split('T')[0] : ''}
-                      onChange={(e) => field.onChange(new Date(e.target.value))}
+                      value={toDateInputValue(field.value)}
+                      onChange={(e) => field.onChange(fromDateInputValue(e.target.value))}
                     />
                   </FormControl>
                   <FormMessage />
@@ -284,9 +285,9 @@ export default function NewInvoiceModal({ open, onOpenChange }: NewInvoiceModalP
                   <FormControl>
                     <Input
                       type="date"
-                      value={field.value instanceof Date ? field.value.toISOString().split('T')[0] : ""}
+                      value={toDateInputValue(field.value)}
                       onChange={(e) =>
-                        field.onChange(e.target.value ? new Date(e.target.value) : undefined)
+                        field.onChange(e.target.value ? fromDateInputValue(e.target.value) : undefined)
                       }
                     />
                   </FormControl>

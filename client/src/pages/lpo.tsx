@@ -16,6 +16,7 @@ import { CURRENCY, STATUS_COLORS } from "@/lib/constants";
 import { SALES_PAGE_SIZE, salesKeys, salesStatusUrl } from "@/lib/sales-query";
 import { apiRequest } from "@/lib/queryClient";
 import { isInLocalYmdRange } from "@/lib/date-range";
+import { formatCalendarDateLocale } from "@/lib/calendar-date";
 import type { SaleWithClient } from "@shared/schema";
 import type { Client } from "@shared/schema";
 import type { Project } from "@shared/schema";
@@ -355,7 +356,7 @@ export default function LPO() {
                           {(sale as SaleWithClient).project?.name ?? "—"}
                         </td>
                         <td className="py-4 px-5 text-sm text-gray-600">
-                          {new Date(sale.saleDate).toLocaleDateString()}
+                          {formatCalendarDateLocale(sale.saleDate)}
                         </td>
                         <td className="py-4 px-5 text-sm text-right">
                           {parseFloat(sale.quantityGallons).toFixed(0)} gal
@@ -374,7 +375,7 @@ export default function LPO() {
                         </td>
                         <td className="py-4 px-5 text-sm text-gray-600">
                           {sale.lpoReceivedDate
-                            ? new Date(sale.lpoReceivedDate).toLocaleDateString()
+                            ? formatCalendarDateLocale(sale.lpoReceivedDate)
                             : "—"}
                         </td>
                         <td className="py-4 px-5 text-right">

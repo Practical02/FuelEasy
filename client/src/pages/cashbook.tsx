@@ -16,6 +16,7 @@ import { insertCashbookSchema, type CashbookEntry, type AccountHead, type Cashbo
 import { z } from "zod";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { fromDateInputValue, toCalendarDayIsoForApi, toDateInputValue } from "@/lib/calendar-date";
 export default function CashbookPage() {
   const [isTransactionModalOpen, setIsTransactionModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -296,6 +297,7 @@ export default function CashbookPage() {
   const onSubmitTransaction = (data: any) => {
     const processedData = {
       ...data,
+      transactionDate: toCalendarDayIsoForApi(data.transactionDate),
       isInflow: parseInt(data.isInflow),
       isPending: parseInt(data.isPending),
       amount: parseFloat(data.amount).toFixed(2),
@@ -313,7 +315,7 @@ export default function CashbookPage() {
     const processedData = {
       paidAmount: parseFloat(data.amount),
       paymentMethod: data.paymentMethod,
-      paymentDate: data.paymentDate,
+      paymentDate: toCalendarDayIsoForApi(data.paymentDate),
     };
     
     console.log("Processed data:", processedData);
@@ -373,6 +375,7 @@ export default function CashbookPage() {
     
     const processedData = {
       ...data,
+      transactionDate: toCalendarDayIsoForApi(data.transactionDate),
       isInflow: parseInt(data.isInflow),
       isPending: parseInt(data.isPending),
       amount: parseFloat(data.amount).toFixed(2),
@@ -479,8 +482,8 @@ export default function CashbookPage() {
                         <Input
                           type="date"
                           {...field}
-                          value={field.value instanceof Date ? field.value.toISOString().split('T')[0] : field.value}
-                          onChange={(e) => field.onChange(new Date(e.target.value))}
+                          value={toDateInputValue(field.value)}
+                          onChange={(e) => field.onChange(fromDateInputValue(e.target.value))}
                         />
                       </FormControl>
                       <FormMessage />
@@ -892,8 +895,8 @@ export default function CashbookPage() {
                           <Input
                             type="date"
                             {...field}
-                            value={field.value instanceof Date ? field.value.toISOString().split('T')[0] : field.value}
-                            onChange={(e) => field.onChange(new Date(e.target.value))}
+                            value={toDateInputValue(field.value)}
+                            onChange={(e) => field.onChange(fromDateInputValue(e.target.value))}
                           />
                         </FormControl>
                         <FormMessage />
@@ -969,8 +972,8 @@ export default function CashbookPage() {
                       <Input
                         type="date"
                         {...field}
-                        value={field.value instanceof Date ? field.value.toISOString().split('T')[0] : field.value}
-                        onChange={(e) => field.onChange(new Date(e.target.value))}
+                        value={toDateInputValue(field.value)}
+                        onChange={(e) => field.onChange(fromDateInputValue(e.target.value))}
                       />
                     </FormControl>
                     <FormMessage />

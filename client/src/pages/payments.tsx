@@ -16,6 +16,7 @@ import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { Trash2, Users, CreditCard } from "lucide-react";
 import { CURRENCY } from "@/lib/constants";
 import { endOfLocalDay } from "@/lib/date-range";
+import { fromDateInputValue, toDateInputValue } from "@/lib/calendar-date";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { SALES_ALL_QUERY_KEY, fetchAllSales, salesKeys, salesListFromResponse } from "@/lib/sales-query";
 import { useToast } from "@/hooks/use-toast";
@@ -66,6 +67,10 @@ export default function Payments() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/payments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/cashbook"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/cashbook/payment-allocations"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/cashbook/pending-invoices"] });
       queryClient.invalidateQueries({ queryKey: salesKeys.root });
       queryClient.invalidateQueries({ queryKey: ["/api/reports/overview"] });
       toast({
@@ -91,6 +96,7 @@ export default function Payments() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/cashbook"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/cashbook/summary"] });
       toast({
         title: "Migration Successful",
         description: data.message,
@@ -298,10 +304,10 @@ export default function Payments() {
           />
 
           <DateRangePicker
-            startDate={startDate ? startDate.toISOString().split('T')[0] : ''}
-            endDate={endDate ? endDate.toISOString().split('T')[0] : ''}
-            onStartDateChange={(date) => setStartDate(date ? new Date(date) : null)}
-            onEndDateChange={(date) => setEndDate(date ? new Date(date) : null)}
+            startDate={toDateInputValue(startDate)}
+            endDate={toDateInputValue(endDate)}
+            onStartDateChange={(date) => setStartDate(date ? fromDateInputValue(date) : null)}
+            onEndDateChange={(date) => setEndDate(date ? fromDateInputValue(date) : null)}
             onClear={clearDateFilters}
             label="Payment Date Range"
           />
