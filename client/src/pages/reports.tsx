@@ -2,7 +2,7 @@ import { useMemo, useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import Header from "@/components/layout/header";
-import { Calendar, Download, FileText, FileSpreadsheet, TrendingUp, TrendingDown, Wallet, Percent, BarChart3, Package, Hash } from "lucide-react";
+import { Calendar, Download, FileText, FileSpreadsheet, TrendingUp, TrendingDown, Wallet, Percent, BarChart3, Package, Hash, ShoppingCart } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FilterPanel } from "@/components/ui/filter-panel";
@@ -1476,6 +1476,34 @@ export default function Reports() {
                 </div>
               </CardContent>
             </Card>
+            {reportType !== "pending-invoices" && (
+              <Card>
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-gray-600">COGS (excl. VAT)</p>
+                      <p className="text-2xl font-bold text-orange-700">{CURRENCY} {totals.cogs.toFixed(2)}</p>
+                      <p className="text-xs text-gray-500">Purchase cost of goods sold</p>
+                    </div>
+                    <ShoppingCart className="h-8 w-8 text-orange-500" />
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+            {reportType !== "pending-invoices" && (
+              <Card>
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-gray-600">COGS (incl. VAT)</p>
+                      <p className="text-2xl font-bold text-orange-900">{CURRENCY} {totals.cogsWithVat.toFixed(2)}</p>
+                      <p className="text-xs text-gray-500">COGS + VAT on purchases</p>
+                    </div>
+                    <ShoppingCart className="h-8 w-8 text-orange-700" />
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </>
         )}
       </div>
