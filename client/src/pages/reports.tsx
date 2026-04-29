@@ -471,13 +471,20 @@ export default function Reports() {
 
   // Calculate totals
   const totals = filteredSales.reduce(
-    (acc, sale) => ({
-      subtotal: acc.subtotal + parseFloat(sale.subtotal),
-      vatAmount: acc.vatAmount + parseFloat(sale.vatAmount),
-      totalAmount: acc.totalAmount + parseFloat(sale.totalAmount),
-      quantity: acc.quantity + parseFloat(sale.quantityGallons),
-    }),
-    { subtotal: 0, vatAmount: 0, totalAmount: 0, quantity: 0 }
+    (acc, sale) => {
+      const cogsExcl = parseFloat(sale.cogs);
+      const vatPct = parseFloat((sale as any).vatPercentage ?? "5");
+      const cogsIncl = cogsExcl * (1 + vatPct / 100);
+      return {
+        subtotal: acc.subtotal + parseFloat(sale.subtotal),
+        vatAmount: acc.vatAmount + parseFloat(sale.vatAmount),
+        totalAmount: acc.totalAmount + parseFloat(sale.totalAmount),
+        quantity: acc.quantity + parseFloat(sale.quantityGallons),
+        cogs: acc.cogs + cogsExcl,
+        cogsWithVat: acc.cogsWithVat + cogsIncl,
+      };
+    },
+    { subtotal: 0, vatAmount: 0, totalAmount: 0, quantity: 0, cogs: 0, cogsWithVat: 0 }
   );
 
   const invoiceTotals = useMemo(() => {
@@ -782,6 +789,8 @@ export default function Reports() {
         "VAT Amount (AED)",
         "Total Amount (AED)",
         "Status",
+        "COGS excl. VAT (AED)",
+        "COGS incl. VAT (AED)",
       ];
       headers.forEach((header, index) => {
         const cell = worksheet.getCell(currentRow, index + 1);
@@ -797,6 +806,9 @@ export default function Reports() {
       salesForExport.forEach((sale) => {
         const inv = saleIdToInvoice[sale.id];
         const saleWithProject = sale as SaleWithClient;
+        const cogsExcl = parseFloat(sale.cogs);
+        const vatPct = parseFloat((sale as any).vatPercentage ?? "5");
+        const cogsIncl = cogsExcl * (1 + vatPct / 100);
         const rowData = [
           formatCalendarDateLocale(sale.saleDate),
           sale.client.name,
@@ -815,6 +827,8 @@ export default function Reports() {
           parseFloat(sale.vatAmount),
           parseFloat(sale.totalAmount),
           sale.saleStatus,
+          cogsExcl,
+          cogsIncl,
         ];
         rowData.forEach((value, index) => {
           worksheet.getCell(currentRow, index + 1).value = value;
@@ -828,6 +842,8 @@ export default function Reports() {
       worksheet.getCell(currentRow, 11).value = totals.subtotal;
       worksheet.getCell(currentRow, 12).value = totals.vatAmount;
       worksheet.getCell(currentRow, 13).value = totals.totalAmount;
+      worksheet.getCell(currentRow, 14).value = totals.cogs;
+      worksheet.getCell(currentRow, 15).value = totals.cogsWithVat;
       if (reportType === "vat") {
         currentRow += 2;
         mergeTitleRow("Stock purchases — input VAT (same date range)");
@@ -2080,6 +2096,8 @@ export default function Reports() {
                       <th className="text-right p-3 text-sm font-medium text-gray-600">Subtotal</th>
                       <th className="text-right p-3 text-sm font-medium text-gray-600">VAT</th>
                       <th className="text-right p-3 text-sm font-medium text-gray-600">Total</th>
+                      <th className="text-right p-3 text-sm font-medium text-gray-600">COGS (excl. VAT)</th>
+                      <th className="text-right p-3 text-sm font-medium text-gray-600">COGS (incl. VAT)</th>
                       <th className="text-center p-3 text-sm font-medium text-gray-600">Status</th>
                     </tr>
                   </thead>
@@ -2096,6 +2114,8 @@ export default function Reports() {
                           <td className="p-3 text-sm text-right">{CURRENCY} {parseFloat(sale.subtotal).toFixed(2)}</td>
                           <td className="p-3 text-sm text-right">{CURRENCY} {parseFloat(sale.vatAmount).toFixed(2)}</td>
                           <td className="p-3 text-sm text-right font-medium">{CURRENCY} {parseFloat(sale.totalAmount).toFixed(2)}</td>
+                          <td className="p-3 text-sm text-right tabular-nums">{CURRENCY} {parseFloat(sale.cogs).toFixed(2)}</td>
+                          <td className="p-3 text-sm text-right tabular-nums">{CURRENCY} {(parseFloat(sale.cogs) * (1 + parseFloat((sale as any).vatPercentage ?? "5") / 100)).toFixed(2)}</td>
                           <td className="p-3 text-center">
                             <Badge className={STATUS_COLORS[sale.saleStatus as keyof typeof STATUS_COLORS]}>
                               {sale.saleStatus}
@@ -2153,6 +2173,14 @@ export default function Reports() {
                           <span>Total:</span>
                           <span>{CURRENCY} {parseFloat(sale.totalAmount).toFixed(2)}</span>
                         </div>
+                        <div className="flex justify-between pt-2 border-t text-orange-700">
+                          <span className="text-gray-600">COGS (excl. VAT):</span>
+                          <span className="tabular-nums">{CURRENCY} {parseFloat(sale.cogs).toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between text-orange-700">
+                          <span className="text-gray-600">COGS (incl. VAT):</span>
+                          <span className="tabular-nums">{CURRENCY} {(parseFloat(sale.cogs) * (1 + parseFloat((sale as any).vatPercentage ?? "5") / 100)).toFixed(2)}</span>
+                        </div>
                       </div>
                     </CardContent>
                   </Card>
@@ -2160,7 +2188,7 @@ export default function Reports() {
               </div>
 
               {/* Summary Footer */}
-              <div className="mt-6 pt-4 border-t bg-gray-50 rounded-lg p-4">
+              <div className="mt-6 pt-4 border-t bg-gray-50 rounded-lg p-4 space-y-3">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
                   <div className="flex justify-between">
                     <span className="font-medium text-gray-700">Total Subtotal:</span>
@@ -2173,6 +2201,16 @@ export default function Reports() {
                   <div className="flex justify-between">
                     <span className="font-medium text-gray-700">Grand Total:</span>
                     <span className="font-bold text-lg">{CURRENCY} {totals.totalAmount.toFixed(2)}</span>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm border-t pt-3">
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-700">Total COGS (excl. VAT):</span>
+                    <span className="font-bold tabular-nums">{CURRENCY} {totals.cogs.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-700">Total COGS (incl. VAT):</span>
+                    <span className="font-bold tabular-nums">{CURRENCY} {totals.cogsWithVat.toFixed(2)}</span>
                   </div>
                 </div>
               </div>
