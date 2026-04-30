@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { AlertTriangle } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -45,6 +45,9 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
   const [vatAmount, setVatAmount] = useState(0);
   const [totalAmount, setTotalAmount] = useState(0);
   const { toast } = useToast();
+  // Track the quantity that came from the loaded sale so the FIFO auto-fill
+  // doesn't overwrite the stored historical purchase price on initial open.
+  const originalQuantityRef = useRef<number | undefined>(undefined);
 
   const { data: clients = [] } = useQuery<Client[]>({
     queryKey: ["/api/clients"],
@@ -102,11 +105,15 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
   // Set form values when sale changes
   useEffect(() => {
     if (sale) {
+      const qty = parseFloat(sale.quantityGallons);
+      // Record the loaded quantity so the FIFO auto-fill won't overwrite the
+      // historically-correct purchase price when the modal first opens.
+      originalQuantityRef.current = qty;
       form.reset({
         clientId: sale.clientId,
         projectId: sale.projectId,
         saleDate: new Date(sale.saleDate),
-        quantityGallons: parseFloat(sale.quantityGallons),
+        quantityGallons: qty,
         salePricePerGallon: parseFloat(sale.salePricePerGallon),
         purchasePricePerGallon: sale.purchasePricePerGallon ? parseFloat(sale.purchasePricePerGallon) : undefined,
         lpoNumber: sale.lpoNumber || "",
@@ -208,9 +215,14 @@ export default function EditSaleModal({ open, onOpenChange, sale }: EditSaleModa
     calculateTotals();
   }, [quantity, price, vatPercentage]);
 
-  // Auto-fill purchase price from FIFO when quantity changes
+  // Auto-fill purchase price from FIFO only when the user changes the quantity.
+  // Skip on initial open: the sale already has the correct historical purchase
+  // price stored and we must not overwrite it with the current FIFO cost.
   useEffect(() => {
     if (!open || !quantity || quantity <= 0) return;
+    // If the quantity still matches what was loaded from the sale record, the
+    // user hasn't changed it yet — preserve the stored historical price.
+    if (originalQuantityRef.current !== undefined && quantity === originalQuantityRef.current) return;
     let cancelled = false;
     apiRequest("GET", `/api/stock/fifo-cost?quantity=${encodeURIComponent(quantity)}`)
       .then((res) => {

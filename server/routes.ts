@@ -730,6 +730,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...req.body,
         saleDate: new Date(req.body.saleDate),
         ...(req.body.lpoReceivedDate && { lpoReceivedDate: new Date(req.body.lpoReceivedDate) }),
+        // invoiceDate is an ISO string from the client; convert so drizzle-zod's
+        // z.date() accepts it. The storage layer re-derives it from saleStatus anyway.
+        ...(req.body.invoiceDate && { invoiceDate: new Date(req.body.invoiceDate) }),
       };
       const validatedData = apiPatchSaleSchema.parse(requestData);
       const dnTrim = validatedData.deliveryNoteNumber.trim();
