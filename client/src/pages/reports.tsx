@@ -635,8 +635,10 @@ export default function Reports() {
     } else if (reportType === "pending-invoices") {
       const invHeaders = [
         "Client Name",
+        "Project",
         "Invoice No.",
         "Invoice Date",
+        "Invoice Submitted Date",
         "Due Date",
         "LPO No.",
         "Total Amount",
@@ -655,6 +657,14 @@ export default function Reports() {
 
       pendingInvoicesForExport.forEach((inv: any) => {
         const clientName = inv.sale?.client?.name ?? inv.sales?.[0]?.client?.name ?? "—";
+        const projectNames = Array.from(
+          new Set(
+            [inv.sale?.project?.name, ...(Array.isArray(inv.sales) ? inv.sales.map((s: any) => s?.project?.name) : [])]
+              .filter((name): name is string => typeof name === "string" && name.trim().length > 0)
+              .map((name) => name.trim()),
+          ),
+        );
+        const projectLabel = projectNames.length === 0 ? "—" : projectNames.length === 1 ? projectNames[0] : projectNames.join(", ");
         const total = parseFloat(inv.totalAmount);
         const dueDate = inv.dueDate
           ? new Date(inv.dueDate)
@@ -665,8 +675,10 @@ export default function Reports() {
             })();
         const rowData = [
           clientName,
+          projectLabel,
           inv.invoiceNumber ?? "",
           formatCalendarDateLocale(inv.invoiceDate),
+          inv.submissionDate ? formatCalendarDateLocale(inv.submissionDate) : "—",
           dueDate.toLocaleDateString(),
           inv.lpoNumber ?? inv.sale?.lpoNumber ?? inv.sales?.[0]?.lpoNumber ?? "—",
           total,
@@ -680,7 +692,7 @@ export default function Reports() {
       currentRow++;
       worksheet.getCell(currentRow, 1).value = "TOTALS:";
       worksheet.getCell(currentRow, 1).font = { bold: true };
-      worksheet.getCell(currentRow, 6).value = invoiceTotals.totalAmount;
+      worksheet.getCell(currentRow, 8).value = invoiceTotals.totalAmount;
     } else if (reportType === "pending") {
       // Pending LPO: no LPO/invoice columns (not applicable yet); include delivery note no. when recorded
       const headers = [
@@ -944,14 +956,24 @@ export default function Reports() {
     if (reportType === "pending-invoices") {
       const headers = [
         "Client Name",
+        "Project",
         "Invoice No.",
         "Invoice Date",
+        "Invoice Submitted Date",
         "Due Date",
         "LPO No.",
         "Total Amount",
       ];
       const csvData = pendingInvoices.map((inv: any) => {
         const clientName = inv.sale?.client?.name ?? inv.sales?.[0]?.client?.name ?? "—";
+        const projectNames = Array.from(
+          new Set(
+            [inv.sale?.project?.name, ...(Array.isArray(inv.sales) ? inv.sales.map((s: any) => s?.project?.name) : [])]
+              .filter((name): name is string => typeof name === "string" && name.trim().length > 0)
+              .map((name) => name.trim()),
+          ),
+        );
+        const projectLabel = projectNames.length === 0 ? "—" : projectNames.length === 1 ? projectNames[0] : projectNames.join(", ");
         const total = parseFloat(inv.totalAmount);
         const dueDate = inv.dueDate
           ? new Date(inv.dueDate)
@@ -962,8 +984,10 @@ export default function Reports() {
             })();
         return [
           clientName,
+          projectLabel,
           inv.invoiceNumber ?? "",
           formatCalendarDateLocale(inv.invoiceDate),
+          inv.submissionDate ? formatCalendarDateLocale(inv.submissionDate) : "—",
           dueDate.toLocaleDateString(),
           inv.lpoNumber ?? inv.sale?.lpoNumber ?? inv.sales?.[0]?.lpoNumber ?? "—",
           total,
@@ -1918,6 +1942,7 @@ export default function Reports() {
                       <th className="text-left p-3 text-sm font-medium text-gray-600">Project</th>
                       <th className="text-left p-3 text-sm font-medium text-gray-600">Invoice No.</th>
                       <th className="text-left p-3 text-sm font-medium text-gray-600">Invoice Date</th>
+                      <th className="text-left p-3 text-sm font-medium text-gray-600">Invoice Submitted Date</th>
                       <th className="text-left p-3 text-sm font-medium text-gray-600">Due Date</th>
                       <th className="text-left p-3 text-sm font-medium text-gray-600">LPO No.</th>
                       <th className="text-right p-3 text-sm font-medium text-gray-600">Total</th>
@@ -1944,6 +1969,7 @@ export default function Reports() {
                           <td className="p-3 text-sm">{projectLabel}</td>
                           <td className="p-3 text-sm">{inv.invoiceNumber}</td>
                           <td className="p-3 text-sm">{formatCalendarDateLocale(inv.invoiceDate)}</td>
+                          <td className="p-3 text-sm">{inv.submissionDate ? formatCalendarDateLocale(inv.submissionDate) : "—"}</td>
                           <td className="p-3 text-sm">{dueDate.toLocaleDateString()}</td>
                           <td className="p-3 text-sm">{inv.lpoNumber || (inv.sale?.lpoNumber ?? inv.sales?.[0]?.lpoNumber ?? "—")}</td>
                           <td className="p-3 text-sm text-right font-medium">{CURRENCY} {total.toFixed(2)}</td>
