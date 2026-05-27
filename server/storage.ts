@@ -1882,12 +1882,24 @@ export class DatabaseStorage implements IStorage {
       notes,
     });
 
-    for (const r of rows) {
-      await this.createCashbookPaymentAllocation({
-        cashbookEntryId: cashbookEntry.id,
-        invoiceId: r.id,
-        amountAllocated: r.pending.toFixed(2),
-      });
+    const createdAllocationIds: string[] = [];
+    try {
+      for (const r of rows) {
+        const alloc = await this.createCashbookPaymentAllocation({
+          cashbookEntryId: cashbookEntry.id,
+          invoiceId: r.id,
+          amountAllocated: r.pending.toFixed(2),
+        });
+        createdAllocationIds.push(alloc.id);
+      }
+    } catch (err) {
+      // Compensating rollback: remove any partial allocations and the cashbook entry
+      // so the failure is all-or-nothing rather than leaving partial data.
+      if (createdAllocationIds.length > 0) {
+        await db.delete(cashbookPaymentAllocations).where(inArray(cashbookPaymentAllocations.id, createdAllocationIds));
+      }
+      await db.delete(cashbook).where(eq(cashbook.id, cashbookEntry.id));
+      throw err;
     }
 
     const processedSaleIds = new Set<string>();
@@ -2854,7 +2866,7 @@ export class DatabaseStorage implements IStorage {
     const remainingCashbookAmount = cashbookEntryAmount - cashbookEntryAllocatedAmount;
     const allocationAmount = parseFloat(allocation.amountAllocated);
 
-    if (allocationAmount > remainingCashbookAmount) {
+    if (allocationAmount > remainingCashbookAmount + 0.009) {
       throw new Error(`Cannot allocate AED ${allocationAmount.toFixed(2)}. Only AED ${remainingCashbookAmount.toFixed(2)} remains unallocated in this cashbook entry.`);
     }
 
