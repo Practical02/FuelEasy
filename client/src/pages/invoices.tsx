@@ -16,7 +16,7 @@ import { isInLocalYmdRange } from "@/lib/date-range";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { SALES_ALL_QUERY_KEY, fetchAllSales, salesKeys, salesListFromResponse } from "@/lib/sales-query";
 import { useToast } from "@/hooks/use-toast";
-import type { Invoice, SaleWithClient } from "@shared/schema";
+import type { Client, Invoice, SaleWithClient } from "@shared/schema";
 import NewInvoiceModal from "@/components/modals/new-invoice-modal";
 import EditInvoiceModal from "@/components/modals/edit-invoice-modal";
 import ViewInvoiceModal from "@/components/modals/view-invoice-modal";
@@ -48,6 +48,8 @@ export default function Invoices() {
   const [isViewInvoiceModalOpen, setIsViewInvoiceModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
+  const [selectedClientIds, setSelectedClientIds] = useState<string[]>([]);
+  const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
@@ -84,12 +86,20 @@ export default function Invoices() {
         if (!matchInv && !matchClient && !matchLpo && !matchProject) return false;
       }
       if (selectedStatuses.length > 0 && !selectedStatuses.includes(inv.status)) return false;
+      if (selectedClientIds.length > 0) {
+        const clientId = inv.sale?.clientId ?? (inv.sale as any)?.client?.id;
+        if (!clientId || !selectedClientIds.includes(clientId)) return false;
+      }
+      if (selectedProjectIds.length > 0) {
+        const projectId = inv.sale?.projectId;
+        if (!projectId || !selectedProjectIds.includes(projectId)) return false;
+      }
       if (!isInLocalYmdRange(inv.invoiceDate, startDate || undefined, endDate || undefined)) {
         return false;
       }
       return true;
     });
-  }, [invoices, searchTerm, selectedStatuses, startDate, endDate]);
+  }, [invoices, searchTerm, selectedStatuses, selectedClientIds, selectedProjectIds, startDate, endDate]);
 
   const payableFiltered = useMemo(
     () => filteredInvoices.filter(isInvoicePayable),
@@ -150,10 +160,12 @@ export default function Invoices() {
     setBulkPayOpen(true);
   };
 
-  const hasActiveFilters = !!(searchTerm || selectedStatuses.length > 0 || startDate || endDate);
+  const hasActiveFilters = !!(searchTerm || selectedStatuses.length > 0 || selectedClientIds.length > 0 || selectedProjectIds.length > 0 || startDate || endDate);
   const clearAllFilters = () => {
     setSearchTerm("");
     setSelectedStatuses([]);
+    setSelectedClientIds([]);
+    setSelectedProjectIds([]);
     setStartDate("");
     setEndDate("");
   };
@@ -163,6 +175,10 @@ export default function Invoices() {
     queryFn: () => fetchAllSales(),
   });
   const sales: SaleWithClient[] = salesListFromResponse(salesResponse) as SaleWithClient[];
+
+  const { data: clients = [] } = useQuery<Client[]>({
+    queryKey: ["/api/clients"],
+  });
 
   const deleteInvoiceMutation = useMutation({
     mutationFn: async (invoiceId: string) => {
@@ -220,6 +236,31 @@ export default function Invoices() {
     sum + parseFloat(invoice.totalAmount), 0
   ) || 0;
 
+  const clientOptions = useMemo(
+    () =>
+      clients
+        .slice()
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((c) => ({ value: c.id, label: c.name })),
+    [clients],
+  );
+
+  const projectOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const inv of invoices) {
+      const proj = inv.sale?.project;
+      if (!proj) continue;
+      if (selectedClientIds.length > 0) {
+        const clientId = inv.sale?.clientId ?? (inv.sale as any)?.client?.id;
+        if (!clientId || !selectedClientIds.includes(clientId)) continue;
+      }
+      if (!seen.has(proj.id)) seen.set(proj.id, proj.name);
+    }
+    return Array.from(seen.entries())
+      .sort((a, b) => a[1].localeCompare(b[1]))
+      .map(([id, name]) => ({ value: id, label: name }));
+  }, [invoices, selectedClientIds]);
+
   return (
     <>
       <Header
@@ -247,6 +288,28 @@ export default function Invoices() {
           title="Advanced search"
           className="mb-6"
         >
+          <MultiSelectFilter
+            options={clientOptions}
+            selectedValues={selectedClientIds}
+            onSelectionChange={(vals) => {
+              setSelectedClientIds(vals);
+              setSelectedProjectIds((prev) =>
+                prev.filter((pid) =>
+                  projectOptions.some((p) => p.value === pid),
+                ),
+              );
+            }}
+            label="Client"
+            placeholder="All clients"
+          />
+          <MultiSelectFilter
+            options={projectOptions}
+            selectedValues={selectedProjectIds}
+            onSelectionChange={setSelectedProjectIds}
+            label="Project"
+            placeholder={selectedClientIds.length === 0 ? "All projects" : "All projects"}
+            disabled={projectOptions.length === 0}
+          />
           <MultiSelectFilter
             options={INVOICE_STATUS_OPTIONS}
             selectedValues={selectedStatuses}
